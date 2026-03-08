@@ -1,3 +1,5 @@
+![](docs/assets/cover.png)
+
 ## pos-boutique
 
 Sistema de gestión POS para tienda de ropa con modelo de crédito local.
@@ -227,3 +229,12 @@ refactor: reestructura sin cambio de comportamiento
 chore:    tareas de mantenimiento (deps, config)
 ``` pos-boutique
 UI/UX escalable para punto de venta
+
+## Estado actual
+
+- [x] Repositorio creado
+- [x] Estructura de carpetas
+- [ ] venv backend
+- [ ] Dependencias backend (requirements.txt)
+- [ ] Dependencias frontend (package.json)
+- [ ] Base de datos: esquema inicial

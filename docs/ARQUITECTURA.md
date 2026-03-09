@@ -2,9 +2,9 @@
 ## Guía de tripulación — pos-boutique
 
 Este documento no es documentación técnica formal.
-Es una guía escrita para alguien que sabe operar el negocio,
+Es una guía para alguien que sabe operar el negocio,
 entiende SQL a nivel de queries, y necesita sostener este sistema
-sin depender de nadie cuando algo falle o necesite crecer.
+sin depender de alguien cuando algo falle o necesite crecer.
 
 ---
 

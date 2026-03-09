@@ -14,3 +14,7 @@ def startup_event():
 @app.get("/")
 def root():
     return {"status": "ok", "sistema": "pos-boutique", "version": "0.1.0"}
+
+@app.get("/ping")
+def ping():
+    return {"mensaje": "pong desde pos-boutique"}

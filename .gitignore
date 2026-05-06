@@ -55,6 +55,7 @@ web_modules/
 
 # Optional stylelint cache
 .stylelintcache
+.directory
 
 # Optional REPL history
 .node_repl_history

@@ -1,4 +1,7 @@
 {
   "python.defaultInterpreterPath": "${workspaceFolder}/backend/venv/bin/python",
-  "python.terminal.activateEnvironment": true
+  "terminal.integrated.env.linux": {
+    "VIRTUAL_ENV": "${workspaceFolder}/backend/venv",
+    "PATH": "${workspaceFolder}/backend/venv/bin:${env:PATH}"
+  }
 }

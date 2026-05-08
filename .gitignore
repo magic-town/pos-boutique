@@ -141,3 +141,7 @@ vite.config.ts.timestamp-*
 backend/venv/
 backend/pos.db
 **/__pycache__/
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json

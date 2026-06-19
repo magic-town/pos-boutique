@@ -22,13 +22,9 @@
 
 ## Contexto
 
-Tienda de ropa en pueblo pequeño. El negocio opera actualmente con **lápiz y papel**,
-con inconsistencias derivadas del registro manual. El objetivo es digitalizar y
-consistir un proceso que ya funciona: registrar clientes, pedidos, proveedores y
-movimientos financieros.
+Micronegocio de tienda de ropa. El negocio opera actualmente con **lápiz y papel**, con inconsistencias derivadas del registro manual. El objetivo es digitalizar y consistir un proceso que ya funciona: registrar clientes, pedidos, proveedores y movimientos financieros.
 
-El modelo de negocio está basado en **crédito local**. Se requiere una solución
-inmediata, sostenible y escalable.
+El modelo de negocio está basado en **crédito local**. Se requiere una solución inmediata, sostenible y escalable.
 
 ---
 
@@ -67,14 +63,14 @@ Son accesibles desde botones en el panel principal.
 | Campo | Descripción |
 |---|---|
 | Nombre | Nombre completo |
-| Colonia | Referencia geográfica principal. Calle y número no son relevantes. |
+| Colonia | Referencia geográfica principal (colonia comunmente). Calle y número no son relevantes. |
 | Teléfono | Contacto directo |
 | Referencia | Nombre, colonia y teléfono de una persona conocida del cliente |
-| No_cliente | ID autoincremental con prefijo de colonia (ej. `JAR-001`). Reemplaza asignación manual. |
+| No_cliente | ID autoincremental con prefijo de colonia (ej. `Carrillos-001`) |
 
 ### 2. Pedido (Catálogo)
 
-> Escribe en: `Pedidos` → genera registro en `Movimientos` al concretarse
+> Escribe en: `Pedidos` → genera registro en `Movimientos` al concretarse (cuando el cliente acepta quedarse coon el producto).
 
 Aplica a proveedores formales e informales. No existe base de productos en el MVP;
 el campo Producto es **texto libre** con ID opcional para versiones futuras.
@@ -89,20 +85,18 @@ el campo Producto es **texto libre** con ID opcional para versiones futuras.
 
 ### 3. Shein (Proveedor especial)
 
-> Escribe en: `Pedidos_Shein` → genera registro en `Movimientos` al concretarse
+> Escribe en: `Pedidos_Shein` → genera registro en `Movimientos` al concretarse (cuando la operadora valida la compra).
 
 Cuenta y flujo **separados** del negocio general.
 
-- El cliente selecciona el producto desde la app de Shein.
+- El cliente selecciona el producto desde la app de `Shein`.
 - La tienda ejecuta la compra directamente en la app.
-- La ganancia proviene de **bonos de descuento por volumen** de pedidos.
 
 ### 4. Piso de Venta
 
 > Lee y escribe en: `Inventario` → genera registro en `Movimientos` al vender
 
-Stock físico, mayormente artículos únicos. La integración con el spreadsheet
-externo actual es un objetivo de **v0.2**.
+Stock físico, mayormente artículos únicos. Actualmente existe en una `spreadsheet`, aún desconozco el método de automatización o integración con el `POS`.
 
 Funcionalidad MVP:
 - Buscar y seleccionar producto en stock
@@ -136,14 +130,14 @@ Vista tipo tabla, solo lectura, filtrada por cliente. Muestra:
 > **Nota sobre Crédito:** no es una operación independiente. El saldo a crédito
 > se genera automáticamente cuando un Pedido o un Apartado se convierte en deuda
 > activa. El cambio de estatus del cliente (`Apartado → Crédito`) se gestiona
-> desde su historial en **Consulta**.
+> desde su historial en `Consulta`. En otras palabras, un cliente genérico (sin ID) con `Apartardo` comunmente pasa a `Clientes` si lo anterior crea inconcistencias debemos precisarlo.
 
 ### Paso 2 — Origen del producto
 
 Solo aplica para **Contado** y **Apartado**:
 
-- Catálogo informal (texto libre)
-- Piso de Venta (busca en `Inventario`)
+- Catálogo informal (texto libre).
+- Piso de Venta (busca en `Inventario`).
 
 ### Paso 3 — Campos activos por operación
 

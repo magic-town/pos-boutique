@@ -1,47 +1,42 @@
 # ARQUITECTURA.md
 ## Guía de tripulación — pos-boutique
 
-Este documento no es documentación técnica formal.
-Es una guía para alguien que sabe operar el negocio,
-entiende SQL a nivel de queries, y necesita sostener este sistema
-sin depender de alguien cuando algo falle o necesite crecer.
+Este documento no es documentación técnica formal. Es una guía para alguien que sabe operar el negocio, entiende SQL a nivel de queries, y necesita sostener este sistema sin depender de alguien cuando algo falle o necesite crecer.
 
 ---
 
 ## 1. La pregunta más importante: ¿qué pasa cuando alguien registra un abono?
 
-Antes de hablar de capas y tecnologías, entiende el flujo completo
-de una operación real. Toma este ejemplo:
+Antes de hablar de capas y tecnologías, entiende el flujo completo de una operación real. Toma este ejemplo:
 
-> La ejecutiva selecciona "Abono", elige a la clienta Sonia,
-> escribe $200, selecciona "Efectivo" y presiona Guardar.
+> La ejecutiva selecciona `abono` seguiudo del respectivo `cliente`,
+> Captura  `monto` seguido por `forma de pago` y da `Guardar`.
 
 Esto es lo que ocurre por debajo:
 
-```
 1. El navegador (React) construye un mensaje:
-   "Registra un abono de $200 en efectivo para la clienta con id 7"
+   "Registra un abono `$X` en `forma de pago` para la clienta `ID-XX"
 
 2. Ese mensaje viaja por HTTP al backend (FastAPI):
    POST http://localhost:8000/api/v1/movimientos
 
 3. FastAPI recibe el mensaje, valida que los datos estén completos
    y correctos (Pydantic), y ejecuta la lógica de negocio:
-   - ¿Existe la clienta con id 7? → consulta Clientes
+   - ¿Existe la clienta con `ID-XX`? → consulta `Clientes`
    - ¿El monto es positivo? → validación
    - Calcula el saldo resultante
 
 4. SQLAlchemy traduce la operación a SQL y escribe en SQLite:
    INSERT INTO movimientos (operacion, id_cliente, monto, ...) VALUES (...)
-   UPDATE clientes SET saldo = saldo - 200 WHERE id_cliente = 7
+   UPDATE clientes SET saldo = saldo - `$X` WHERE id_cliente = `ID-XX`
 
 5. SQLite confirma que escribió sin errores.
 
 6. FastAPI responde al navegador:
-   "Operación registrada. Saldo actual: $1,450"
+   "Operación registrada. Saldo actual: `$Y`"
 
-7. React actualiza la pantalla con el nuevo saldo.
-```
+7. React actualiza la pantalla con el nuevo `saldo`.
+
 
 Todo eso ocurre en menos de un segundo.
 Si algo falla, ocurre en uno de esos 7 pasos — y cada uno tiene síntomas distintos.
@@ -56,7 +51,7 @@ Piensa en el sistema como una tienda con tres áreas:
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │    MOSTRADOR    │     │   BODEGA/CAJA   │     │    ARCHIVO      │
 │                 │     │                 │     │                 │
-│  React + Vite   │────▶│    FastAPI      │────▶│    SQLite       │
+│  React + Vite   │───▶│    FastAPI      │───▶│    SQLite       │
 │                 │     │                 │     │                 │
 │  Lo que ve y    │     │  Lógica y       │     │  Donde viven    │
 │  toca la        │     │  reglas del     │     │  los datos      │

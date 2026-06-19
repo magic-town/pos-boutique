@@ -10,21 +10,28 @@ pedidos, movimientos de caja y control de saldo.
 
 ## Tabla de contenidos
 
+- [pos-boutique](#pos-boutique)
+- [Tabla de contenidos](#tabla-de-contenidos)
 - [Contexto](#contexto)
 - [Stack](#stack)
 - [Arquitectura](#arquitectura)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Instalación y ejecución](#instalación-y-ejecución)
+  - [Requisitos](#requisitos)
+  - [Backend](#backend)
+  - [Frontend](#frontend)
 - [Módulos](#módulos)
+  - [Operaciones del Panel Principal](#operaciones-del-panel-principal)
 - [Modelo de datos](#modelo-de-datos)
 - [Versionado](#versionado)
 - [Contribución](#contribución)
+- [Estado actual](#estado-actual)
 
 ---
 
 ## Contexto
 
-Tienda de ropa en pueblo pequeño. Operación actual: lápiz y papel.
+Puequeña empresa de tienda de ropa. Operación actual: lápiz y papel.
 El sistema no reemplaza el proceso — lo digitaliza para eliminar inconsistencias
 y dejar trazabilidad de cada operación.
 

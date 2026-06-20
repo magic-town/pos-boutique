@@ -18,6 +18,13 @@ class FormaPago(enum.Enum):
     tarjeta       = "tarjeta"
 
 
+class EstatusInventario(enum.Enum):
+    disponible           = "disponible"
+    vendido              = "vendido"
+    disponible_descuento = "disponible c/descuento"
+    en_ruta              = "en_ruta"
+
+
 class Cliente(Base):
     __tablename__ = "clientes"
 
@@ -33,8 +40,8 @@ class Cliente(Base):
     estatus        = Column(String, nullable=False, default="activo")  # activo | liquidado | rehabilitar
     fecha_registro = Column(DateTime, server_default=func.now())
 
-    movimientos  = relationship("Movimiento", back_populates="cliente")
-    pedidos      = relationship("Pedido", back_populates="cliente")
+    movimientos   = relationship("Movimiento", back_populates="cliente")
+    pedidos       = relationship("Pedido", back_populates="cliente")
     pedidos_shein = relationship("PedidoShein", back_populates="cliente")
 
 
@@ -42,11 +49,17 @@ class Inventario(Base):
     __tablename__ = "inventario"
 
     id_producto    = Column(Integer, primary_key=True, index=True)
+    categoria      = Column(String)                                        # ej. dama, caballero, niño
+    estilo         = Column(String)                                        # ej. informal, formal
     descripcion    = Column(String, nullable=False)
-    marca          = Column(String)
     talla          = Column(String)
-    cantidad       = Column(Integer, nullable=False, default=0)
-    precio         = Column(Float, nullable=False)
+    color          = Column(String)
+    marca          = Column(String)
+    precio_venta   = Column(Float, nullable=False)
+    stock          = Column(Integer, nullable=False, default=0)
+    estatus        = Column(Enum(EstatusInventario), nullable=False,
+                            default=EstatusInventario.disponible)
+    change_status  = Column(DateTime, nullable=True)                       # fecha del último cambio de estatus
     fecha_registro = Column(DateTime, server_default=func.now())
 
     movimientos = relationship("Movimiento", back_populates="producto")

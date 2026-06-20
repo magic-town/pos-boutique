@@ -222,6 +222,37 @@ La ejecutiva puede usar el sistema en la tienda sin intervención del desarrolla
 
 ---
 
+## Correspondencia con roadmap.png
+
+El roadmap visual del proyecto numera los pasos de desarrollo. Esta tabla
+los mapea a las fases de este checklist para que ambos documentos sean navegables juntos.
+
+| Paso | Descripción | Estado | Fase |
+|------|-------------|--------|------|
+| 1 | Definición del producto (reglas de negocio, módulos, modelo de datos) | ✅ Completado | — |
+| 2 | Stack tecnológico (React + Vite / FastAPI / SQLite) | ✅ Completado | — |
+| 3 | Repositorio GitHub (pos-boutique) | ✅ Completado | — |
+| 4 | Estructura de carpetas del proyecto | ✅ Completado | — |
+| 5 | README.md | ✅ Completado | — |
+| 6 | venv backend + .gitignore | ✅ Completado | — |
+| 7 | requirements.txt (dependencias backend) | ✅ Completado | v0.1 MVP |
+| 8 | Esquema inicial de base de datos (SQLite) | ✅ Completado | v0.1 MVP |
+| 9 | API REST base (FastAPI) | ✅ Completado (mínima — 2 endpoints de salud) | v0.1 MVP |
+| **10** | **Modelos ORM + migraciones (SQLAlchemy + Alembic)** | 🔄 **En curso — Fase 0** | v0.1 MVP |
+| 11 | Panel Principal — operaciones | ⏳ Pendiente | v0.1 MVP — Fases 1 y 2 |
+| 12 | Módulo Clientes | ⏳ Pendiente | v0.1 MVP — Fases 1 y 2 |
+| 13 | Módulo Consulta | ⏳ Pendiente | v0.1 MVP — Fases 1 y 2 |
+| 14 | Módulo Piso de Venta | ⏳ Pendiente | v0.2 |
+| 15 | Módulo Pedidos | ⏳ Pendiente | v0.2 |
+| 16 | Módulo Shein | ⏳ Pendiente | v0.2 |
+| 17 | Despliegue en PC ejecutiva | ⏳ Pendiente | Fase 4 |
+
+> El paso 10 fue el hueco identificado en el roadmap original (la numeración saltaba de 9 a 11).
+> Confirmado como: **Modelos ORM actualizados (SQLAlchemy 2.0) + Alembic inicializado con primera migración.**
+> Es el puente entre el esquema de base de datos (paso 8) y la API REST funcional (paso 11 en adelante).
+
+---
+
 ## Roadmap de versiones
 
 | Versión | Alcance | Fase de este checklist | Estado |

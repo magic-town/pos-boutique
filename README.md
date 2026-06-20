@@ -31,7 +31,7 @@ pedidos, movimientos de caja y control de saldo.
 
 ## Contexto
 
-Puequeña empresa de tienda de ropa. Operación actual: lápiz y papel.
+Pequeña empresa de tienda de ropa. Operación actual: lápiz y papel.
 El sistema no reemplaza el proceso — lo digitaliza para eliminar inconsistencias
 y dejar trazabilidad de cada operación.
 
@@ -145,55 +145,83 @@ Interfaz disponible en: `http://localhost:5173`
 
 | Módulo            | Descripción                                              | Tabla principal   |
 |-------------------|----------------------------------------------------------|-------------------|
-| Agregar Cliente   | Registro de nuevo cliente con referencia                 | Clientes          |
-| Pedido            | Pedido de catálogo formal o informal                     | Pedidos           |
-| Shein             | Pedido especial vía app Shein; cuenta separada           | Pedidos_Shein     |
-| Piso de Venta     | Venta de producto físico en stock                        | Inventario        |
-| Consulta          | Historial de compras, pagos y saldo por cliente          | Movimientos       |
-| Panel Principal   | Registro de operaciones de caja (Contado, Apartado, etc.)| Movimientos       |
+| Agregar Cliente   | Registro de nuevo cliente con referencia (garante)       | clientes          |
+| Pedido            | Pedido de catálogo formal o informal                     | pedidos           |
+| Shein             | Pedido especial vía app Shein; siempre de contado        | pedidos_shein     |
+| Piso de Venta     | Venta de producto físico en stock (activo en v0.2)       | inventario        |
+| Consulta          | Historial de movimientos, saldo y estatus por cliente    | movimientos       |
+| Panel Principal   | Registro de operaciones de caja (Contado, Apartado, etc.)| movimientos       |
 
 ### Operaciones del Panel Principal
 
-| Operación | Cliente     | Producto | Genera saldo |
-|-----------|-------------|----------|--------------|
-| Contado   | Opcional    | Sí       | No           |
-| Apartado  | Obligatorio | Sí       | Sí           |
-| Abono     | Obligatorio | No       | Sí           |
-| Gasto     | No          | No       | No           |
+| Operación | Cliente     | Producto | `saldo_resultante` | `forma_pago`                    |
+|-----------|-------------|----------|--------------------|---------------------------------|
+| Contado   | Opcional    | Sí       | NULL               | efectivo / transferencia / tarjeta |
+| Apartado  | Obligatorio | Sí       | precio − 1er pago  | efectivo / transferencia / tarjeta |
+| Abono     | Obligatorio | No       | saldo anterior − monto | efectivo / transferencia / tarjeta |
+| Gasto     | No          | No       | NULL               | efectivo / transferencia / tarjeta |
 
 ---
 
 ## Modelo de datos
 
 ```
-Clientes
-  id_cliente (PK)
-  nombre, colonia, telefono, referencia, no_cliente
+clientes
+  id_cliente      INTEGER  PK AUTOINCREMENT
+  no_cliente      TEXT     NOT NULL UNIQUE        -- Autogenerado: {Colonia}-{consecutivo}
+  nombre          TEXT     NOT NULL
+  colonia         TEXT     NOT NULL
+  telefono        TEXT     NOT NULL
+  ref_nombre      TEXT     NOT NULL               -- Nombre del garante
+  ref_colonia     TEXT     NOT NULL               -- Colonia del garante
+  ref_telefono    TEXT                            -- Teléfono del garante (nullable)
+  saldo           REAL     NOT NULL DEFAULT 0     -- Deuda activa. Positivo = debe.
+  estatus         TEXT     NOT NULL DEFAULT 'activo' -- activo | liquidado | rehabilitar
+  fecha_registro  TEXT     NOT NULL               -- ISO 8601
 
-Pedidos
-  id_pedido (PK)
-  id_cliente (FK → Clientes)
-  producto, marca, talla, opcion, fecha
+pedidos
+  id_pedido           INTEGER  PK AUTOINCREMENT
+  id_cliente          INTEGER  NOT NULL FK → clientes
+  producto            TEXT     NOT NULL
+  id_producto_externo TEXT                        -- ID del proveedor (nullable)
+  marca               TEXT
+  talla               TEXT
+  opcion_producto     TEXT                        -- Artículo alternativo (nullable)
+  opcion_marca        TEXT
+  opcion_talla        TEXT
+  fecha               TEXT     NOT NULL           -- ISO 8601
 
-Pedidos_Shein
-  id_pedido_shein (PK)
-  id_cliente (FK → Clientes)
-  producto, monto, fecha, bono_aplicado
+pedidos_shein
+  id_pedido_shein INTEGER  PK AUTOINCREMENT
+  id_cliente      INTEGER  NOT NULL FK → clientes
+  producto        TEXT     NOT NULL
+  monto           REAL     NOT NULL
+  fecha           TEXT     NOT NULL               -- ISO 8601
 
-Inventario
-  id_producto (PK)
-  descripcion, talla, cantidad, precio
+inventario
+  id_producto     INTEGER  PK AUTOINCREMENT
+  descripcion     TEXT     NOT NULL
+  marca           TEXT
+  talla           TEXT
+  cantidad        INTEGER  NOT NULL DEFAULT 0
+  precio          REAL     NOT NULL
+  fecha_registro  TEXT     NOT NULL               -- ISO 8601
 
-Movimientos
-  id_movimiento (PK)
-  operacion          -- Contado | Apartado | Abono | Gasto
-  id_cliente (FK → Clientes, nullable)
-  id_producto (FK → Inventario, nullable)
-  monto, forma_pago, saldo_resultante, fecha
+movimientos
+  id_movimiento    INTEGER  PK AUTOINCREMENT
+  operacion        TEXT     NOT NULL              -- Enum: contado | apartado | abono | gasto
+  id_cliente       INTEGER  FK → clientes         -- nullable
+  id_producto      INTEGER  FK → inventario       -- nullable; solo si es Piso de Venta
+  monto            REAL     NOT NULL
+  forma_pago       TEXT     NOT NULL              -- Enum: efectivo | transferencia | tarjeta
+  saldo_resultante REAL                           -- nullable; solo en apartado y abono
+  notas            TEXT                           -- nullable
+  fecha            TEXT     NOT NULL              -- ISO 8601
 ```
 
-Toda operación genera un registro en `Movimientos`.
-Las relaciones con `Clientes` e `Inventario` son opcionales según el contexto.
+Toda operación genera un registro en `movimientos`.
+Las relaciones con `clientes` e `inventario` son opcionales según el tipo de operación.
+La fuente de verdad completa del modelo está en `docs/REGLAS_NEGOCIO.md`.
 
 ---
 
@@ -234,14 +262,24 @@ fix:      corrección de bug
 docs:     cambios en documentación
 refactor: reestructura sin cambio de comportamiento
 chore:    tareas de mantenimiento (deps, config)
-``` pos-boutique
-UI/UX escalable para punto de venta
+```
+
+---
 
 ## Estado actual
 
 - [x] Repositorio creado
 - [x] Estructura de carpetas
-- [ ] venv backend
-- [ ] Dependencias backend (requirements.txt)
-- [ ] Dependencias frontend (package.json)
-- [ ] Base de datos: esquema inicial
+- [x] venv backend
+- [x] Dependencias backend (`requirements.txt`)
+- [x] Modelos ORM (`models.py`) — 5 tablas + enums
+- [x] Base de datos SQLite (`pos.db`) — tablas creadas
+- [ ] Modelos ORM actualizados a patrones modernos (lifespan, DeclarativeBase)
+- [ ] Schemas Pydantic (`schemas/`)
+- [ ] Configuración centralizada (`core/config.py`, `.env`)
+- [ ] CORS middleware
+- [ ] Alembic inicializado y primera migración
+- [ ] Endpoints API REST (`api/v1/endpoints/`)
+- [ ] Servicios de lógica de negocio (`services/`)
+- [ ] Frontend inicializado (`npm create vite`)
+- [ ] Tests

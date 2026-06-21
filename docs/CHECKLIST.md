@@ -67,6 +67,8 @@
 El backend debe arrancar sin warnings, con el modelo ORM actualizado y Alembic inicializado.
 `GET /` y `GET /ping` responden. `pos.db` refleja el esquema correcto.
 
+✅ Completado — 20 de junio de 2026
+
 ---
 
 ## Fase 1 — Backend funcional

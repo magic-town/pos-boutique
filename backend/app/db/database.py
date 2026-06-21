@@ -1,10 +1,9 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
-
-SQLALCHEMY_DATABASE_URL = "sqlite:///./pos.db"
+from app.core.config import settings
 
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
+    settings.DATABASE_URL,
     connect_args={"check_same_thread": False}
 )
 

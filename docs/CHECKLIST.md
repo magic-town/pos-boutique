@@ -55,15 +55,13 @@
 
 ### Infraestructura del backend
 
+- [x] Migrar `@app.on_event("startup")` al patrón `lifespan` con context manager (FastAPI moderno)
+- [x] Crear `backend/.env` y `backend/.env.example`
+- [x] Sacar URL de la base de datos del hardcode → variable de entorno
+- [x] Crear `backend/app/core/config.py` con `Settings` (Pydantic BaseSettings)
+- [x] Configurar CORS middleware en `main.py` (origen: `http://localhost:5173`)
 - [x] Inicializar Alembic (`alembic init`)
 - [x] Generar y aplicar primera migración con los cambios del modelo ORM
-- [ ] Migrar `@app.on_event("startup")` al patrón `lifespan` con context manager (FastAPI moderno)
-- [ ] Crear `backend/.env` y `backend/.env.example`
-- [ ] Sacar URL de la base de datos del hardcode → variable de entorno
-- [ ] Crear `backend/app/core/config.py` con `Settings` (Pydantic BaseSettings)
-- [ ] Configurar CORS middleware en `main.py` (origen: `http://localhost:5173`)
-- [ ] Inicializar Alembic (`alembic init`)
-- [ ] Generar y aplicar primera migración con los cambios del modelo ORM
 
 **✋ Punto de verificación Fase 0**
 El backend debe arrancar sin warnings, con el modelo ORM actualizado y Alembic inicializado.

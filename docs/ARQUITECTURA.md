@@ -9,7 +9,7 @@ Este documento no es documentación técnica formal. Es una guía para alguien q
 
 Antes de hablar de capas y tecnologías, entiende el flujo completo de una operación real. Toma este ejemplo:
 
-> La ejecutiva selecciona `abono` seguiudo del respectivo `cliente`,
+> La ejecutiva selecciona `abono` seguido del respectivo `cliente`,
 > Captura  `monto` seguido por `forma de pago` y da `Guardar`.
 
 Esto es lo que ocurre por debajo:

@@ -14,6 +14,7 @@
 - [Mapa de capas y síntomas](#mapa-de-capas-y-síntomas)
 - [Base de datos](#base-de-datos)
 - [Backend FastAPI](#backend-fastapi)
+- [Servicio systemd en producción](#servicio-systemd-en-producción)
 - [Frontend React](#frontend-react)
 - [Conexión frontend ↔ backend](#conexión-frontend--backend)
 - [SSH y Tailscale](#ssh-y-tailscale)
@@ -80,7 +81,7 @@ git checkout <hash_del_commit>
 # En @envy vía SSH:
 cd ~/pos-boutique
 git pull https://magic-town@github.com/magic-town/pos-boutique.git main
-sudo systemctl restart pos-boutique
+sudo systemctl restart pos-boutique-backend
 ```
 
 ---
@@ -164,7 +165,7 @@ uvicorn app.main:app --reload --port 8000
 ### Ver logs en tiempo real (producción en @envy)
 
 ```bash
-sudo journalctl -fu pos-boutique
+sudo journalctl -fu pos-boutique-backend
 ```
 
 ### Síntoma: el servidor no arranca
@@ -188,6 +189,153 @@ http://localhost:8000/docs
 Desde ahí puedes ejecutar cualquier endpoint directamente.
 Si funciona en `/docs` pero no en la interfaz → el problema es del frontend.
 Si no funciona ni en `/docs` → el problema es del backend o la base de datos.
+
+---
+
+## Servicio systemd en producción
+
+> Esta sección aplica únicamente a `sonia@envy`.
+> En desarrollo (`gabriel@actuary`) el backend se levanta manualmente con uvicorn.
+> El detonador para crear estos servicios es completar la Fase 3 del CHECKLIST.
+
+### Qué es systemd y por qué lo usamos
+
+systemd es el gestor de servicios de Linux. Registrar el POS como servicio systemd
+significa que:
+- Arranca automáticamente cuando se enciende la PC.
+- Se reinicia solo si se cae inesperadamente.
+- Sus logs quedan en `journalctl` como cualquier otro servicio del sistema.
+
+### Crear el servicio del backend
+
+**1. Crear el archivo de servicio:**
+
+```bash
+sudo nano /etc/systemd/system/pos-boutique-backend.service
+```
+
+**2. Contenido del archivo:**
+
+```ini
+[Unit]
+Description=pos-boutique backend (FastAPI + Uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=sonia
+WorkingDirectory=/home/sonia/pos-boutique/backend
+ExecStart=/home/sonia/pos-boutique/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**3. Habilitar y arrancar:**
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable pos-boutique-backend
+sudo systemctl start pos-boutique-backend
+sudo systemctl status pos-boutique-backend
+```
+
+---
+
+### Crear el servicio del frontend
+
+El frontend en producción no corre con `npm run dev` — se compila a archivos
+estáticos y se sirve con un servidor HTTP ligero.
+
+**1. Compilar el frontend (una vez, o tras cada actualización):**
+
+```bash
+cd /home/sonia/pos-boutique/frontend
+npm run build
+```
+
+Esto genera el directorio `frontend/dist/` con los archivos estáticos.
+
+**2. Crear el archivo de servicio:**
+
+```bash
+sudo nano /etc/systemd/system/pos-boutique-frontend.service
+```
+
+**3. Contenido del archivo:**
+
+```ini
+[Unit]
+Description=pos-boutique frontend (archivos estáticos)
+After=network.target
+
+[Service]
+Type=simple
+User=sonia
+WorkingDirectory=/home/sonia/pos-boutique/frontend
+ExecStart=/usr/bin/npx serve dist --listen 5173
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**4. Habilitar y arrancar:**
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable pos-boutique-frontend
+sudo systemctl start pos-boutique-frontend
+sudo systemctl status pos-boutique-frontend
+```
+
+---
+
+### Comandos de operación diaria en @envy
+
+```bash
+# Ver estado de ambos servicios
+sudo systemctl status pos-boutique-backend
+sudo systemctl status pos-boutique-frontend
+
+# Ver logs en tiempo real
+sudo journalctl -fu pos-boutique-backend
+sudo journalctl -fu pos-boutique-frontend
+
+# Reiniciar tras un git pull
+sudo systemctl restart pos-boutique-backend
+sudo systemctl restart pos-boutique-frontend
+
+# Detener
+sudo systemctl stop pos-boutique-backend
+sudo systemctl stop pos-boutique-frontend
+```
+
+### Actualizar el sistema en producción
+
+```bash
+# En @envy vía SSH desde @actuary:
+ssh sonia@<ip-tailscale>
+
+cd ~/pos-boutique
+git pull
+
+# Si hubo cambios en el backend:
+cd backend
+source venv/bin/activate
+pip install -r requirements.txt   # solo si cambiaron dependencias
+alembic upgrade head               # siempre que haya migraciones nuevas
+sudo systemctl restart pos-boutique-backend
+
+# Si hubo cambios en el frontend:
+cd ../frontend
+npm install                        # solo si cambiaron dependencias
+npm run build
+sudo systemctl restart pos-boutique-frontend
+```
 
 ---
 
@@ -234,7 +382,7 @@ sudo apt install nodejs npm
 
 1. Verifica que el backend está corriendo:
 ```bash
-curl http://localhost:8000/docs
+curl http://localhost:8000/ping
 ```
 
 2. Abre `F12` → pestaña **Network** → busca la petición fallida.
@@ -288,25 +436,26 @@ ssh -v gabriel@100.112.41.4
 
 ```bash
 # Vía SSH desde @actuary:
-ssh gabriel@100.112.41.4
+ssh sonia@<ip-tailscale>
 
-# Reiniciar el servicio del POS
-sudo systemctl restart pos-boutique
+# Reiniciar ambos servicios
+sudo systemctl restart pos-boutique-backend
+sudo systemctl restart pos-boutique-frontend
 
-# Si el servicio no existe aún, levantar manualmente:
+# Si los servicios no existen aún, levantar manualmente:
 cd ~/pos-boutique/backend
 source venv/bin/activate
-uvicorn app.main:app --port 8000 &
+uvicorn app.main:app --host 127.0.0.1 --port 8000 &
 
 cd ~/pos-boutique/frontend
-npm run preview &
+npx serve dist --listen 5173 &
 ```
 
 ### Respaldar todo antes de una actualización mayor
 
 ```bash
 # En @envy vía SSH:
-cp ~/pos-boutique/backend/pos.db ~/Dropbox/respaldos/pos_$(date +%Y%m%d).db
+cp ~/pos-boutique/backend/pos.db ~/pos_backup_$(date +%Y%m%d).db
 cd ~/pos-boutique && git log --oneline -5
 ```
 
@@ -322,8 +471,9 @@ git revert HEAD
 # Aplicar en base de datos si hubo migraciones
 alembic downgrade -1
 
-# Reiniciar
-sudo systemctl restart pos-boutique
+# Reiniciar servicios
+sudo systemctl restart pos-boutique-backend
+sudo systemctl restart pos-boutique-frontend
 ```
 
 ---

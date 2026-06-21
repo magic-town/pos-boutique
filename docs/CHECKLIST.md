@@ -38,21 +38,25 @@
 - [x] `referencia` del cliente resuelta: 3 campos (`ref_nombre`, `ref_colonia`, `ref_telefono`) *(20 jun)*
 - [x] `opcion` en Pedidos resuelta: 3 campos (`opcion_producto`, `opcion_marca`, `opcion_talla`) *(20 jun)*
 - [x] `bono_aplicado` en Shein eliminado — sin regla de negocio *(20 jun)*
-- [ ] Typo en `ARQUITECTURA.md` — "seguiudo" → "seguido"
-- [ ] Sección systemd en `DEBUGGING.md` — cómo crear el servicio para producción
+- [x] Sección systemd en `DEBUGGING.md` — cómo crear el servicio para producción
 
 ### Modelo ORM (`models.py`)
 
-- [ ] Migrar de `declarative_base()` a `class Base(DeclarativeBase)` (SQLAlchemy 2.0+)
-- [ ] `clientes` — reemplazar campo `referencia` por `ref_nombre`, `ref_colonia`, `ref_telefono`
-- [ ] `clientes` — agregar campo `estatus TEXT NOT NULL DEFAULT 'activo'`
-- [ ] `pedidos` — reemplazar campo `opcion` por `opcion_producto`, `opcion_marca`, `opcion_talla`
-- [ ] `pedidos` — agregar campo `id_producto_externo TEXT` (nullable)
-- [ ] `pedidos_shein` — eliminar campo `bono_aplicado`
-- [ ] `FormaPago` enum — agregar valor `tarjeta`
+- [x] Migrar de `declarative_base()` a `class Base(DeclarativeBase)` (SQLAlchemy 2.0+)
+- [x] `clientes` — reemplazar campo `referencia` por `ref_nombre`, `ref_colonia`, `ref_telefono`
+- [x] `clientes` — agregar campo `estatus TEXT NOT NULL DEFAULT 'activo'`
+- [x] `pedidos` — reemplazar campo `opcion` por `opcion_producto`, `opcion_marca`, `opcion_talla`
+- [x] `pedidos` — agregar campo `id_producto_externo TEXT` (nullable)
+- [x] `pedidos_shein` — eliminar campo `bono_aplicado`
+- [x] `FormaPago` enum — agregar valor `tarjeta`
+- [x] Inventario — agregar campos: `categoria`, `estilo`, `color`, `change_status`
+- [x] Inventario — renombrar precio → `precio_venta`, `cantidad` → `stock`
+- [x] Inventario — agregar `EstatusInventario` enum (disponible, vendido, disponible c/descuento, en_ruta)
 
 ### Infraestructura del backend
 
+- [x] Inicializar Alembic (`alembic init`)
+- [x] Generar y aplicar primera migración con los cambios del modelo ORM
 - [ ] Migrar `@app.on_event("startup")` al patrón `lifespan` con context manager (FastAPI moderno)
 - [ ] Crear `backend/.env` y `backend/.env.example`
 - [ ] Sacar URL de la base de datos del hardcode → variable de entorno

@@ -109,14 +109,3 @@ class Movimiento(Base):
 
     cliente  = relationship("Cliente", back_populates="movimientos")
     producto = relationship("Inventario", back_populates="movimientos")
-
-
-class Usuario(Base):
-    __tablename__ = "usuarios"
-
-    id_usuario      = Column(Integer, primary_key=True, index=True)
-    username        = Column(String, unique=True, nullable=False, index=True)
-    hashed_password = Column(String, nullable=False)
-    rol             = Column(String, nullable=False, default="estandar")  # estandar | admin
-    activo          = Column(String, nullable=False, default="true")
-    fecha_registro  = Column(DateTime, server_default=func.now())

@@ -401,3 +401,18 @@ Requisitos en PC ejecutiva: Python 3.11+ y Node.js 20+ (instalación única).
 | CORS middleware | 🔲 Pendiente |
 | Alembic (migraciones) | 🔲 Pendiente |
 | Interfaz base (React + Vite) | 🔲 Pendiente |
+
+## Usuarios y acceso
+
+El sistema tiene dos usuarios iniciales con rol `estandar`.
+- `operador_1`
+- `operador_2`
+
+Roles definidos: `estandar` | `admin`
+La distinción de permisos entre roles se implementa en versiones futuras.
+Todo acceso al sistema requiere autenticación via token (JWT).
+
+### Cancelación de movimientos
+La cancelación solo aplica al último movimiento registrado.
+Correcciones de registros históricos se realizan con un abono compensatorio
+registrado por la operadora — el sistema no edita registros pasados.

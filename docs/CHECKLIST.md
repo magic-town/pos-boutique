@@ -84,6 +84,7 @@ El backend debe arrancar sin warnings, con el modelo ORM actualizado y Alembic i
 - [ ] `MovimientoRead` — respuesta con `saldo_resultante` calculado
 - [ ] `PedidoCreate` / `PedidoRead`
 - [ ] `PedidoSheinCreate` / `PedidoSheinRead`
+- [ ] `UsuarioCreate` / `UsuarioRead` / `Token`
 
 ### Endpoints (`api/v1/endpoints/`)
 
@@ -97,6 +98,8 @@ El backend debe arrancar sin warnings, con el modelo ORM actualizado y Alembic i
 - [ ] `GET /pedidos/{id_cliente}` — pedidos de un cliente
 - [ ] `POST /pedidos-shein` — registrar pedido Shein
 - [ ] `GET /pedidos-shein/{id_cliente}` — pedidos Shein de un cliente
+- [ ] `POST /auth/login` — devuelve JWT
+- [ ] `DELETE /movimientos/{id}/cancelar` — revierte último movimiento
 
 ### Servicios — lógica de negocio (`services/`)
 
@@ -105,6 +108,8 @@ El backend debe arrancar sin warnings, con el modelo ORM actualizado y Alembic i
 - [ ] `calcular_saldo_resultante()` — según tipo de operación (`apartado`: precio − pago; `abono`: saldo − monto)
 - [ ] `evaluar_estatus_cliente()` — si `saldo = 0` tras un abono → `estatus = liquidado`
 - [ ] `rehabilitar_cliente()` — `estatus = liquidado → activo`
+- [ ] `auth_service.py` — login, verificación de token, get_current_user
+- [ ] `cancelar_movimiento()` — revierte último movimiento y saldo del cliente
 
 ### Tests (`tests/`)
 
@@ -242,7 +247,7 @@ los mapea a las fases de este checklist para que ambos documentos sean navegable
 | 7 | requirements.txt (dependencias backend) | ✅ Completado | v0.1 MVP |
 | 8 | Esquema inicial de base de datos (SQLite) | ✅ Completado | v0.1 MVP |
 | 9 | API REST base (FastAPI) | ✅ Completado (mínima — 2 endpoints de salud) | v0.1 MVP |
-| **10** | **Modelos ORM + migraciones (SQLAlchemy + Alembic)** | 🔄 **En curso — Fase 0** | v0.1 MVP |
+| 10 | Modelos ORM + migraciones (SQLAlchemy + Alembic) | ✅ Completado | v0.1 MVP |
 | 11 | Panel Principal — operaciones | ⏳ Pendiente | v0.1 MVP — Fases 1 y 2 |
 | 12 | Módulo Clientes | ⏳ Pendiente | v0.1 MVP — Fases 1 y 2 |
 | 13 | Módulo Consulta | ⏳ Pendiente | v0.1 MVP — Fases 1 y 2 |

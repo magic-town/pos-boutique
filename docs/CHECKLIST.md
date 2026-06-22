@@ -88,18 +88,18 @@ El backend debe arrancar sin warnings, con el modelo ORM actualizado y Alembic i
 
 ### Endpoints (`api/v1/endpoints/`)
 
-- [x] `POST /clientes` — registrar cliente (genera `no_cliente` automáticamente)
-- [x] `GET /clientes` — listar clientes (con filtro por nombre/colonia)
-- [x] `GET /clientes/{id}` — detalle de cliente con saldo y estatus
-- [x] `PATCH /clientes/{id}/rehabilitar` — cambiar estatus `liquidado → activo`
-- [x] `POST /movimientos` — registrar operación (contado, apartado, abono, gasto)
-- [x] `GET /movimientos` — historial filtrado por cliente
-- [x] `POST /pedidos` — registrar pedido de catálogo
-- [x] `GET /pedidos/{id_cliente}` — pedidos de un cliente
-- [x] `POST /pedidos-shein` — registrar pedido Shein
-- [x] `GET /pedidos-shein/{id_cliente}` — pedidos Shein de un cliente
-- [x] `POST /auth/login` — devuelve JWT
-- [x] `DELETE /movimientos/{id}/cancelar` — revierte último movimiento
+- [ ] `POST /clientes` — registrar cliente (genera `no_cliente` automáticamente)
+- [ ] `GET /clientes` — listar clientes (con filtro por nombre/colonia)
+- [ ] `GET /clientes/{id}` — detalle de cliente con saldo y estatus
+- [ ] `PATCH /clientes/{id}/rehabilitar` — cambiar estatus `liquidado → activo`
+- [ ] `POST /movimientos` — registrar operación (contado, apartado, abono, gasto)
+- [ ] `GET /movimientos` — historial filtrado por cliente
+- [ ] `POST /pedidos` — registrar pedido de catálogo
+- [ ] `GET /pedidos/{id_cliente}` — pedidos de un cliente
+- [ ] `POST /pedidos-shein` — registrar pedido Shein
+- [ ] `GET /pedidos-shein/{id_cliente}` — pedidos Shein de un cliente
+- [ ] `POST /auth/login` — devuelve JWT
+- [ ] `DELETE /movimientos/{id}/cancelar` — revierte último movimiento
 
 ### Servicios — lógica de negocio (`services/`)
 

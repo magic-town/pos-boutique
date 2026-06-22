@@ -63,11 +63,8 @@
 - [x] Inicializar Alembic (`alembic init`)
 - [x] Generar y aplicar primera migración con los cambios del modelo ORM
 
-**✋ Punto de verificación Fase 0**
-El backend debe arrancar sin warnings, con el modelo ORM actualizado y Alembic inicializado.
-`GET /` y `GET /ping` responden. `pos.db` refleja el esquema correcto.
-
-✅ Completado — 20 de junio de 2026
+✅ Completado — 20 de junio de 2026  
+→ Comandos de verificación: `docs/AVANCE_VALIDACION.md`
 
 ---
 

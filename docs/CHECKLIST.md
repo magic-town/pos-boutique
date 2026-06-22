@@ -78,38 +78,38 @@ El backend debe arrancar sin warnings, con el modelo ORM actualizado y Alembic i
 
 ### Schemas Pydantic (`schemas/`)
 
-- [ ] `ClienteCreate` — campos de entrada para registro de cliente
-- [ ] `ClienteRead` — respuesta con todos los campos incluido `no_cliente` y `estatus`
-- [ ] `MovimientoCreate` — entrada para las 4 operaciones del panel principal
-- [ ] `MovimientoRead` — respuesta con `saldo_resultante` calculado
-- [ ] `PedidoCreate` / `PedidoRead`
-- [ ] `PedidoSheinCreate` / `PedidoSheinRead`
-- [ ] `UsuarioCreate` / `UsuarioRead` / `Token`
+- [x] `ClienteCreate` — campos de entrada para registro de cliente
+- [x] `ClienteRead` — respuesta con todos los campos incluido `no_cliente` y `estatus`
+- [x] `MovimientoCreate` — entrada para las 4 operaciones del panel principal
+- [x] `MovimientoRead` — respuesta con `saldo_resultante` calculado
+- [x] `PedidoCreate` / `PedidoRead`
+- [x] `PedidoSheinCreate` / `PedidoSheinRead`
+- [x] `UsuarioCreate` / `UsuarioRead` / `Token`
 
 ### Endpoints (`api/v1/endpoints/`)
 
-- [ ] `POST /clientes` — registrar cliente (genera `no_cliente` automáticamente)
-- [ ] `GET /clientes` — listar clientes (con filtro por nombre/colonia)
-- [ ] `GET /clientes/{id}` — detalle de cliente con saldo y estatus
-- [ ] `PATCH /clientes/{id}/rehabilitar` — cambiar estatus `liquidado → activo`
-- [ ] `POST /movimientos` — registrar operación (contado, apartado, abono, gasto)
-- [ ] `GET /movimientos` — historial filtrado por cliente
-- [ ] `POST /pedidos` — registrar pedido de catálogo
-- [ ] `GET /pedidos/{id_cliente}` — pedidos de un cliente
-- [ ] `POST /pedidos-shein` — registrar pedido Shein
-- [ ] `GET /pedidos-shein/{id_cliente}` — pedidos Shein de un cliente
-- [ ] `POST /auth/login` — devuelve JWT
-- [ ] `DELETE /movimientos/{id}/cancelar` — revierte último movimiento
+- [x] `POST /clientes` — registrar cliente (genera `no_cliente` automáticamente)
+- [x] `GET /clientes` — listar clientes (con filtro por nombre/colonia)
+- [x] `GET /clientes/{id}` — detalle de cliente con saldo y estatus
+- [x] `PATCH /clientes/{id}/rehabilitar` — cambiar estatus `liquidado → activo`
+- [x] `POST /movimientos` — registrar operación (contado, apartado, abono, gasto)
+- [x] `GET /movimientos` — historial filtrado por cliente
+- [x] `POST /pedidos` — registrar pedido de catálogo
+- [x] `GET /pedidos/{id_cliente}` — pedidos de un cliente
+- [x] `POST /pedidos-shein` — registrar pedido Shein
+- [x] `GET /pedidos-shein/{id_cliente}` — pedidos Shein de un cliente
+- [x] `POST /auth/login` — devuelve JWT
+- [x] `DELETE /movimientos/{id}/cancelar` — revierte último movimiento
 
 ### Servicios — lógica de negocio (`services/`)
 
-- [ ] `generar_no_cliente(colonia)` — formato `{Colonia}-{consecutivo}`, autoincremental por colonia
-- [ ] `registrar_movimiento()` — orquesta la operación: valida, calcula saldo, escribe en `movimientos` y actualiza `clientes.saldo` en una sola transacción
-- [ ] `calcular_saldo_resultante()` — según tipo de operación (`apartado`: precio − pago; `abono`: saldo − monto)
-- [ ] `evaluar_estatus_cliente()` — si `saldo = 0` tras un abono → `estatus = liquidado`
-- [ ] `rehabilitar_cliente()` — `estatus = liquidado → activo`
-- [ ] `auth_service.py` — login, verificación de token, get_current_user
-- [ ] `cancelar_movimiento()` — revierte último movimiento y saldo del cliente
+- [x] `generar_no_cliente(colonia)` — formato `{Colonia}-{consecutivo}`, autoincremental por colonia
+- [x] `registrar_movimiento()` — orquesta la operación: valida, calcula saldo, escribe en `movimientos` y actualiza `clientes.saldo` en una sola transacción
+- [x] `calcular_saldo_resultante()` — implementado inline en `registrar_movimiento()`
+- [x] `evaluar_estatus_cliente()` — si `saldo = 0` tras un abono → `estatus = liquidado`
+- [x] `rehabilitar_cliente()` — `estatus = liquidado → activo`
+- [x] `auth_service.py` — login, verificación de token, get_current_user
+- [x] `cancelar_movimiento()` — revierte último movimiento y saldo del cliente
 
 ### Tests (`tests/`)
 
@@ -120,8 +120,7 @@ El backend debe arrancar sin warnings, con el modelo ORM actualizado y Alembic i
 - [ ] Test: `POST /movimientos` con `operacion = gasto` no requiere `id_cliente`
 
 **✋ Punto de verificación Fase 1**
-Desde `http://localhost:8000/docs` es posible ejecutar todas las operaciones del MVP
-sin tocar el frontend. El flujo completo de un ciclo de cliente funciona:
+Desde `http://localhost:8000/docs` es posible ejecutar todas las operaciones del MVP sin tocar el frontend. El flujo completo de un ciclo de cliente funciona:
 registro → apartado → abono → liquidado → rehabilitado.
 
 ---

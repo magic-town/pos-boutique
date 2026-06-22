@@ -285,5 +285,29 @@ es porque el sistema creció y ese es el momento correcto para aprenderlo.
 
 ---
 
+## 11. Acceso al sistema — login y usuarios
+
+El sistema requiere autenticación para operar. Antes de poder registrar
+cualquier movimiento, el sistema pide usuario y contraseña.
+
+Así funciona por dentro:
+
+1. La ejecutiva escribe su usuario y contraseña en la pantalla de login.
+2. El backend verifica que el usuario existe y que la contraseña es correcta.
+3. Si todo está bien, el backend genera un **token** — un pase temporal
+   que dura 8 horas (una jornada laboral).
+4. El frontend guarda ese token y lo adjunta a cada operación que realiza.
+5. Si el token expira o es inválido, el sistema pide login de nuevo.
+
+El sistema nace con dos usuarios: `operador_1` y `operador_2`.
+Ambos tienen rol `estandar`. En versiones futuras existirá un rol `admin`
+con permisos adicionales (cancelar movimientos históricos, gestionar usuarios).
+
+Si necesitas cambiar una contraseña o agregar un usuario, se hace
+directamente desde la terminal — no hay interfaz de administración en el MVP.
+
+---
+
 *Este documento crece con el proyecto.
 Cada vez que resuelvas un problema que no estaba documentado aquí, agrégalo.*
+

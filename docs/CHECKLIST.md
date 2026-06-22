@@ -230,34 +230,26 @@ La ejecutiva puede usar el sistema en la tienda sin intervención del desarrolla
 
 ---
 
-## Correspondencia con roadmap.png
+## Roadmap de construcción — POS-Boutique
 
-El roadmap visual del proyecto numera los pasos de desarrollo. Esta tabla
-los mapea a las fases de este checklist para que ambos documentos sean navegables juntos.
+> Mapa de los bloques estructurales sobre los que se construye el sistema.
+> Cada bloque es independiente y construye sobre el anterior.
+> Estado: ✅ Sólido | 🔄 En construcción | ⏳ Pendiente
 
-| Paso | Descripción | Estado | Fase |
-|------|-------------|--------|------|
-| 1 | Definición del producto (reglas de negocio, módulos, modelo de datos) | ✅ Completado | — |
-| 2 | Stack tecnológico (React + Vite / FastAPI / SQLite) | ✅ Completado | — |
-| 3 | Repositorio GitHub (pos-boutique) | ✅ Completado | — |
-| 4 | Estructura de carpetas del proyecto | ✅ Completado | — |
-| 5 | README.md | ✅ Completado | — |
-| 6 | venv backend + .gitignore | ✅ Completado | — |
-| 7 | requirements.txt (dependencias backend) | ✅ Completado | v0.1 MVP |
-| 8 | Esquema inicial de base de datos (SQLite) | ✅ Completado | v0.1 MVP |
-| 9 | API REST base (FastAPI) | ✅ Completado (mínima — 2 endpoints de salud) | v0.1 MVP |
-| 10 | Modelos ORM + migraciones (SQLAlchemy + Alembic) | ✅ Completado | v0.1 MVP |
-| 11 | Panel Principal — operaciones | ⏳ Pendiente | v0.1 MVP — Fases 1 y 2 |
-| 12 | Módulo Clientes | ⏳ Pendiente | v0.1 MVP — Fases 1 y 2 |
-| 13 | Módulo Consulta | ⏳ Pendiente | v0.1 MVP — Fases 1 y 2 |
-| 14 | Módulo Piso de Venta | ⏳ Pendiente | v0.2 |
-| 15 | Módulo Pedidos | ⏳ Pendiente | v0.2 |
-| 16 | Módulo Shein | ⏳ Pendiente | v0.2 |
-| 17 | Despliegue en PC ejecutiva | ⏳ Pendiente | Fase 4 |
-
-> El paso 10 fue el hueco identificado en el roadmap original (la numeración saltaba de 9 a 11).
-> Confirmado como: **Modelos ORM actualizados (SQLAlchemy 2.0) + Alembic inicializado con primera migración.**
-> Es el puente entre el esquema de base de datos (paso 8) y la API REST funcional (paso 11 en adelante).
+| # | Bloque | Qué resuelve | Estado |
+|---|--------|-------------|--------|
+| 1 | **Definición del producto** | Reglas de negocio, módulos, modelo de datos, enums, ciclo de vida del cliente | ✅ |
+| 2 | **Infraestructura base** | Repositorio, estructura de carpetas, entorno virtual, dependencias, `.gitignore` | ✅ |
+| 3 | **Modelo de datos** | 6 tablas SQLite definidas con tipos, relaciones y restricciones. Control de versiones con Alembic | ✅ |
+| 4 | **Configuración del backend** | FastAPI con lifespan, CORS, variables de entorno, configuración centralizada con Pydantic Settings | ✅ |
+| 5 | **Autenticación** | Login con JWT, hashing de passwords, roles `estandar` \| `admin`, protección de endpoints | 🔄 |
+| 6 | **Contratos de API** | Schemas Pydantic para validación de entrada y salida — un schema por módulo | ✅ |
+| 7 | **Lógica de negocio** | Servicios: registro de movimientos, cálculo de saldo, ciclo de vida del cliente, cancelación | ✅ |
+| 8 | **API REST** | Endpoints CRUD para todos los módulos del MVP, registrados y protegidos con auth | ⏳ |
+| 9 | **Frontend base** | React + Vite inicializado, rutas, layout, proxy hacia el backend | ⏳ |
+| 10 | **Interfaz operativa** | Panel Principal, Módulo Clientes, Consulta, Pedidos, Shein — conectados a la API | ⏳ |
+| 11 | **Integración y pruebas** | Flujo completo de extremo a extremo, scripts de arranque y backup, tests unitarios | ⏳ |
+| 12 | **Producción** | Despliegue en `sonia@envy`, servicios systemd, arranque automático, primera sesión real | ⏳ |
 
 ---
 

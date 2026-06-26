@@ -1,0 +1,50 @@
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy.orm import Session
+from app.db.database import get_db
+from app.schemas.cliente import ClienteCreate, ClienteRead, ClienteResumen
+from app.services.cliente_service import crear_cliente, buscar_clientes, obtener_cliente, rehabilitar_cliente
+from app.services.auth_service import get_current_user
+
+router = APIRouter(prefix="/clientes", tags=["clientes"])
+
+
+@router.post("", response_model=ClienteRead, status_code=status.HTTP_201_CREATED)
+def registrar_cliente(
+    data: ClienteCreate,
+    db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
+):
+    return crear_cliente(db, data)
+
+
+@router.get("", response_model=list[ClienteResumen])
+def listar_clientes(
+    q: str = Query(default="", description="Buscar por nombre o no_cliente"),
+    db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
+):
+    return buscar_clientes(db, q)
+
+
+@router.get("/{id_cliente}", response_model=ClienteRead)
+def detalle_cliente(
+    id_cliente: int,
+    db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
+):
+    cliente = obtener_cliente(db, id_cliente)
+    if not cliente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente no encontrado")
+    return cliente
+
+
+@router.patch("/{id_cliente}/rehabilitar", response_model=ClienteRead)
+def rehabilitar(
+    id_cliente: int,
+    db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
+):
+    cliente = rehabilitar_cliente(db, id_cliente)
+    if not cliente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente no encontrado")
+    return cliente

@@ -13,6 +13,7 @@ pedidos, movimientos de caja y control de saldo.
 - [pos-boutique](#pos-boutique)
 - [Tabla de contenidos](#tabla-de-contenidos)
 - [Contexto](#contexto)
+- [Modelo de negocio](#modelo-de-negocio)
 - [Stack](#stack)
 - [Arquitectura](#arquitectura)
 - [Estructura del proyecto](#estructura-del-proyecto)
@@ -35,8 +36,11 @@ Pequeña empresa de tienda de ropa. Operación actual: lápiz y papel.
 El sistema no reemplaza el proceso — lo digitaliza para eliminar inconsistencias
 y dejar trazabilidad de cada operación.
 
-Modelo de negocio: crédito local. El registro de clientes, referencias y saldo
-es el núcleo del sistema.
+## Modelo de negocio 
+
+Boutique de ropa con esquema de crédito local y financiamiento directo al cliente.
+
+El negocio comercializa prendas de vestir y accesorios mediante venta directa y pedidos por catálogo. Una parte importante de las operaciones se realiza bajo un esquema de crédito interno, donde la empresa financia directamente la compra y el cliente liquida su saldo mediante pagos periódicos (abonos) hasta completar el monto adeudado.
 
 ---
 

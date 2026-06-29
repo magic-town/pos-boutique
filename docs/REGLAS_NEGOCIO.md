@@ -1,497 +1,221 @@
-# Reglas de Negocio
-## pos-boutique — Sistema de Gestión POS (Crédito Local)
+# Reglas de Negocio y Modelo de Datos — pos-boutique
 
-> Este documento es la fuente de verdad del negocio.
-> Cualquier decisión técnica debe ser consistente con lo aquí definido.
-> Se versiona junto con el código — si una regla cambia, se registra en Git.
-
----
-
-## Tabla de contenidos
-
-- [Contexto](#contexto)
-- [Enums del sistema](#enums-del-sistema)
-- [Modelo de datos](#modelo-de-datos)
-- [Módulos del sistema](#módulos-del-sistema)
-- [Panel Principal](#panel-principal--registro-de-operaciones)
-- [Ciclo de vida del cliente](#ciclo-de-vida-del-cliente)
-- [Reglas de negocio](#reglas-de-negocio)
-- [Stack tecnológico](#stack-tecnológico)
-- [Despliegue](#despliegue)
-- [Estado del proyecto](#estado-del-proyecto)
+> Este documento responde **qué hace el sistema y bajo qué reglas**, independientemente
+> de cómo se ve la UI (eso vive en `00_FULLSTACK_DEVELOPMENT.md`) y de cómo está
+> construido técnicamente (eso vive en `ARQUITECTURA.md`).
+>
+> **Estado:** el modelo de datos aquí descrito refleja la propuesta de `models.py`
+> generada a partir de `00_FULLSTACK_DEVELOPMENT.md`, **pendiente de validación e
+> implementación**. No asumas que esto ya existe en el código — revisa `AUDITORIA.md`
+> para el estado real.
 
 ---
 
-## Contexto
+## 1. Glosario de entidades
 
-Micronegocio de tienda de ropa. El negocio opera actualmente con **lápiz y papel**, con inconsistencias derivadas del registro manual. El objetivo es digitalizar y consistir un proceso que ya funciona: registrar clientes, pedidos, proveedores y movimientos financieros.
-
-El modelo de negocio está basado en **crédito local**. Se requiere una solución inmediata, sostenible y escalable.
-
----
-
-## Enums del sistema
-
-Los siguientes valores son los únicos válidos para sus respectivos campos.
-Cualquier valor fuera de esta lista debe ser rechazado por el backend (Pydantic).
-
-### `Operacion`
-
-| Valor | Descripción |
-|---|---|
-| `contado` | Venta inmediata al momento de la compra. No genera saldo. |
-| `apartado` | Reserva de producto con primer pago parcial. Genera saldo pendiente. |
-| `abono` | Pago parcial al saldo existente de un cliente. Sin producto asociado. |
-| `gasto` | Salida de dinero operativa (insumos, gastos). Sin cliente ni producto. |
-
-### `FormaPago`
-
-| Valor | Descripción |
-|---|---|
-| `efectivo` | Pago en efectivo |
-| `transferencia` | Transferencia bancaria o SPEI |
-| `tarjeta` | Pago con tarjeta (débito o crédito) |
-
-### `FrecuenciaPago`
-
-| Valor | Descripción |
-|---|---|
-| `semanal` | Pago cada semana |
-| `quincenal` | Pago cada quincena |
-| `dia_especifico_mes` | Pago en un día específico del mes |
-| `otro` | Frecuencia personalizada |
-
-### `EstatusCliente`
-
-| Valor | Descripción |
-|---|---|
-| `activo` | Cliente en operación. Default al registrar. |
-| `inactivo` | Cuenta cerrada o dada de baja manualmente. |
-
-> Corregido: `estatus` de clientes simplificado de `activo | liquidado | rehabilitar` a `activo | inactivo` según FULL_STACK_DEVELOPMENT.md.
-
-### `TipoProducto`
-
-| Valor | Descripción |
-|---|---|
-| `formal` | Producto de catálogo formal (Price Shoes, Pakar, Cklass) |
-| `informal` | Producto de catálogo informal (texto libre) |
-
-### `Proveedor`
-
-| Valor | Descripción |
-|---|---|
-| `Price_Shoes` | Proveedor Price Shoes |
-| `Pakar` | Proveedor Pakar |
-| `Cklass` | Proveedor Cklass |
-| `otro` | Otro proveedor |
-
-### `EstatusArticulo`
-
-| Valor | Descripción |
-|---|---|
-| `vigente` | Artículo activo en el pedido |
-| `en_almacen` | Artículo recibido en almacén |
-| `devuelto` | Artículo devuelto |
-| `cancelado` | Artículo cancelado |
-
-### `Categoria`
-
-| Valor | Descripción |
-|---|---|
-| `dama` | Ropa de dama |
-| `caballero` | Ropa de caballero |
-| `infantil` | Ropa infantil |
-| `accesorio` | Accesorios |
-| `calzado` | Calzado |
-
-### `EstatusInventario`
-
-| Valor | Descripción |
-|---|---|
-| `disponible` | Producto disponible para venta |
-| `vendido` | Producto vendido |
-| `disponible_c/descuento` | Disponible con descuento |
-| `en_ruta` | Producto en ruta de entrega |
-| `apartado` | Producto reservado por un cliente |
-
----
-
-## Modelo de datos
-
-Las siguientes tablas conforman la base de datos. Se presentan con sus tipos de datos
-SQLite exactos para que el modelo ORM (SQLAlchemy) y el esquema físico sean consistentes.
-
-### Relaciones entre tablas
-
-| Tabla | Rol | Relaciones |
+| Tabla | Módulo | Resumen de una línea |
 |---|---|---|
-| `clientes` | Tabla maestra de clientes de crédito | Referenciada por `pedidos`, `movimientos` |
-| `pedidos` | Cabecera de pedidos de catálogo | FK → `clientes` |
-| `pedidos_articulos` | Artículos por pedido (1 a 4) | FK → `pedidos`, autorreferencia para `rol` |
-| `inventario` | Stock físico en piso de venta | Referenciada por `movimientos` |
-| `movimientos` | Tabla central de operaciones de caja | FK → `clientes` (nullable), FK → `inventario` (nullable) |
-| `shein_clientes` | Clientes transaccionales Shein | Independiente de `clientes` |
-| `shein_pedidos` | Pedidos Shein | FK → `shein_clientes`, FK → `shein_cortes` |
-| `shein_cortes` | Cortes de Shein con bono | Independiente |
-| `recargas` | Recargas telefónicas | Independiente |
-| `usuarios` | Autenticación | Independiente |
-| `configuracion` | Configuración del sistema | Independiente |
-
-> Corregido: tabla de relaciones actualizada con 11 tablas según FULL_STACK_DEVELOPMENT.md.
-
-### `clientes`
-
-```sql
-CREATE TABLE clientes (
-    id_cliente             INTEGER PRIMARY KEY AUTOINCREMENT,
-    no_cliente             TEXT    NOT NULL UNIQUE,   -- Autogenerado: {Colonia}-{consecutivo:03d}
-    nombre                 TEXT    NOT NULL,
-    colonia                TEXT    NOT NULL,
-    telefono               INTEGER NOT NULL,          -- 10 dígitos, obligatorio
-    frecuencia_pago        TEXT    NOT NULL,          -- Enum: semanal | quincenal | dia_especifico_mes | otro
-    ref_nombre             TEXT    NOT NULL,
-    ref_colonia            TEXT    NOT NULL,
-    ref_telefono           INTEGER,                   -- 10 dígitos, nullable
-    saldo                  REAL    NOT NULL DEFAULT 0,
-    estatus                TEXT    NOT NULL DEFAULT 'activo'
-                               CHECK (estatus IN ('activo', 'inactivo')),
-    fecha_registro         TEXT    NOT NULL,          -- ISO 8601: YYYY-MM-DD
-    fecha_pago_programada  TEXT                       -- ISO 8601: YYYY-MM-DD. NULL hasta el primer abono.
-);
-```
-
-> Corregido: tabla `clientes` sincronizada con FULL_STACK_DEVELOPMENT.md — se agregan `frecuencia_pago`, `fecha_pago_programada`; `telefono` cambia a INTEGER; `estatus` simplificado a activo|inactivo.
-
-**Notas de campo:**
-- `no_cliente` lo genera el sistema automáticamente al registrar: toma la colonia del cliente y el siguiente consecutivo disponible para esa colonia. La operadora no lo captura.
-- `telefono` es de tipo INTEGER, 10 dígitos obligatorios. `ref_telefono` también es INTEGER pero acepta NULL.
-- `frecuencia_pago` es un Enum que define la periodicidad de pago del cliente: `semanal | quincenal | dia_especifico_mes | otro`.
-- `saldo` representa deuda activa. Valor positivo = el cliente debe ese monto. Cero = sin deuda.
-- `estatus` solo admite `activo | inactivo`. Se gestiona manualmente por la operadora desde Editar Cliente. Ver [§ Ciclo de vida del cliente](#ciclo-de-vida-del-cliente).
-- `fecha_pago_programada` es NULL al momento del registro. Se calcula automáticamente con cada abono basándose en la `frecuencia_pago`.
-- `ref_telefono` acepta NULL — el teléfono del garante es opcional. `ref_nombre` y `ref_colonia` son obligatorios.
+| `clientes` | Clientes | Cartera de crédito de la boutique |
+| `pedidos` | Pedidos | Cabecera de un pedido a proveedor |
+| `pedidos_articulos` | Pedidos | Artículos individuales de un pedido (1 a 4 por pedido) |
+| `inventario` | Inventario | Existencias propias de la boutique (piso de venta) |
+| `movimientos` | Panel Principal | Registro de toda operación de caja (contado, apartado, abono, gasto) |
+| `shein_clientes` | Shein | Clientes transaccionales de Shein, independientes de `clientes` |
+| `shein_pedidos` | Shein | Pedidos individuales de Shein |
+| `shein_cortes` | Shein | Cortes periódicos que calculan el bono por volumen |
+| `recargas` | Recargas | Registro de recargas telefónicas vendidas |
+| `usuarios` | Autenticación | Cuentas de acceso al sistema |
+| `configuracion` | Configuración | Parámetros del sistema (métodos de pago activos, etc.) |
 
 ---
 
-### `pedidos`
+## 2. Módulo Clientes
 
-```sql
-CREATE TABLE pedidos (
-    id_pedido           INTEGER PRIMARY KEY AUTOINCREMENT,
-    id_cliente          INTEGER NOT NULL REFERENCES clientes(id_cliente),
-    producto            TEXT    NOT NULL,   -- Texto libre; nombre del artículo principal
-    id_producto_externo TEXT,               -- ID del proveedor si lo tiene (opcional)
-    marca               TEXT,
-    talla               TEXT,
-    opcion_producto     TEXT,               -- Producto alternativo (si el principal no se consigue)
-    opcion_marca        TEXT,               -- Marca del producto alternativo
-    opcion_talla        TEXT,               -- Talla del producto alternativo
-    fecha               TEXT    NOT NULL    -- ISO 8601: YYYY-MM-DD
-);
-```
+### Modelo de datos
 
-**Notas de campo:**
-- No existe catálogo de productos en el MVP. `producto` y `opcion_producto` son texto libre.
-- Los campos `opcion_*` son el segundo producto que se entrega si el principal no se consigue. Tienen exactamente la misma estructura que el producto principal.
-- Un `Pedido` genera registro en `movimientos` solo cuando el cliente acepta quedarse con el producto (concretación). Mientras está pendiente, vive solo en `pedidos`.
-
----
-
-### `pedidos_shein`
-
-```sql
-CREATE TABLE pedidos_shein (
-    id_pedido_shein INTEGER PRIMARY KEY AUTOINCREMENT,
-    id_cliente      INTEGER NOT NULL REFERENCES clientes(id_cliente),
-    producto        TEXT    NOT NULL,   -- Descripción del artículo seleccionado en la app
-    monto           REAL    NOT NULL,   -- Precio pagado al momento de confirmar la compra
-    fecha           TEXT    NOT NULL    -- ISO 8601: YYYY-MM-DD
-);
-```
-
-**Notas de campo:**
-- El campo `bono_aplicado` que existía en el modelo ORM original ha sido **eliminado**. No corresponde a ninguna regla de negocio definida.
-- El flujo Shein opera así: el cliente selecciona el artículo en la app de Shein, la tienda ejecuta la compra. El pago del cliente a la tienda es **siempre de contado** — Shein no genera saldo.
-- Al concretarse la compra Shein, se genera un registro en `movimientos` con `operacion = 'contado'`. Esto registra el ingreso a caja de la tienda.
-- El módulo Shein tiene su propia vista en el panel pero comparte la caja general a través de `movimientos`. No tiene base de datos separada en el MVP.
-
----
-
-### `inventario`
-
-```sql
-CREATE TABLE inventario (
-    id_producto     INTEGER PRIMARY KEY AUTOINCREMENT,
-    descripcion     TEXT    NOT NULL,
-    marca           TEXT,
-    talla           TEXT,
-    cantidad        INTEGER NOT NULL DEFAULT 0,
-    precio          REAL    NOT NULL,
-    fecha_registro  TEXT    NOT NULL   -- ISO 8601: YYYY-MM-DD
-);
-```
-
-**Notas de campo:**
-- En el MVP (v0.1), el Piso de Venta no está activo. La integración con el spreadsheet existente ocurre en **v0.2**.
-- `cantidad` puede llegar a 0 pero no debe ser negativa. El backend debe rechazar una venta si `cantidad = 0`.
-
----
-
-### `movimientos`
-
-```sql
-CREATE TABLE movimientos (
-    id_movimiento    INTEGER PRIMARY KEY AUTOINCREMENT,
-    operacion        TEXT    NOT NULL,   -- Enum: contado | apartado | abono | gasto
-    id_cliente       INTEGER REFERENCES clientes(id_cliente),   -- NULL para 'gasto' y 'contado' sin cliente
-    id_producto      INTEGER REFERENCES inventario(id_producto), -- NULL si no es venta de Piso de Venta
-    monto            REAL    NOT NULL,
-    forma_pago       TEXT    NOT NULL,   -- Enum: efectivo | transferencia | tarjeta
-    saldo_resultante REAL,               -- NULL para 'contado' y 'gasto'. Saldo del cliente tras la operación.
-    notas            TEXT,               -- Campo libre para observaciones (opcional)
-    fecha            TEXT    NOT NULL    -- ISO 8601: YYYY-MM-DD
-);
-```
-
-**Notas de campo:**
-- `saldo_resultante` solo se registra cuando la operación modifica el saldo del cliente: `apartado` y `abono`. Para `contado` y `gasto` es NULL.
-- Cuando se registra un `abono`: `saldo_resultante = clientes.saldo - monto`. El backend actualiza `clientes.saldo` en la misma transacción.
-- Cuando se registra un `apartado`: `saldo_resultante = precio_producto - primer_pago`. El backend escribe ese valor en `clientes.saldo`.
-- `id_producto` solo se vincula cuando el origen del artículo es Piso de Venta (tabla `inventario`). Para catálogo informal o Shein, es NULL.
-- `notas` existe para casos excepcionales que la operadora necesite documentar. No es un campo visible en el flujo principal de la UI.
-
----
-
-## Módulos del sistema
-
-Cada módulo es una operación que **lee o escribe** en la base de datos.
-Son accesibles desde el panel principal.
-
-### 1. Agregar Cliente
-
-> Escribe en: `clientes`
-
-| Campo UI | Campo DB | Tipo | Requerido |
-|---|---|---|---|
-| Nombre | `nombre` | TEXT | ✅ |
-| Colonia | `colonia` | TEXT | ✅ |
-| Teléfono | `telefono` | TEXT | ✅ |
-| Nombre del garante | `ref_nombre` | TEXT | ✅ |
-| Colonia del garante | `ref_colonia` | TEXT | ✅ |
-| Teléfono del garante | `ref_telefono` | TEXT | ❌ |
-| No. cliente | `no_cliente` | TEXT | Autogenerado |
-
-El campo `no_cliente` lo genera el sistema. La operadora no lo captura.
-Formato: `{Colonia}-{consecutivo con ceros}` → `Carrillos-001`, `Carrillos-002`, `Centro-001`.
-
----
-
-### 2. Pedido (Catálogo)
-
-> Escribe en: `pedidos` → genera registro en `movimientos` al concretarse.
-
-| Campo UI | Campo DB | Tipo | Requerido |
-|---|---|---|---|
-| Cliente | `id_cliente` | INTEGER (FK) | ✅ |
-| Producto | `producto` | TEXT | ✅ |
-| ID proveedor | `id_producto_externo` | TEXT | ❌ |
-| Marca | `marca` | TEXT | ❌ |
-| Talla | `talla` | TEXT | ❌ |
-| Opción — Producto | `opcion_producto` | TEXT | ❌ |
-| Opción — Marca | `opcion_marca` | TEXT | ❌ |
-| Opción — Talla | `opcion_talla` | TEXT | ❌ |
-
-La "Opción" es un segundo artículo que la tienda entrega si el producto principal no está disponible. No es una variante del mismo artículo — es un producto alternativo completo. Los campos `opcion_*` son opcionales en el registro pero deben llenarse juntos si se usan.
-
----
-
-### 3. Shein (Proveedor especial)
-
-> Escribe en: `pedidos_shein` → genera registro en `movimientos` al concretarse.
-
-| Campo UI | Campo DB | Tipo | Requerido |
-|---|---|---|---|
-| Cliente | `id_cliente` | INTEGER (FK) | ✅ |
-| Producto | `producto` | TEXT | ✅ |
-| Monto | `monto` | REAL | ✅ |
-
-El pago es siempre de **contado**. No genera saldo al cliente.
-Al concretarse, se registra en `movimientos` con `operacion = 'contado'` e `id_cliente` vinculado.
-El ingreso queda reflejado en caja como cualquier otro contado.
-
----
-
-### 4. Piso de Venta
-
-> Lee y escribe en: `inventario` → genera registro en `movimientos` al vender.
-
-**Estado en MVP (v0.1):** No activo. El módulo existe en la UI como placeholder.
-La integración con el spreadsheet de inventario existente ocurre en **v0.2**.
-
-Funcionalidad planeada para v0.2:
-- Buscar y seleccionar producto en `inventario`
-- Registrar venta (descuenta `cantidad` en `inventario`, escribe en `movimientos`)
-- El backend rechaza la venta si `cantidad = 0`
-
----
-
-### 5. Consulta
-
-> Lee de: `clientes` + `movimientos`
-
-Vista de solo lectura, filtrada por cliente. Muestra:
-- Datos del cliente (nombre, colonia, teléfono, `no_cliente`, estatus)
-- Saldo actual (`clientes.saldo`)
-- Historial de movimientos asociados (ordenado por fecha descendente)
-
----
-
-## Panel Principal — Registro de Operaciones
-
-> Escribe en: `movimientos`
-
-> ⚠️ Los módulos **Pedido** y **Shein** tienen su propia vista y no se operan desde aquí.
-
-### Paso 1 — Seleccionar operación
-
-| Operación | Descripción |
-|---|---|
-| **Contado** | Venta inmediata. Sin saldo. Cliente opcional. |
-| **Apartado** | Primer pago + reserva de producto. Abre modal. Genera saldo en el cliente. |
-| **Abono** | Pago parcial al saldo existente del cliente. Sin producto. |
-| **Gasto** | Salida de dinero (insumos, gastos operativos). Sin cliente. |
-
-**Nota sobre Crédito:** no es una operación independiente. El saldo a crédito se genera automáticamente cuando un `Apartado` se convierte en deuda activa. Todo cliente que tenga `saldo > 0` tiene crédito activo. El estado se gestiona a través del ciclo de vida del cliente (ver sección siguiente).
-
-### Paso 2 — Origen del producto
-
-Solo aplica para **Contado** y **Apartado**:
-
-- **Catálogo informal:** texto libre. No vincula `id_producto`.
-- **Piso de Venta:** busca en `inventario`. Vincula `id_producto`. (Disponible en v0.2.)
-
-### Paso 3 — Campos activos por operación
-
-| Operación | Cliente | Producto | Monto | Forma de pago | `saldo_resultante` |
-|---|---|---|---|---|---|
-| Contado | Opcional | ✅ | ✅ | ✅ | NULL |
-| Apartado | Obligatorio | ✅ | ✅ (1er pago) | ✅ | ✅ (precio − 1er pago) |
-| Abono | Obligatorio | ❌ | ✅ | ✅ | ✅ (saldo anterior − monto) |
-| Gasto | ❌ | ❌ | ✅ | ✅ | NULL |
-
-### Modal de Apartado
-
-Ventana emergente con:
-- Cliente y producto seleccionados
-- Monto del primer pago y fecha
-- Saldo pendiente calculado (precio − primer pago)
-- Historial de abonos previos del cliente (si los hay)
-
----
-
-## Ciclo de vida del cliente
-
-El campo `estatus` en `clientes` refleja el estado operativo del cliente en cualquier momento.
-
-```
-[Registro] ──▶ activo ──▶ liquidado ──▶ rehabilitar ──▶ activo
-                │                              ▲
-                │                              │
-                └──── saldo llega a 0 ─────────┘
-```
-
-| Estatus | Condición | Acción del sistema |
+| Campo | Tipo | Regla |
 |---|---|---|
-| `activo` | Cliente con saldo > 0 o sin deuda pero en operación regular | Operación normal |
-| `liquidado` | `saldo = 0` después de un abono que cierra la deuda | El sistema lanza bandera: cliente debe ser **rehabilitado** antes de operar de nuevo |
-| `rehabilitar` | Operadora revisó el historial y reactivó al cliente | Regresa a `activo` manualmente desde `Consulta` |
+| `id_cliente` | Integer, PK | — |
+| `no_cliente` | String, único | Autogenerado: `{Colonia}-{consecutivo:03d}` |
+| `nombre` | String(40) | Obligatorio |
+| `colonia` | String(20) | Obligatorio |
+| `telefono` | Integer | 10 dígitos, obligatorio |
+| `frecuencia_pago` | Enum: `semanal`, `quincenal`, `dia_especifico_mes`, `otro` | Obligatorio |
+| `ref_nombre` | String(40) | Obligatorio |
+| `ref_colonia` | String(40) | Obligatorio |
+| `ref_telefono` | Integer, nullable | 10 dígitos, opcional |
+| `saldo` | Float | Default `0`. Deuda acumulada |
+| `estatus` | Enum: `activo`, `inactivo` | Default `activo`. Cambio manual, nunca automático |
+| `fecha_registro` | Date | Autogenerado al crear |
+| `fecha_pago_programada` | Date, nullable | `NULL` hasta el primer abono. Ver regla de ciclo abajo |
 
-**Regla clave:** Un cliente con `estatus = liquidado` no desaparece de la base de datos. Permanece en `clientes` con su historial completo. La rehabilitación es un paso manual que la operadora ejecuta desde la vista de `Consulta`.
+### Reglas de negocio
 
-El calendario de pagos (frecuencia esperada de abonos por cliente) es una funcionalidad planeada para versiones futuras. La base para implementarlo ya existe: `clientes.saldo` + historial en `movimientos`.
-
----
-
-## Reglas de negocio
-
-1. **Digitalización, no reinvención.** El sistema digitaliza un proceso existente. Prioridad: consistencia y simplicidad.
-2. **Referencia geográfica:** colonia + teléfono. Sin calle ni número.
-3. **Referencia del cliente (garante):** tres campos separados — `ref_nombre` (obligatorio), `ref_colonia` (obligatorio), `ref_telefono` (opcional).
-4. **`no_cliente` autogenerado:** el sistema lo genera con formato `{Colonia}-{consecutivo}`. La operadora no lo captura manualmente.
-5. **Saldo global:** los abonos aplican al saldo total del cliente, no a productos individuales.
-6. **Saldo = deuda:** `clientes.saldo` es siempre positivo o cero. Positivo significa que el cliente debe ese monto. Nunca es negativo.
-7. **`saldo_resultante` en movimientos:** solo se registra en `apartado` y `abono`. Es NULL para `contado` y `gasto`.
-8. **Shein no genera saldo:** los pedidos Shein se pagan siempre de contado. El ingreso se registra en `movimientos` como `contado`.
-9. **Inventario externo:** Piso de Venta se integra con spreadsheet existente en v0.2. No activo en MVP.
-10. **Sin catálogo formal en MVP:** los campos `producto` y `opcion_producto` son texto libre. Una tabla `productos` es objetivo de versiones futuras.
-11. **Opción en Pedidos:** es un segundo artículo alternativo completo (`opcion_producto`, `opcion_marca`, `opcion_talla`), no una variante del producto principal.
-12. **Inventario con cantidad 0:** el backend rechaza cualquier venta de Piso de Venta si `inventario.cantidad = 0`.
-13. **Cliente liquidado no se elimina:** `estatus = liquidado` es una bandera operativa. El registro permanece y debe ser rehabilitado para volver a operar.
-14. **Operaciones no contempladas** (devoluciones, préstamos de exhibición, etc.) se incorporan a partir de **v0.3**.
+1. **`saldo = 0` no implica baja automática.** El cambio a `inactivo` siempre es una decisión operativa explícita de la operadora.
+2. **Ciclo de `fecha_pago_programada`:** se instancia en el primer abono (`fecha_abono + frecuencia_pago`) y se recalcula en cada abono subsiguiente desde la fecha real del abono, no desde la fecha programada anterior. Si `frecuencia_pago = otro`, el sistema nunca calcula esta fecha.
+3. **Sistema de banderas (visual, no bloqueante):**
+   - 🟡 Amarilla: `fecha_pago_programada - hoy <= 2 días`
+   - 🔴 Roja: `hoy > fecha_pago_programada`
+   - Sin bandera: cualquier otro caso, o `fecha_pago_programada = NULL`, o `saldo = 0`
 
 ---
 
-## Stack tecnológico
+## 3. Módulo Pedidos (cabecera-detalle)
 
-| Capa | Tecnología | Justificación |
+### Modelo de datos
+
+**`pedidos`** (cabecera): `id_pedido`, `id_cliente` (FK), `fecha`.
+
+**`pedidos_articulos`** (detalle, 1 a 4 filas por pedido):
+
+| Campo | Tipo | Regla |
 |---|---|---|
-| Frontend | React + Vite | Ligero, ampliamente documentado, ideal para formularios y tablas |
-| Backend | FastAPI (Python) | Simple, moderno, genera docs de API automáticamente |
-| Base de datos | SQLite | Sin servidor, archivo `.db` respaldable con copiar y pegar |
-| Despliegue | Local en PC ejecutiva | Sin dependencia de internet ni infraestructura externa |
-| Actualizaciones | Git pull desde GitHub | Push desde desarrollo, pull en producción |
+| `id_articulo` | Integer, PK | — |
+| `id_pedido` | FK → `pedidos` | Obligatorio |
+| `rol` | Enum: `principal`, `alternativa` | Default `principal` |
+| `id_articulo_principal` | FK → `pedidos_articulos`, nullable | Solo se llena si `rol = alternativa` |
+| `tipo_producto` | Enum: `formal`, `informal` | Obligatorio |
+| `proveedor` | Enum: `Price_Shoes`, `Pakar`, `Cklass`, `otro`, nullable | Solo si `tipo_producto = formal` |
+| `id_producto` | String(12), nullable | Referencia libre al catálogo del proveedor, sin FK real |
+| `producto` | String(40) | Obligatorio |
+| `marca`, `talla` | String, nullable | Opcionales |
+| `monto` | Float, nullable | Ver regla de resolución abajo |
+| `estatus_articulo` | Enum: `vigente`, `en_almacen`, `devuelto`, `cancelado` | Default `vigente` |
+| `id_articulo_sustituye` | FK → `pedidos_articulos`, nullable | Solo en artículos sustitutos de una devolución |
 
-Escalable: migración futura a PostgreSQL + hosting en nube sin cambios de arquitectura.
+### Reglas de negocio
 
----
-
-## Despliegue
-
-- **Desarrollo y pruebas:** máquina del desarrollador (`actuary`)
-- **Producción:** PC de la ejecutiva en tienda, sin dependencia de internet
-
-```
-Desarrollador  →  git push → GitHub → git pull  →  PC ejecutiva
-```
-
-Mantenimiento remoto vía SSH desde máquina del desarrollador.
-Requisitos en PC ejecutiva: Python 3.11+ y Node.js 20+ (instalación única).
+1. **El saldo del cliente NO se carga al registrar el pedido.** Se carga únicamente cuando el artículo se marca `en_almacen` (es decir, cuando llega físicamente). Esta es la regla de negocio más importante del módulo: refleja que solo se cobra lo que efectivamente se surtió.
+2. **Resolución de `monto`:** si `proveedor` tiene lista de precios (`Price_Shoes`, `Pakar`, `Cklass`), el sistema hace lookup automático por `id_producto`. Si `proveedor = otro`, el monto se captura manualmente.
+3. **Devolución:** el artículo pasa a `devuelto`, se revierte su monto del saldo del cliente, y se abre un pedido sustituto vinculado vía `id_articulo_sustituye`.
+4. **Cancelación:** el artículo pasa a `cancelado`. Si su estatus previo era `en_almacen` (ya había impactado saldo), se revierte el monto. Si era `vigente`, no hay nada que revertir porque nunca impactó el saldo.
 
 ---
 
-## Estado del proyecto
+## 4. Módulo Inventario
 
-| Ítem | Estado |
-|---|---|
-| Repositorio `pos-boutique` | ✅ Creado |
-| `.gitignore` | ✅ Configurado (template Node + Python) |
-| Estructura de carpetas | ✅ Commiteada |
-| `README.md` | ✅ |
-| `docs/ARQUITECTURA.md` | ✅ |
-| `docs/REGLAS_NEGOCIO.md` | ✅ |
-| `backend/requirements.txt` | ✅ |
-| `backend/venv` | ✅ (no commiteado) |
-| Esquema de base de datos (`models.py` + `pos.db`) | ✅ Modelos ORM creados, tablas generadas |
-| Schemas Pydantic | 🔲 Pendiente |
-| Endpoints API REST | 🔲 Pendiente |
-| Servicios (lógica de negocio) | 🔲 Pendiente |
-| Configuración centralizada (`core/`) | 🔲 Pendiente |
-| CORS middleware | 🔲 Pendiente |
-| Alembic (migraciones) | 🔲 Pendiente |
-| Interfaz base (React + Vite) | 🔲 Pendiente |
+### Modelo de datos
 
-## Usuarios y acceso
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_producto` | Integer, PK | No se reutiliza aunque el producto se venda |
+| `categoria` | Enum: `dama`, `caballero`, `infantil`, `accesorio`, `calzado` | Obligatorio |
+| `tipo_producto` | Enum: `formal`, `informal` | Obligatorio |
+| `descripcion` | String(40) | Obligatorio |
+| `talla`, `color`, `marca` | String, nullable | Opcionales |
+| `precio_venta` | Integer | Obligatorio |
+| `precio_descuento` | Integer, nullable | `NULL` = sin descuento. Con valor = precio vigente |
+| `stock` | Integer | Default `0` |
+| `estatus` | Enum: `disponible`, `disponible_c/descuento`, `en_ruta`, `apartado`, `vendido` | Default `disponible` |
+| `descripcion_ruta` | String, nullable | Obligatorio solo si `estatus = en_ruta` |
+| `created` | Date | Autogenerado |
+| `changed_status` | Date, nullable | Se actualiza en cada cambio de `estatus` |
 
-El sistema tiene dos usuarios iniciales con rol `estandar`.
-- `operador_1`
-- `operador_2`
+### Reglas de negocio
 
-Roles definidos: `estandar` | `admin`
-La distinción de permisos entre roles se implementa en versiones futuras.
-Todo acceso al sistema requiere autenticación via token (JWT).
+1. **Transiciones de estatus válidas (no es una lista plana, depende del estado actual):**
+   - `disponible` → `en_ruta`, `disponible_c/descuento`, `apartado`, `vendido`
+   - `disponible_c/descuento` → `disponible`, `en_ruta`, `apartado`, `vendido`
+   - `en_ruta` → `disponible`, `vendido`
+   - `apartado` → `disponible` (cancelación), `vendido` (liquidación)
+   - `vendido` → sin transición posible
+2. **`precio_descuento` no tiene columna de porcentaje** — se calcula al vuelo: `(1 - precio_descuento / precio_venta) * 100`.
 
-### Cancelación de movimientos
-La cancelación solo aplica al último movimiento registrado.
-Correcciones de registros históricos se realizan con un abono compensatorio
-registrado por la operadora — el sistema no edita registros pasados.
+---
+
+## 5. Panel Principal — Movimientos de caja
+
+### Modelo de datos
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_movimiento` | Integer, PK | — |
+| `operacion` | Enum: `contado`, `apartado`, `abono`, `gasto` | Obligatorio |
+| `id_cliente` | FK → `clientes`, nullable | Obligatorio en `apartado`/`abono`. `NULL` en `gasto` |
+| `id_producto` | FK → `inventario`, nullable | Solo cuando aplica (contado/apartado desde inventario) |
+| `monto` | Float | Obligatorio, > 0 |
+| `forma_pago` | Enum: `efectivo`, `transferencia`, `tarjeta` | Depende de `configuracion` (métodos activos) |
+| `saldo_resultante` | Float, nullable | `NULL` en `contado`/`gasto`. Calculado en `apartado`/`abono` |
+| `descripcion` | String(60), nullable | **Obligatoria únicamente en `gasto`** |
+| `fecha` | DateTime | Autogenerado |
+
+### Reglas de negocio por operación
+
+- **Contado:** no impacta saldo de cliente. Si el producto viene de `inventario`, descuenta `stock` y marca `vendido` si llega a 0.
+- **Apartado:**
+  1. Cliente obligatorio. Producto debe existir en `inventario` con estatus `disponible` o `disponible_c/descuento`.
+  2. **Primer pago mínimo: $100.00.** El backend rechaza montos menores.
+  3. `saldo_resultante = precio_producto - primer_pago`, se **suma** al saldo existente del cliente (nunca se sobrescribe).
+  4. `inventario.estatus` cambia a `apartado` en la misma transacción.
+  5. Cancelación del apartado: `inventario.estatus` vuelve a `disponible`; el saldo pendiente se resta (el primer pago no se devuelve salvo decisión de la operadora).
+- **Abono:** `saldo_resultante = saldo_actual - monto`. Rechazado si `monto > saldo_actual`. Recalcula `fecha_pago_programada` del cliente. Si el saldo llega a 0, el cliente **no** cambia de estatus automáticamente.
+- **Gasto:** sin cliente ni producto. `descripcion` obligatoria. `saldo_resultante = NULL`. Representa salida de caja.
+
+> El saldo agregado del negocio no es un campo en base de datos — se deriva por consulta agregada sobre `movimientos` (ver Módulo Consulta Global).
+
+---
+
+## 6. Módulo Shein
+
+> La boutique actúa como intermediaria: compra en la app de Shein a nombre del cliente y cobra el mismo precio, siempre de contado, sin devoluciones.
+
+### Modelo de datos
+
+**`shein_clientes`** (independiente de `clientes` — sin saldo, sin garante, sin frecuencia de pago): `id_shein_cliente`, `nombre` (20), `colonia` (12), `telefono` (Integer, 10 dígitos).
+
+**`shein_pedidos`**: `id_shein_pedido`, `id_shein_cliente` (FK), `id_shein_corte` (FK, nullable hasta asignarse a un corte), `producto`, `monto` (precio al momento del pedido), `monto_vigente` (nullable, se llena si el precio cambió al cerrar el corte), `fecha`.
+
+**`shein_cortes`**: `id_shein_corte`, `fecha_corte`, `total_pedidos`, `suma_montos`, `porcentaje_bono`, `bono_monto` (= `suma_montos * porcentaje_bono`, calculado por backend).
+
+### Reglas de negocio
+
+1. **Por qué `shein_clientes` es independiente:** forzar estos clientes en `clientes` introduciría campos obligatorios que no aplican (garante, saldo, frecuencia de pago) y contaminaría la cartera de crédito real.
+2. **Variación de precios:** si el precio de un artículo bajó entre el pedido y el corte, la tienda absorbe la diferencia sin notificar. Si subió, debe notificarse al cliente antes de ejecutar la compra — el campo `monto_vigente` es el mecanismo de control en MVP.
+3. El bono no pertenece a ningún cliente o artículo individual — es resultado agregado de un corte.
+
+---
+
+## 7. Módulo Recargas Telefónicas
+
+Tabla independiente, sin relaciones: `id_recarga`, `compania` (Enum: `Telcel`, `Movistar`, `Unefon`, `AT&T`), `monto`, `fecha` (timestamp completo, autogenerado). Sin validación de tope de monto. Sin impacto en saldo de clientes ni inventario — solo trazabilidad de ingresos.
+
+---
+
+## 8. Autenticación
+
+**`usuarios`**: `id_usuario`, `usuario` (único), `password_hash` (bcrypt), `rol` (Enum: `estandar`, `admin`), `activo` (booleano/entero).
+
+- Login construido pero desactivado en MVP (`AUTH_ENABLED = False`).
+- Sin recuperación de contraseña por correo (sistema offline) — la hace el desarrollador directamente en la base de datos.
+- Permisos diferenciados por rol: pendientes de implementación futura, sin cambio de esquema cuando llegue ese momento.
+
+---
+
+## 9. Configuración
+
+**`configuracion`**: tabla clave-valor (`clave` PK, `valor`). Controla qué métodos de pago están activos (`pago_efectivo_activo`, `pago_transferencia_activo`, etc.), CLABEs registradas, y zona horaria (informativa, solo lectura).
+
+- Efectivo: siempre activo, no desactivable.
+- Transferencia, tarjeta débito/crédito: activos por defecto, se pueden desactivar.
+- MSI y vales: bloqueados por defecto, se pueden activar.
+
+---
+
+## 10. Módulo Consulta Global
+
+Tres consultas de solo lectura sobre datos agregados (no reemplazan la Consulta Historial por cliente individual):
+
+1. **Ventas totales por período** — suma de `movimientos` (excluyendo `gasto`) agrupada por operación, con total consolidado.
+2. **Ventas por segmento** — distribución entre Caja (movimientos), Shein y Recargas en un período.
+3. **Cartera de clientes por segmento** — clientes con saldo activo agrupados por colonia, con saldo total y promedio.
+
+---
+
+## 11. Invariantes globales del sistema
+
+Reglas que aplican transversalmente y que cualquier servicio nuevo debe respetar:
+
+- El saldo de un cliente nunca se sobrescribe directamente — siempre se suma o resta (`saldo += monto` / `saldo -= monto`), nunca `saldo = monto`.
+- Ninguna operación de caja se registra sin `forma_pago`.
+- Ningún cambio de estatus en `inventario` ocurre sin actualizar `changed_status`.
+- Toda fecha de negocio se almacena en `YYYY-MM-DD` (o timestamp completo cuando la tabla lo requiere) y se muestra al usuario en `DD-MM-YYYY`.

@@ -1,98 +1,205 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum
+"""
+Modelo de datos alineado a docs/00_FULLSTACK_DEVELOPMENT.md (fuente de verdad única).
+
+Reemplaza por completo el models.py anterior. Tablas nuevas o reestructuradas:
+- clientes:           + frecuencia_pago, fecha_pago_programada; telefono -> Integer;
+                       estatus simplificado a activo/inactivo.
+- pedidos:             ahora es SOLO cabecera (id_cliente, fecha).
+- pedidos_articulos:   tabla NUEVA (detalle, 1 a 4 artículos por pedido).
+- inventario:          + tipo_producto, precio_descuento, descripcion_ruta;
+                       estatus con 5 valores incl. 'apartado'; created/changed_status.
+- movimientos:         notas -> descripcion (obligatoria solo en 'gasto').
+- shein_clientes:      tabla NUEVA (reemplaza el uso de `clientes` para Shein).
+- shein_pedidos:       tabla NUEVA (reemplaza pedidos_shein, ya no apunta a clientes generales).
+- shein_cortes:        tabla NUEVA.
+- recargas:            tabla NUEVA.
+- configuracion:       tabla NUEVA.
+- usuarios:            sin cambio de fondo (se mantiene username/hashed_password).
+
+NOTA: este archivo se entrega para revisión. La migración Alembic correctiva
+(que reemplaza la actual `pedidos`/`pedidos_shein` y agrega las tablas nuevas)
+es el siguiente paso, una vez se apruebe este esquema.
+"""
+
+from sqlalchemy import (
+    Column, Integer, String, Float, DateTime, Date, ForeignKey,
+    Enum, CheckConstraint, UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.database import Base
 import enum
 
 
-class Operacion(enum.Enum):
-    contado  = "contado"
-    apartado = "apartado"
-    abono    = "abono"
-    gasto    = "gasto"
+# ──────────────────────────────────────────────────────────────────────────
+# ENUMS
+# ──────────────────────────────────────────────────────────────────────────
+
+class FrecuenciaPago(enum.Enum):
+    semanal = "semanal"
+    quincenal = "quincenal"
+    dia_especifico_mes = "dia_especifico_mes"
+    otro = "otro"
 
 
-class FormaPago(enum.Enum):
-    efectivo      = "efectivo"
-    transferencia = "transferencia"
-    tarjeta       = "tarjeta"
+class EstatusCliente(enum.Enum):
+    activo = "activo"
+    inactivo = "inactivo"
+
+
+class RolArticulo(enum.Enum):
+    principal = "principal"
+    alternativa = "alternativa"
+
+
+class TipoProducto(enum.Enum):
+    formal = "formal"
+    informal = "informal"
+
+
+class Proveedor(enum.Enum):
+    Price_Shoes = "Price_Shoes"
+    Pakar = "Pakar"
+    Cklass = "Cklass"
+    otro = "otro"
+
+
+class EstatusArticulo(enum.Enum):
+    vigente = "vigente"
+    en_almacen = "en_almacen"
+    devuelto = "devuelto"
+    cancelado = "cancelado"
+
+
+class CategoriaInventario(enum.Enum):
+    dama = "dama"
+    caballero = "caballero"
+    infantil = "infantil"
+    accesorio = "accesorio"
+    calzado = "calzado"
 
 
 class EstatusInventario(enum.Enum):
-    disponible           = "disponible"
-    vendido              = "vendido"
-    disponible_descuento = "disponible c/descuento"
-    en_ruta              = "en_ruta"
+    disponible = "disponible"
+    disponible_c_descuento = "disponible_c/descuento"
+    en_ruta = "en_ruta"
+    apartado = "apartado"
+    vendido = "vendido"
 
+
+class Operacion(enum.Enum):
+    contado = "contado"
+    apartado = "apartado"
+    abono = "abono"
+    gasto = "gasto"
+
+
+class FormaPago(enum.Enum):
+    efectivo = "efectivo"
+    transferencia = "transferencia"
+    tarjeta = "tarjeta"
+
+
+class Compania(enum.Enum):
+    Telcel = "Telcel"
+    Movistar = "Movistar"
+    Unefon = "Unefon"
+    ATT = "AT&T"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# MÓDULO CLIENTES
+# ──────────────────────────────────────────────────────────────────────────
 
 class Cliente(Base):
     __tablename__ = "clientes"
 
-    id_cliente     = Column(Integer, primary_key=True, index=True)
-    no_cliente     = Column(String, unique=True, index=True, nullable=False)
-    nombre         = Column(String, nullable=False)
-    colonia        = Column(String, nullable=False)
-    telefono       = Column(String, nullable=False)
-    ref_nombre     = Column(String, nullable=False)
-    ref_colonia    = Column(String, nullable=False)
-    ref_telefono   = Column(String, nullable=True)
-    saldo          = Column(Float, nullable=False, default=0.0)
-    estatus        = Column(String, nullable=False, default="activo")  # activo | liquidado | rehabilitar
-    fecha_registro = Column(DateTime, server_default=func.now())
+    id_cliente             = Column(Integer, primary_key=True, index=True)
+    no_cliente              = Column(String, unique=True, index=True, nullable=False)
+    nombre                  = Column(String(40), nullable=False)
+    colonia                 = Column(String(20), nullable=False)
+    telefono                = Column(Integer, nullable=False)            # 10 dígitos
+    frecuencia_pago         = Column(Enum(FrecuenciaPago), nullable=False)
+    ref_nombre              = Column(String(40), nullable=False)
+    ref_colonia             = Column(String(40), nullable=False)
+    ref_telefono            = Column(Integer, nullable=True)             # 10 dígitos, opcional
+    saldo                   = Column(Float, nullable=False, default=0.0)
+    estatus                 = Column(Enum(EstatusCliente), nullable=False,
+                                      default=EstatusCliente.activo)
+    fecha_registro          = Column(Date, server_default=func.current_date(), nullable=False)
+    fecha_pago_programada   = Column(Date, nullable=True)   # NULL hasta el primer abono
 
     movimientos   = relationship("Movimiento", back_populates="cliente")
     pedidos       = relationship("Pedido", back_populates="cliente")
-    pedidos_shein = relationship("PedidoShein", back_populates="cliente")
 
+
+# ──────────────────────────────────────────────────────────────────────────
+# MÓDULO PEDIDOS (cabecera-detalle)
+# ──────────────────────────────────────────────────────────────────────────
+
+class Pedido(Base):
+    """Cabecera. Un pedido agrupa de 1 a 4 artículos (pedidos_articulos)."""
+    __tablename__ = "pedidos"
+
+    id_pedido  = Column(Integer, primary_key=True, index=True)
+    id_cliente = Column(Integer, ForeignKey("clientes.id_cliente"), nullable=False)
+    fecha      = Column(Date, server_default=func.current_date(), nullable=False)
+
+    cliente   = relationship("Cliente", back_populates="pedidos")
+    articulos = relationship("PedidoArticulo", back_populates="pedido")
+
+
+class PedidoArticulo(Base):
+    """Detalle. Cada renglón es un artículo, con rol principal o alternativa."""
+    __tablename__ = "pedidos_articulos"
+
+    id_articulo            = Column(Integer, primary_key=True, index=True)
+    id_pedido               = Column(Integer, ForeignKey("pedidos.id_pedido"), nullable=False)
+    rol                     = Column(Enum(RolArticulo), nullable=False, default=RolArticulo.principal)
+    id_articulo_principal   = Column(Integer, ForeignKey("pedidos_articulos.id_articulo"), nullable=True)
+    tipo_producto           = Column(Enum(TipoProducto), nullable=False)
+    proveedor               = Column(Enum(Proveedor), nullable=True)        # NULL si informal
+    id_producto             = Column(String(12), nullable=True)             # referencia libre al catálogo del proveedor
+    producto                = Column(String(40), nullable=False)
+    marca                   = Column(String(20), nullable=True)
+    talla                   = Column(String(8), nullable=True)
+    monto                   = Column(Float, nullable=True)
+    estatus_articulo        = Column(Enum(EstatusArticulo), nullable=False,
+                                      default=EstatusArticulo.vigente)
+    id_articulo_sustituye   = Column(Integer, ForeignKey("pedidos_articulos.id_articulo"), nullable=True)
+
+    pedido = relationship("Pedido", back_populates="articulos", foreign_keys=[id_pedido])
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# MÓDULO INVENTARIO
+# ──────────────────────────────────────────────────────────────────────────
 
 class Inventario(Base):
     __tablename__ = "inventario"
 
-    id_producto    = Column(Integer, primary_key=True, index=True)
-    categoria      = Column(String)                                        # ej. dama, caballero, niño
-    estilo         = Column(String)                                        # ej. informal, formal
-    descripcion    = Column(String, nullable=False)
-    talla          = Column(String)
-    color          = Column(String)
-    marca          = Column(String)
-    precio_venta   = Column(Float, nullable=False)
-    stock          = Column(Integer, nullable=False, default=0)
-    estatus        = Column(Enum(EstatusInventario), nullable=False,
-                            default=EstatusInventario.disponible)
-    change_status  = Column(DateTime, nullable=True)                       # fecha del último cambio de estatus
-    fecha_registro = Column(DateTime, server_default=func.now())
+    id_producto       = Column(Integer, primary_key=True, index=True)
+    categoria         = Column(Enum(CategoriaInventario), nullable=False)
+    tipo_producto     = Column(Enum(TipoProducto), nullable=False)
+    descripcion       = Column(String(40), nullable=False)
+    talla             = Column(String(10), nullable=True)
+    color             = Column(String(10), nullable=True)
+    marca             = Column(String(12), nullable=True)
+    precio_venta      = Column(Integer, nullable=False)
+    precio_descuento  = Column(Integer, nullable=True)   # NULL = sin descuento activo
+    stock             = Column(Integer, nullable=False, default=0)
+    estatus           = Column(Enum(EstatusInventario), nullable=False,
+                                default=EstatusInventario.disponible)
+    descripcion_ruta  = Column(String, nullable=True)    # obligatorio solo si estatus = en_ruta (validado en service)
+    created           = Column(Date, server_default=func.current_date(), nullable=False)
+    changed_status    = Column(Date, nullable=True)      # autogenerado al cambiar estatus
 
     movimientos = relationship("Movimiento", back_populates="producto")
 
 
-class Pedido(Base):
-    __tablename__ = "pedidos"
-
-    id_pedido           = Column(Integer, primary_key=True, index=True)
-    id_cliente          = Column(Integer, ForeignKey("clientes.id_cliente"), nullable=False)
-    producto            = Column(String, nullable=False)
-    id_producto_externo = Column(String, nullable=True)   # ID del proveedor si lo tiene
-    marca               = Column(String)
-    talla               = Column(String)
-    opcion_producto     = Column(String, nullable=True)
-    opcion_marca        = Column(String, nullable=True)
-    opcion_talla        = Column(String, nullable=True)
-    fecha               = Column(DateTime, server_default=func.now())
-
-    cliente = relationship("Cliente", back_populates="pedidos")
-
-
-class PedidoShein(Base):
-    __tablename__ = "pedidos_shein"
-
-    id_pedido_shein = Column(Integer, primary_key=True, index=True)
-    id_cliente      = Column(Integer, ForeignKey("clientes.id_cliente"), nullable=False)
-    producto        = Column(String, nullable=False)
-    monto           = Column(Float, nullable=False)
-    fecha           = Column(DateTime, server_default=func.now())
-
-    cliente = relationship("Cliente", back_populates="pedidos_shein")
-
+# ──────────────────────────────────────────────────────────────────────────
+# PANEL PRINCIPAL — MOVIMIENTOS
+# ──────────────────────────────────────────────────────────────────────────
 
 class Movimiento(Base):
     __tablename__ = "movimientos"
@@ -103,20 +210,91 @@ class Movimiento(Base):
     id_producto      = Column(Integer, ForeignKey("inventario.id_producto"), nullable=True)
     monto            = Column(Float, nullable=False)
     forma_pago       = Column(Enum(FormaPago), nullable=False)
-    saldo_resultante = Column(Float, nullable=True)
-    notas            = Column(String, nullable=True)
-    fecha            = Column(DateTime, server_default=func.now())
+    saldo_resultante = Column(Float, nullable=True)    # NULL en contado y gasto
+    descripcion      = Column(String(60), nullable=True)  # obligatorio solo en 'gasto' (validado en schema)
+    fecha            = Column(DateTime, server_default=func.now(), nullable=False)
 
     cliente  = relationship("Cliente", back_populates="movimientos")
     producto = relationship("Inventario", back_populates="movimientos")
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# MÓDULO SHEIN (independiente de clientes)
+# ──────────────────────────────────────────────────────────────────────────
+
+class SheinCliente(Base):
+    __tablename__ = "shein_clientes"
+
+    id_shein_cliente = Column(Integer, primary_key=True, index=True)
+    nombre           = Column(String(20), nullable=False)
+    colonia          = Column(String(12), nullable=False)
+    telefono         = Column(Integer, nullable=False)   # 10 dígitos
+
+    pedidos = relationship("SheinPedido", back_populates="cliente")
+
+
+class SheinCorte(Base):
+    __tablename__ = "shein_cortes"
+
+    id_shein_corte  = Column(Integer, primary_key=True, index=True)
+    fecha_corte     = Column(Date, nullable=False)
+    total_pedidos   = Column(Integer, nullable=False)
+    suma_montos     = Column(Float, nullable=False)
+    porcentaje_bono = Column(Float, nullable=False)   # ej. 0.08 para 8%
+    bono_monto      = Column(Float, nullable=False)   # suma_montos * porcentaje_bono
+
+    pedidos = relationship("SheinPedido", back_populates="corte")
+
+
+class SheinPedido(Base):
+    __tablename__ = "shein_pedidos"
+
+    id_shein_pedido  = Column(Integer, primary_key=True, index=True)
+    id_shein_cliente = Column(Integer, ForeignKey("shein_clientes.id_shein_cliente"), nullable=False)
+    id_shein_corte   = Column(Integer, ForeignKey("shein_cortes.id_shein_corte"), nullable=True)
+    producto         = Column(String, nullable=False)
+    monto            = Column(Float, nullable=False)        # precio al momento del pedido
+    monto_vigente    = Column(Float, nullable=True)         # se llena al cerrar corte si el precio varió
+    fecha            = Column(Date, server_default=func.current_date(), nullable=False)
+
+    cliente = relationship("SheinCliente", back_populates="pedidos")
+    corte   = relationship("SheinCorte", back_populates="pedidos")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# MÓDULO RECARGAS TELEFÓNICAS
+# ──────────────────────────────────────────────────────────────────────────
+
+class Recarga(Base):
+    __tablename__ = "recargas"
+
+    id_recarga = Column(Integer, primary_key=True, index=True)
+    compania   = Column(Enum(Compania), nullable=False)
+    monto      = Column(Float, nullable=False)
+    fecha      = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# AUTENTICACIÓN
+# ──────────────────────────────────────────────────────────────────────────
+
 class Usuario(Base):
     __tablename__ = "usuarios"
 
     id_usuario      = Column(Integer, primary_key=True, index=True)
-    username        = Column(String, unique=True, nullable=False, index=True)
-    hashed_password = Column(String, nullable=False)
+    usuario         = Column(String, unique=True, nullable=False, index=True)
+    password_hash   = Column(String, nullable=False)   # bcrypt
     rol             = Column(String, nullable=False, default="estandar")  # estandar | admin
-    activo          = Column(String, nullable=False, default="true")
+    activo          = Column(Integer, nullable=False, default=1)          # 1 = activo, 0 = desactivado
     fecha_registro  = Column(DateTime, server_default=func.now())
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# CONFIGURACIÓN
+# ──────────────────────────────────────────────────────────────────────────
+
+class Configuracion(Base):
+    __tablename__ = "configuracion"
+
+    clave = Column(String, primary_key=True)
+    valor = Column(String, nullable=False)

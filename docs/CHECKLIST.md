@@ -7,7 +7,7 @@
 > El objetivo de este documento es llegar a un punto donde el sistema funcione de extremo
 > a extremo y pueda decirse: **"el MVP está listo para operar en producción."**
 
-**Última actualización:** 20 de junio de 2026
+**Última actualización:** 28 de junio de 2026
 
 ---
 
@@ -97,6 +97,12 @@
 - [ ] `GET /pedidos-shein/{id_cliente}` — pedidos Shein de un cliente
 - [ ] `POST /auth/login` — devuelve JWT
 - [ ] `DELETE /movimientos/{id}/cancelar` — revierte último movimiento
+- [ ] Endpoints para módulo Inventario (agregar producto, cambiar estatus, consulta)
+- [ ] Endpoints para módulo Shein (clientes Shein, pedidos Shein, lista pedidos, cortes)
+- [ ] Endpoints para módulo Recargas (registro de recarga, consulta totales)
+- [ ] Endpoints para módulo Consulta Global (3 consultas agregadas)
+- [ ] Endpoints para módulo Setting (configuración, métodos de pago)
+- [ ] Seed de usuarios iniciales (`sonia`, `operador2`)
 
 ### Servicios — lógica de negocio (`services/`)
 
@@ -107,6 +113,11 @@
 - [x] `rehabilitar_cliente()` — `estatus = liquidado → activo`
 - [x] `auth_service.py` — login, verificación de token, get_current_user
 - [x] `cancelar_movimiento()` — revierte último movimiento y saldo del cliente
+- [ ] `inventario_service` — agregar producto, cambiar estatus, consulta con filtros
+- [ ] `shein_service` — clientes Shein, pedidos, cortes con cálculo de bono
+- [ ] `recarga_service` — registro de recargas, totales por compañía
+- [ ] `consulta_service` — ventas totales, ventas por segmento, cartera de clientes
+- [ ] `configuracion_service` — lectura y actualización de configuración
 
 ### Tests (`tests/`)
 
@@ -138,34 +149,63 @@ registro → apartado → abono → liquidado → rehabilitado.
 ### Estructura y navegación
 
 - [ ] Layout base: header + navegación principal
-- [ ] Rutas: Panel Principal / Agregar Cliente / Consulta / Pedidos / Shein
+- [ ] Rutas: Panel Principal / Clientes / Pedidos / Inventario / Shein / Recargas / Consulta / Setting
 
 ### Panel Principal
 
 - [ ] Selector de operación (Contado / Apartado / Abono / Gasto)
 - [ ] Formulario dinámico según operación seleccionada
 - [ ] Selector de cliente (búsqueda por nombre)
-- [ ] Selector de origen de producto (catálogo informal / Piso de Venta — PdV deshabilitado en v0.1)
+- [ ] Selector de origen de producto (catálogo informal / Inventario)
 - [ ] Modal de Apartado (primer pago, saldo pendiente, historial)
 - [ ] Confirmación y feedback de operación registrada
 
-### Agregar Cliente
+### Módulo Clientes
 
-- [ ] Formulario con campos definidos en REGLAS_NEGOCIO
+- [ ] Registrar cliente — formulario con campos definidos en REGLAS_NEGOCIO
 - [ ] `no_cliente` generado por el backend — mostrarlo tras el registro
+- [ ] Editar cliente — actualizar datos existentes
+- [ ] Consulta de cliente — búsqueda por nombre o `no_cliente`
+- [ ] Historial de movimientos del cliente (tabla ordenada por fecha)
+- [ ] Botón de rehabilitación si `estatus = liquidado`
 - [ ] Validaciones en frontend (campos obligatorios)
 
-### Consulta
-
-- [ ] Búsqueda de cliente por nombre o `no_cliente`
-- [ ] Vista de detalle: datos del cliente, saldo actual, estatus
-- [ ] Historial de movimientos (tabla ordenada por fecha)
-- [ ] Botón de rehabilitación si `estatus = liquidado`
-
-### Pedidos y Shein
+### Módulo Pedidos
 
 - [ ] Formulario de pedido de catálogo (con campos de opción alternativa)
-- [ ] Formulario Shein (cliente + producto + monto)
+- [ ] Lista de surtido (pedidos pendientes)
+- [ ] Devolución de pedido
+- [ ] Cancelación de pedido
+
+### Módulo Inventario
+
+- [ ] Agregar producto al inventario
+- [ ] Cambiar estatus de producto (disponible, vendido, disponible c/descuento, en_ruta)
+- [ ] Consulta de inventario con filtros
+
+### Módulo Shein
+
+- [ ] Registro de cliente Shein
+- [ ] Registro de pedido Shein
+- [ ] Lista de pedidos Shein
+- [ ] Corte Shein (cálculo de bono)
+
+### Módulo Recargas
+
+- [ ] Registro de recarga
+- [ ] Resumen del día (totales por compañía)
+
+### Módulo Consulta Global
+
+- [ ] Ventas totales (por rango de fecha)
+- [ ] Ventas por segmento
+- [ ] Cartera de clientes (saldos activos)
+
+### Módulo Setting
+
+- [ ] Usuarios (alta, edición, roles)
+- [ ] Métodos de pago
+- [ ] Información del sistema
 
 **✋ Punto de verificación Fase 2**
 La ejecutiva puede completar un ciclo completo desde el navegador sin tocar
@@ -237,14 +277,14 @@ La ejecutiva puede usar el sistema en la tienda sin intervención del desarrolla
 |---|--------|-------------|--------|
 | 1 | **Definición del producto** | Reglas de negocio, módulos, modelo de datos, enums, ciclo de vida del cliente | ✅ |
 | 2 | **Infraestructura base** | Repositorio, estructura de carpetas, entorno virtual, dependencias, `.gitignore` | ✅ |
-| 3 | **Modelo de datos** | 6 tablas SQLite definidas con tipos, relaciones y restricciones. Control de versiones con Alembic | ✅ |
+| 3 | **Modelo de datos** | 11 tablas SQLite definidas con tipos, relaciones y restricciones. Control de versiones con Alembic | ✅ |
 | 4 | **Configuración del backend** | FastAPI con lifespan, CORS, variables de entorno, configuración centralizada con Pydantic Settings | ✅ |
 | 5 | **Autenticación** | Login con JWT, hashing de passwords, roles `estandar` \| `admin`, protección de endpoints | 🔄 |
 | 6 | **Contratos de API** | Schemas Pydantic para validación de entrada y salida — un schema por módulo | ✅ |
 | 7 | **Lógica de negocio** | Servicios: registro de movimientos, cálculo de saldo, ciclo de vida del cliente, cancelación | ✅ |
 | 8 | **API REST** | Endpoints CRUD para todos los módulos del MVP, registrados y protegidos con auth | ⏳ |
 | 9 | **Frontend base** | React + Vite inicializado, rutas, layout, proxy hacia el backend | ⏳ |
-| 10 | **Interfaz operativa** | Panel Principal, Módulo Clientes, Consulta, Pedidos, Shein — conectados a la API | ⏳ |
+| 10 | **Interfaz operativa** | Panel Principal, Clientes, Pedidos, Inventario, Shein, Recargas, Consulta Global, Setting — conectados a la API | ⏳ |
 | 11 | **Integración y pruebas** | Flujo completo de extremo a extremo, scripts de arranque y backup, tests unitarios | ⏳ |
 | 12 | **Producción** | Despliegue en `sonia@envy`, servicios systemd, arranque automático, primera sesión real | ⏳ |
 
@@ -254,16 +294,11 @@ La ejecutiva puede usar el sistema en la tienda sin intervención del desarrolla
 
 | Versión | Alcance | Fase de este checklist | Estado |
 |---------|---------|----------------------|--------|
-| **v0.1** | MVP: clientes, panel de operaciones (contado/apartado/abono/gasto), consulta, pedidos, Shein | Fases 0–4 | 🔄 En curso |
-| **v0.2** | Piso de Venta: integración inventario (spreadsheet → `inventario` DB) | Por definir | ⏳ Pendiente |
-| **v0.3** | Devoluciones, préstamos de exhibición, operaciones especiales | Por definir | ⏳ Pendiente |
-| **v0.4** | Calendario de pagos por cliente — frecuencia esperada de abonos, alertas de vencimiento | Por definir | ⏳ Pendiente |
+| **v0.1** | MVP: Clientes, Pedidos (con devoluciones y cancelaciones), Inventario, Panel Principal, Shein (con cortes), Recargas, Consulta Global, Setting, Auth | Fases 0–4 | 🔄 En curso |
+| **v0.2** | Integración con tabla de precios de proveedores, reportes avanzados | Por definir | ⏳ Pendiente |
 | **v1.0** | Sistema estable, probado en operación real, con historial suficiente para validar el modelo | Por definir | ⏳ Pendiente |
 
-> **v0.4 — Calendario de pagos:** la base de datos ya tiene todo lo necesario (`clientes.saldo` +
-> historial en `movimientos`). La funcionalidad consiste en definir una frecuencia de pago
-> esperada por cliente y generar alertas cuando un cliente activo no ha abonado en el período
-> acordado. Se incorpora después de que el ciclo base (v0.1) esté probado en operación real.
+> Corregido: roadmap actualizado — Inventario, devoluciones, calendario de pagos y Recargas ahora forman parte del MVP (v0.1) según FULL_STACK_DEVELOPMENT.md.
 
 ---
 

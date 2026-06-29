@@ -5,7 +5,7 @@
 > el estado actual del proyecto y verificar que lo construido funciona.
 > Cada sección incluye qué se construyó, cómo verificarlo y qué falta.
 
-**Última actualización:** 22 de junio de 2026
+**Última actualización:** 28 de junio de 2026
 **Máquina de desarrollo:** `gabriel@actuary`
 
 ---
@@ -23,7 +23,7 @@ source venv/bin/activate
 
 ### Qué se construyó
 
-- Modelo de datos: 6 tablas SQLite con tipos, restricciones y relaciones definidas
+- Modelo de datos: 11 tablas SQLite (6 originales + 5 nuevas definidas en FULL_STACK_DEVELOPMENT.md) con tipos, restricciones y relaciones definidas
 - Control de versiones de base de datos con Alembic (2 migraciones aplicadas)
 - Backend FastAPI modernizado: patrón `lifespan`, CORS, configuración centralizada
 - Documentación homologada: reglas de negocio, enums, ciclo de vida del cliente
@@ -45,8 +45,10 @@ curl -s http://localhost:8000/ping | python3 -m json.tool
 
 # 3. Tablas en pos.db
 sqlite3 ~/pos-boutique/backend/pos.db ".tables"
-# Esperado: alembic_version clientes inventario movimientos
+# Esperado (implementadas): alembic_version clientes inventario movimientos
 #           pedidos pedidos_shein usuarios
+# Pendientes según FULL_STACK_DEVELOPMENT.md: pedidos_articulos shein_clientes
+#           shein_pedidos shein_cortes recargas configuracion
 
 # 4. Migraciones aplicadas
 alembic history
@@ -63,7 +65,7 @@ print('EstatusInventario:', [e.value for e in EstatusInventario])
 # Esperado:
 # Operacion: ['contado', 'apartado', 'abono', 'gasto']
 # FormaPago: ['efectivo', 'transferencia', 'tarjeta']
-# EstatusInventario: ['disponible', 'vendido', 'disponible c/descuento', 'en_ruta']
+# EstatusInventario: ['disponible', 'vendido', 'disponible_c/descuento', 'en_ruta', 'apartado']
 ```
 
 ---
@@ -86,8 +88,15 @@ print('EstatusInventario:', [e.value for e in EstatusInventario])
 
 - Endpoints API REST (`api/v1/endpoints/`) — vacío
 - Registro de routers en `main.py`
-- Seed de usuarios iniciales (`operador_1`, `operador_2`)
+- Seed de usuarios iniciales (`sonia`, `operador2`)
 - Tests unitarios (`tests/`)
+- Migración de tabla `pedidos` al modelo cabecera + `pedidos_articulos`
+- Tablas nuevas: `shein_clientes`, `shein_pedidos`, `shein_cortes`, `recargas`, `configuracion`
+- Schemas Pydantic para módulos nuevos (Inventario extendido, Shein con cortes, Recargas, Consulta Global, Setting)
+- Servicios para módulos nuevos (`inventario_service`, `shein_service`, `recarga_service`, `consulta_service`, `configuracion_service`)
+- Campo `frecuencia_pago` y `fecha_pago_programada` en tabla `clientes`
+- Sistema de banderas (🟡/🔴) para vencimiento de pagos
+- `estatus` de clientes simplificado a `activo | inactivo`
 
 ### Cómo verificar lo construido
 
@@ -156,6 +165,26 @@ Desde `http://localhost:8000/docs` debe ser posible ejecutar todas las
 operaciones del MVP sin tocar el frontend. El flujo completo de un ciclo
 de cliente debe funcionar vía API:
 `registro → apartado → abono → liquidado → rehabilitado`
+
+---
+
+## Módulos definidos en FULL_STACK_DEVELOPMENT.md — Pendientes de implementación
+
+> Estos módulos están completamente especificados en `FULL_STACK_DEVELOPMENT.md`
+> pero aún no tienen implementación en código.
+
+> Corregido: se agrega tabla de módulos pendientes según la especificación completa.
+
+| Módulo | Tablas | Operaciones | Estado |
+|--------|--------|-------------|--------|
+| Clientes (extendido) | `clientes` (campos nuevos) | Registrar, Editar, Consulta, Historial con banderas | ⏳ Pendiente |
+| Pedidos (rediseñado) | `pedidos` + `pedidos_articulos` | Registrar Pedido (1–4 artículos), Devolución, Cancelación, Lista de Surtido | ⏳ Pendiente |
+| Inventario (extendido) | `inventario` (campos nuevos) | Agregar Producto, Cambiar Estatus, Consulta con filtros | ⏳ Pendiente |
+| Panel Principal | `movimientos` | Contado (Catálogo/Inventario), Apartado (mín $100), Abono, Gasto | 🔄 Parcial (servicios existen, endpoints no) |
+| Shein (rediseñado) | `shein_clientes`, `shein_pedidos`, `shein_cortes` | Reg. Cliente, Reg. Pedido, Lista, Corte con bono | ⏳ Pendiente |
+| Recargas Telefónicas | `recargas` | Registro de recarga, resumen diario | ⏳ Pendiente |
+| Consulta Global | (solo lectura) | Ventas totales, por segmento, cartera | ⏳ Pendiente |
+| Setting | `configuracion`, `usuarios` | Usuarios, métodos de pago, info sistema | ⏳ Pendiente |
 
 ---
 

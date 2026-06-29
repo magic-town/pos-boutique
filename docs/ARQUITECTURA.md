@@ -81,6 +81,24 @@ Piensa en el sistema como una tienda con tres áreas:
 - Si este archivo se corrompe o se borra, se pierden los datos.
   **Respáldalo con frecuencia — es copiar y pegar un archivo.**
 
+### El Panel Principal — la pantalla de operación diaria
+
+El Panel Principal es la pantalla que la ejecutiva ve todo el día. Funciona
+como caja registradora: siempre visible, siempre disponible.
+
+Cada operación que se registra aquí escribe en la tabla `movimientos`
+y, dependiendo del tipo, dispara actualizaciones en otras tablas:
+
+- **Contado** → registra venta de contado. Si el artículo viene de inventario,
+  actualiza `inventario.estatus`.
+- **Apartado** → registra apartado para una clienta. Actualiza `clientes.saldo`
+  y, si aplica, `inventario.estatus`.
+- **Abono** → registra pago parcial. Actualiza `clientes.saldo`.
+- **Gasto** → registra salida de efectivo (no afecta clientes ni inventario).
+
+Todo lo que pasa por el Panel Principal queda en `movimientos` — es el
+registro central de operaciones del negocio.
+
 ---
 
 ## 3. Por qué dos puertos (5173 y 8000)
@@ -287,10 +305,12 @@ es porque el sistema creció y ese es el momento correcto para aprenderlo.
 
 ## 11. Acceso al sistema — login y usuarios
 
-El sistema requiere autenticación para operar. Antes de poder registrar
-cualquier movimiento, el sistema pide usuario y contraseña.
+El sistema incluye autenticación con usuario y contraseña.
+En el MVP la autenticación está **deshabilitada por defecto** para agilizar
+el desarrollo. Se controla con la variable `AUTH_ENABLED` en
+`backend/core/config.py` (`False` en desarrollo, `True` en producción).
 
-Así funciona por dentro:
+Cuando está habilitada, así funciona por dentro:
 
 1. La ejecutiva escribe su usuario y contraseña en la pantalla de login.
 2. El backend verifica que el usuario existe y que la contraseña es correcta.
@@ -299,12 +319,36 @@ Así funciona por dentro:
 4. El frontend guarda ese token y lo adjunta a cada operación que realiza.
 5. Si el token expira o es inválido, el sistema pide login de nuevo.
 
-El sistema nace con dos usuarios: `operador_1` y `operador_2`.
+El sistema nace con dos usuarios: `sonia` y `operador2`.
 Ambos tienen rol `estandar`. En versiones futuras existirá un rol `admin`
 con permisos adicionales (cancelar movimientos históricos, gestionar usuarios).
 
 Si necesitas cambiar una contraseña o agregar un usuario, se hace
 directamente desde la terminal — no hay interfaz de administración en el MVP.
+
+> Corregido: usuarios iniciales actualizados a `sonia` y `operador2` según FULL_STACK_DEVELOPMENT.md.
+
+---
+
+## 12. Las tablas del sistema
+
+El sistema utiliza 11 tablas en SQLite:
+
+| Tabla | Módulo | Qué guarda |
+|---|---|---|
+| `clientes` | Clientes | Cartera de clientes de crédito con saldo y frecuencia de pago |
+| `pedidos` | Pedidos | Cabecera de pedidos de catálogo (formal e informal) |
+| `pedidos_articulos` | Pedidos | Artículos por pedido (1–4), con principal y alternativa |
+| `inventario` | Inventario | Stock físico en piso de venta con estatus y precios |
+| `movimientos` | Panel Principal | Registro de todas las operaciones de caja |
+| `shein_clientes` | Shein | Clientes transaccionales de Shein (independiente de `clientes`) |
+| `shein_pedidos` | Shein | Pedidos vía app Shein con monto y corte |
+| `shein_cortes` | Shein | Cortes periódicos con bono por volumen |
+| `recargas` | Recargas | Registro de recargas telefónicas |
+| `usuarios` | Autenticación | Usuarios del sistema con hash bcrypt |
+| `configuracion` | Setting | Configuración clave-valor del sistema |
+
+> Nuevo: resumen de tablas del sistema según FULL_STACK_DEVELOPMENT.md.
 
 ---
 

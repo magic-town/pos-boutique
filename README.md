@@ -147,14 +147,18 @@ Interfaz disponible en: `http://localhost:5173`
 
 ## Módulos
 
-| Módulo            | Descripción                                              | Tabla principal   |
-|-------------------|----------------------------------------------------------|-------------------|
-| Agregar Cliente   | Registro de nuevo cliente con referencia (garante)       | clientes          |
-| Pedido            | Pedido de catálogo formal o informal                     | pedidos           |
-| Shein             | Pedido especial vía app Shein; siempre de contado        | pedidos_shein     |
-| Piso de Venta     | Venta de producto físico en stock (activo en v0.2)       | inventario        |
-| Consulta          | Historial de movimientos, saldo y estatus por cliente    | movimientos       |
-| Panel Principal   | Registro de operaciones de caja (Contado, Apartado, etc.)| movimientos       |
+| Módulo            | Descripción                                                                              | Tabla principal                          |
+|-------------------|------------------------------------------------------------------------------------------|------------------------------------------|
+| Clientes          | Registro, edición, consulta e historial de clientes con frecuencia de pago y banderas    | clientes                                 |
+| Pedido            | Pedidos de catálogo con artículos principal/alternativa, devoluciones, cancelaciones y lista de surtido | pedidos + pedidos_articulos  |
+| Shein             | Pedidos vía app Shein con clientes propios y cortes con bono                             | shein_clientes, shein_pedidos, shein_cortes |
+| Inventario        | Gestión de stock: alta, cambio de estatus y consulta de productos en piso                | inventario                               |
+| Consulta Global   | Ventas totales, por segmento y cartera de clientes — solo lectura                        | movimientos                              |
+| Panel Principal   | Caja registradora: Contado (catálogo/inventario), Apartado, Abono, Gasto                 | movimientos                              |
+| Recargas          | Registro de recargas telefónicas (Telcel, Movistar, Unefon, AT&T)                        | recargas                                 |
+| Setting           | Configuración del sistema: usuarios, métodos de pago, zona horaria                       | configuracion                            |
+
+> Corregido: módulos actualizados — Inventario (antes "Piso de Venta") activo en MVP; Shein rediseñado con tablas propias; se agregan Recargas y Setting según FULL_STACK_DEVELOPMENT.md.
 
 ### Operaciones del Panel Principal
 
@@ -171,21 +175,29 @@ Interfaz disponible en: `http://localhost:5173`
 
 ```
 clientes
-  id_cliente      INTEGER  PK AUTOINCREMENT
-  no_cliente      TEXT     NOT NULL UNIQUE        -- Autogenerado: {Colonia}-{consecutivo}
-  nombre          TEXT     NOT NULL
-  colonia         TEXT     NOT NULL
-  telefono        TEXT     NOT NULL
-  ref_nombre      TEXT     NOT NULL               -- Nombre del garante
-  ref_colonia     TEXT     NOT NULL               -- Colonia del garante
-  ref_telefono    TEXT                            -- Teléfono del garante (nullable)
-  saldo           REAL     NOT NULL DEFAULT 0     -- Deuda activa. Positivo = debe.
-  estatus         TEXT     NOT NULL DEFAULT 'activo' -- activo | liquidado | rehabilitar
-  fecha_registro  TEXT     NOT NULL               -- ISO 8601
+  id_cliente              INTEGER  PK AUTOINCREMENT
+  no_cliente              TEXT     NOT NULL UNIQUE        -- Autogenerado: {Colonia}-{consecutivo}
+  nombre                  TEXT     NOT NULL
+  colonia                 TEXT     NOT NULL
+  telefono                INTEGER  NOT NULL
+  ref_nombre              TEXT     NOT NULL               -- Nombre del garante
+  ref_colonia             TEXT     NOT NULL               -- Colonia del garante
+  ref_telefono            TEXT                            -- Teléfono del garante (nullable)
+  saldo                   REAL     NOT NULL DEFAULT 0     -- Deuda activa. Positivo = debe.
+  estatus                 TEXT     NOT NULL DEFAULT 'activo' -- activo | inactivo
+  frecuencia_pago         TEXT                            -- semanal | quincenal | mensual (nullable)
+  fecha_pago_programada   TEXT                            -- Próxima fecha de pago (nullable)
+  fecha_registro          TEXT     NOT NULL               -- ISO 8601
 
 pedidos
-  id_pedido           INTEGER  PK AUTOINCREMENT
-  id_cliente          INTEGER  NOT NULL FK → clientes
+  id_pedido       INTEGER  PK AUTOINCREMENT
+  id_cliente      INTEGER  NOT NULL FK → clientes
+  fecha           TEXT     NOT NULL               -- ISO 8601
+  estatus         TEXT     NOT NULL DEFAULT 'pendiente' -- pendiente | surtido | entregado | cancelado | devuelto
+
+pedidos_articulos
+  id_articulo         INTEGER  PK AUTOINCREMENT
+  id_pedido           INTEGER  NOT NULL FK → pedidos
   producto            TEXT     NOT NULL
   id_producto_externo TEXT                        -- ID del proveedor (nullable)
   marca               TEXT
@@ -193,53 +205,86 @@ pedidos
   opcion_producto     TEXT                        -- Artículo alternativo (nullable)
   opcion_marca        TEXT
   opcion_talla        TEXT
-  fecha               TEXT     NOT NULL           -- ISO 8601
 
-pedidos_shein
-  id_pedido_shein INTEGER  PK AUTOINCREMENT
-  id_cliente      INTEGER  NOT NULL FK → clientes
-  producto        TEXT     NOT NULL
-  monto           REAL     NOT NULL
-  fecha           TEXT     NOT NULL               -- ISO 8601
+shein_clientes
+  id_shein_cliente INTEGER  PK AUTOINCREMENT
+  nombre           TEXT     NOT NULL
+  telefono         TEXT
+  fecha_registro   TEXT     NOT NULL               -- ISO 8601
+
+shein_pedidos
+  id_shein_pedido  INTEGER  PK AUTOINCREMENT
+  id_shein_cliente INTEGER  NOT NULL FK → shein_clientes
+  producto         TEXT     NOT NULL
+  monto            REAL     NOT NULL
+  fecha            TEXT     NOT NULL               -- ISO 8601
+
+shein_cortes
+  id_corte         INTEGER  PK AUTOINCREMENT
+  fecha_inicio     TEXT     NOT NULL               -- ISO 8601
+  fecha_fin        TEXT     NOT NULL               -- ISO 8601
+  total_ventas     REAL     NOT NULL
+  bono             REAL     NOT NULL
 
 inventario
-  id_producto     INTEGER  PK AUTOINCREMENT
-  descripcion     TEXT     NOT NULL
-  marca           TEXT
-  talla           TEXT
-  cantidad        INTEGER  NOT NULL DEFAULT 0
-  precio          REAL     NOT NULL
-  fecha_registro  TEXT     NOT NULL               -- ISO 8601
+  id_producto      INTEGER  PK AUTOINCREMENT
+  descripcion      TEXT     NOT NULL
+  categoria        TEXT
+  tipo_producto    TEXT
+  color            TEXT
+  talla            TEXT
+  precio_venta     REAL     NOT NULL
+  precio_descuento REAL
+  stock            INTEGER  NOT NULL DEFAULT 0
+  estatus          TEXT     NOT NULL DEFAULT 'disponible' -- disponible | apartado | vendido
+  descripcion_ruta TEXT                            -- Ruta de imagen (nullable)
+  created          TEXT     NOT NULL               -- ISO 8601
+  changed_status   TEXT                            -- ISO 8601 (nullable)
 
 movimientos
   id_movimiento    INTEGER  PK AUTOINCREMENT
   operacion        TEXT     NOT NULL              -- Enum: contado | apartado | abono | gasto
   id_cliente       INTEGER  FK → clientes         -- nullable
-  id_producto      INTEGER  FK → inventario       -- nullable; solo si es Piso de Venta
+  id_producto      INTEGER  FK → inventario       -- nullable; solo si es Inventario
   monto            REAL     NOT NULL
   forma_pago       TEXT     NOT NULL              -- Enum: efectivo | transferencia | tarjeta
   saldo_resultante REAL                           -- nullable; solo en apartado y abono
-  notas            TEXT                           -- nullable
+  descripcion      TEXT                           -- nullable
+  fecha            TEXT     NOT NULL              -- ISO 8601 (YYYY-MM-DDTHH:MM:SS)
+
+recargas
+  id_recarga       INTEGER  PK AUTOINCREMENT
+  compania         TEXT     NOT NULL              -- Telcel | Movistar | Unefon | AT&T
+  monto            REAL     NOT NULL
+  telefono         TEXT     NOT NULL
   fecha            TEXT     NOT NULL              -- ISO 8601
+
+configuracion
+  id_config        INTEGER  PK AUTOINCREMENT
+  clave            TEXT     NOT NULL UNIQUE       -- Ej: zona_horaria, metodos_pago
+  valor            TEXT     NOT NULL
 ```
 
 Toda operación genera un registro en `movimientos`.
 Las relaciones con `clientes` e `inventario` son opcionales según el tipo de operación.
-La fuente de verdad completa del modelo está en `docs/REGLAS_NEGOCIO.md`.
+La fuente de verdad completa del modelo está en `docs/FULL_STACK_DEVELOPMENT.md`.
+
+> Corregido: modelo de datos actualizado a 11 tablas según FULL_STACK_DEVELOPMENT.md.
 
 ---
 
 ## Versionado
 
-| Versión | Alcance                                                        | Estado     |
-|---------|----------------------------------------------------------------|------------|
-| v0.1    | MVP: clientes, panel de operaciones, consulta                  | En curso   |
-| v0.2    | Piso de Venta + integración inventario (spreadsheet → DB)      | Pendiente  |
-| v0.3    | Devoluciones, préstamos de exhibición, operaciones especiales  | Pendiente  |
-| v1.0    | Sistema estable, probado en operación real                     | Pendiente  |
+| Versión | Alcance                                                                                                    | Estado     |
+|---------|------------------------------------------------------------------------------------------------------------|-----------|
+| v0.1    | MVP: Clientes, Pedidos con devoluciones, Inventario, Panel Principal, Shein con cortes, Recargas, Consulta Global, Setting | En curso   |
+| v0.2    | Integración tabla de precios de proveedores, reportes avanzados                                            | Pendiente  |
+| v1.0    | Sistema estable, probado en operación real                                                                 | Pendiente  |
 
 El versionado sigue [Semantic Versioning](https://semver.org/lang/es/).
 Cada versión se ramifica desde `main` como `release/vX.X`.
+
+> Corregido: roadmap actualizado — Inventario, devoluciones y Recargas ahora forman parte del MVP según FULL_STACK_DEVELOPMENT.md.
 
 ---
 
@@ -276,14 +321,14 @@ chore:    tareas de mantenimiento (deps, config)
 - [x] Estructura de carpetas
 - [x] venv backend
 - [x] Dependencias backend (`requirements.txt`)
-- [x] Modelos ORM (`models.py`) — 5 tablas + enums
+- [x] Modelos ORM (`models.py`) — 6 tablas + enums (11 en especificación completa)
 - [x] Base de datos SQLite (`pos.db`) — tablas creadas
-- [ ] Modelos ORM actualizados a patrones modernos (lifespan, DeclarativeBase)
-- [ ] Schemas Pydantic (`schemas/`)
-- [ ] Configuración centralizada (`core/config.py`, `.env`)
-- [ ] CORS middleware
-- [ ] Alembic inicializado y primera migración
+- [x] Modelos ORM actualizados a patrones modernos (lifespan, DeclarativeBase)
+- [x] Schemas Pydantic (`schemas/`)
+- [x] Configuración centralizada (`core/config.py`, `.env`)
+- [x] CORS middleware
+- [x] Alembic inicializado y primera migración
 - [ ] Endpoints API REST (`api/v1/endpoints/`)
-- [ ] Servicios de lógica de negocio (`services/`)
+- [x] Servicios de lógica de negocio (`services/`)
 - [ ] Frontend inicializado (`npm create vite`)
 - [ ] Tests

@@ -52,6 +52,69 @@ Cualquier valor fuera de esta lista debe ser rechazado por el backend (Pydantic)
 | `transferencia` | Transferencia bancaria o SPEI |
 | `tarjeta` | Pago con tarjeta (débito o crédito) |
 
+### `FrecuenciaPago`
+
+| Valor | Descripción |
+|---|---|
+| `semanal` | Pago cada semana |
+| `quincenal` | Pago cada quincena |
+| `dia_especifico_mes` | Pago en un día específico del mes |
+| `otro` | Frecuencia personalizada |
+
+### `EstatusCliente`
+
+| Valor | Descripción |
+|---|---|
+| `activo` | Cliente en operación. Default al registrar. |
+| `inactivo` | Cuenta cerrada o dada de baja manualmente. |
+
+> Corregido: `estatus` de clientes simplificado de `activo | liquidado | rehabilitar` a `activo | inactivo` según FULL_STACK_DEVELOPMENT.md.
+
+### `TipoProducto`
+
+| Valor | Descripción |
+|---|---|
+| `formal` | Producto de catálogo formal (Price Shoes, Pakar, Cklass) |
+| `informal` | Producto de catálogo informal (texto libre) |
+
+### `Proveedor`
+
+| Valor | Descripción |
+|---|---|
+| `Price_Shoes` | Proveedor Price Shoes |
+| `Pakar` | Proveedor Pakar |
+| `Cklass` | Proveedor Cklass |
+| `otro` | Otro proveedor |
+
+### `EstatusArticulo`
+
+| Valor | Descripción |
+|---|---|
+| `vigente` | Artículo activo en el pedido |
+| `en_almacen` | Artículo recibido en almacén |
+| `devuelto` | Artículo devuelto |
+| `cancelado` | Artículo cancelado |
+
+### `Categoria`
+
+| Valor | Descripción |
+|---|---|
+| `dama` | Ropa de dama |
+| `caballero` | Ropa de caballero |
+| `infantil` | Ropa infantil |
+| `accesorio` | Accesorios |
+| `calzado` | Calzado |
+
+### `EstatusInventario`
+
+| Valor | Descripción |
+|---|---|
+| `disponible` | Producto disponible para venta |
+| `vendido` | Producto vendido |
+| `disponible_c/descuento` | Disponible con descuento |
+| `en_ruta` | Producto en ruta de entrega |
+| `apartado` | Producto reservado por un cliente |
+
 ---
 
 ## Modelo de datos
@@ -63,34 +126,50 @@ SQLite exactos para que el modelo ORM (SQLAlchemy) y el esquema físico sean con
 
 | Tabla | Rol | Relaciones |
 |---|---|---|
-| `clientes` | Tabla maestra de clientes registrados | — |
-| `pedidos` | Pedidos de catálogo formal e informal | FK → `clientes` |
-| `pedidos_shein` | Pedidos vía app Shein; flujo y caja separados | FK → `clientes` |
-| `inventario` | Stock físico disponible en Piso de Venta | — |
+| `clientes` | Tabla maestra de clientes de crédito | Referenciada por `pedidos`, `movimientos` |
+| `pedidos` | Cabecera de pedidos de catálogo | FK → `clientes` |
+| `pedidos_articulos` | Artículos por pedido (1 a 4) | FK → `pedidos`, autorreferencia para `rol` |
+| `inventario` | Stock físico en piso de venta | Referenciada por `movimientos` |
 | `movimientos` | Tabla central de operaciones de caja | FK → `clientes` (nullable), FK → `inventario` (nullable) |
+| `shein_clientes` | Clientes transaccionales Shein | Independiente de `clientes` |
+| `shein_pedidos` | Pedidos Shein | FK → `shein_clientes`, FK → `shein_cortes` |
+| `shein_cortes` | Cortes de Shein con bono | Independiente |
+| `recargas` | Recargas telefónicas | Independiente |
+| `usuarios` | Autenticación | Independiente |
+| `configuracion` | Configuración del sistema | Independiente |
+
+> Corregido: tabla de relaciones actualizada con 11 tablas según FULL_STACK_DEVELOPMENT.md.
 
 ### `clientes`
 
 ```sql
 CREATE TABLE clientes (
-    id_cliente      INTEGER PRIMARY KEY AUTOINCREMENT,
-    no_cliente      TEXT    NOT NULL UNIQUE,   -- Formato: {Colonia}-{consecutivo}, ej. Carrillos-001
-    nombre          TEXT    NOT NULL,
-    colonia         TEXT    NOT NULL,
-    telefono        TEXT    NOT NULL,
-    ref_nombre      TEXT    NOT NULL,          -- Nombre completo del garante/referencia
-    ref_colonia     TEXT    NOT NULL,          -- Colonia del garante/referencia
-    ref_telefono    TEXT,                      -- Teléfono del garante (opcional)
-    saldo           REAL    NOT NULL DEFAULT 0, -- Deuda activa del cliente. Positivo = debe.
-    estatus         TEXT    NOT NULL DEFAULT 'activo', -- 'activo' | 'liquidado' | 'rehabilitar'
-    fecha_registro  TEXT    NOT NULL           -- ISO 8601: YYYY-MM-DD
+    id_cliente             INTEGER PRIMARY KEY AUTOINCREMENT,
+    no_cliente             TEXT    NOT NULL UNIQUE,   -- Autogenerado: {Colonia}-{consecutivo:03d}
+    nombre                 TEXT    NOT NULL,
+    colonia                TEXT    NOT NULL,
+    telefono               INTEGER NOT NULL,          -- 10 dígitos, obligatorio
+    frecuencia_pago        TEXT    NOT NULL,          -- Enum: semanal | quincenal | dia_especifico_mes | otro
+    ref_nombre             TEXT    NOT NULL,
+    ref_colonia            TEXT    NOT NULL,
+    ref_telefono           INTEGER,                   -- 10 dígitos, nullable
+    saldo                  REAL    NOT NULL DEFAULT 0,
+    estatus                TEXT    NOT NULL DEFAULT 'activo'
+                               CHECK (estatus IN ('activo', 'inactivo')),
+    fecha_registro         TEXT    NOT NULL,          -- ISO 8601: YYYY-MM-DD
+    fecha_pago_programada  TEXT                       -- ISO 8601: YYYY-MM-DD. NULL hasta el primer abono.
 );
 ```
 
+> Corregido: tabla `clientes` sincronizada con FULL_STACK_DEVELOPMENT.md — se agregan `frecuencia_pago`, `fecha_pago_programada`; `telefono` cambia a INTEGER; `estatus` simplificado a activo|inactivo.
+
 **Notas de campo:**
 - `no_cliente` lo genera el sistema automáticamente al registrar: toma la colonia del cliente y el siguiente consecutivo disponible para esa colonia. La operadora no lo captura.
+- `telefono` es de tipo INTEGER, 10 dígitos obligatorios. `ref_telefono` también es INTEGER pero acepta NULL.
+- `frecuencia_pago` es un Enum que define la periodicidad de pago del cliente: `semanal | quincenal | dia_especifico_mes | otro`.
 - `saldo` representa deuda activa. Valor positivo = el cliente debe ese monto. Cero = sin deuda.
-- `estatus` sigue el ciclo de vida descrito en [§ Ciclo de vida del cliente](#ciclo-de-vida-del-cliente).
+- `estatus` solo admite `activo | inactivo`. Se gestiona manualmente por la operadora desde Editar Cliente. Ver [§ Ciclo de vida del cliente](#ciclo-de-vida-del-cliente).
+- `fecha_pago_programada` es NULL al momento del registro. Se calcula automáticamente con cada abono basándose en la `frecuencia_pago`.
 - `ref_telefono` acepta NULL — el teléfono del garante es opcional. `ref_nombre` y `ref_colonia` son obligatorios.
 
 ---

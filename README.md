@@ -1,8 +1,8 @@
 # pos-boutique
 
-Sistema de punto de venta y control de crédito para una boutique local de ropa,
+Sistema de punto de venta y control de crédito para una boutique de ropa,
 calzado y accesorios. Gestiona cartera de clientes a crédito, pedidos a proveedor,
-inventario propio, ventas de intermediación (Shein) y recargas telefónicas, desde
+inventario/catalogo propio, ventas de intermediación (Shein) y recargas telefónicas, desde
 un panel único de operación diaria.
 
 > **Estado actual del proyecto:** en reestructuración activa. El código existente

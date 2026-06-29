@@ -84,11 +84,16 @@ no aquí. Este documento solo señala las decisiones **técnicas** sobre ese mod
 ## 5. Autenticación y seguridad
 
 - Las contraseñas se almacenan como hash `bcrypt`. Nunca en texto plano.
-- La sesión se maneja con JWT. El token se genera al hacer login y se envía en
-  cada request al backend vía header `Authorization: Bearer <token>`.
-- **MVP:** el login está construido pero **desactivado** mediante la variable
-  `AUTH_ENABLED` en `backend/app/core/config.py`. Se activa cuando el sistema
-  entra a operación real.
+- La sesión se maneja con JWT real (`python-jose`), no un mock. El token se
+  genera al hacer login (`POST /api/v1/auth/login`, vía `OAuth2PasswordRequestForm`)
+  y se envía en cada request al backend vía header `Authorization: Bearer <token>`.
+- **La autenticación está activa desde el MVP actual, no desactivada.** Cada
+  endpoint de cada router (`clientes`, `movimientos`, y por extensión los que
+  se construyan después) declara `Depends(get_current_user)` explícitamente.
+  No existe ningún flag `AUTH_ENABLED` — `backend/app/core/config.py` solo
+  define `DATABASE_URL`. La lógica de emisión/validación del token vive en
+  `app/services/auth_service.py` (contenido pendiente de revisión — ver
+  `REPORT.md` §3.2).
 - No hay recuperación de contraseña por correo — el sistema opera offline. La
   recuperación la hace el desarrollador directamente en la base de datos.
 - Los roles (`estandar`, `admin`) existen en el esquema desde el MVP, pero la

@@ -4,10 +4,10 @@
 > de cómo se ve la UI (eso vive en `00_FULLSTACK_DEVELOPMENT.md`) y de cómo está
 > construido técnicamente (eso vive en `ARQUITECTURA.md`).
 >
-> **Estado:** el modelo de datos aquí descrito refleja la propuesta de `models.py`
-> generada a partir de `00_FULLSTACK_DEVELOPMENT.md`, **pendiente de validación e
-> implementación**. No asumas que esto ya existe en el código — revisa `AUDITORIA.md`
-> para el estado real.
+> **Estado:** el modelo de datos aquí descrito está implementado en
+> `backend/app/models/models.py` y migrado a `pos.db` (`a1b2c3d4e5f6_esquema_inicial.py`).
+> La tabla `precios_catalogo` está diseñada y cerrada pero pendiente de agregar
+> a `models.py` + migración Alembic.
 
 ---
 
@@ -18,6 +18,7 @@
 | `clientes` | Clientes | Cartera de crédito de la boutique |
 | `pedidos` | Pedidos | Cabecera de un pedido a proveedor |
 | `pedidos_articulos` | Pedidos | Artículos individuales de un pedido (1 a 4 por pedido) |
+| `precios_catalogo` | Pedidos | Catálogo de precios importado desde `tabla_precios.ods` |
 | `inventario` | Inventario | Existencias propias de la boutique (piso de venta) |
 | `movimientos` | Panel Principal | Registro de toda operación de caja (contado, apartado, abono, gasto) |
 | `shein_clientes` | Shein | Clientes transaccionales de Shein, independientes de `clientes` |
@@ -35,7 +36,7 @@
 
 | Campo | Tipo | Regla |
 |---|---|---|
-| `id_cliente` | Integer, PK | — |
+| `id_cliente` | Integer, PK | Nunca aparece en UI |
 | `no_cliente` | String, único | Autogenerado: `{Colonia}-{consecutivo:03d}` |
 | `nombre` | String(40) | Obligatorio |
 | `colonia` | String(20) | Obligatorio |
@@ -44,7 +45,7 @@
 | `ref_nombre` | String(40) | Obligatorio |
 | `ref_colonia` | String(40) | Obligatorio |
 | `ref_telefono` | Integer, nullable | 10 dígitos, opcional |
-| `saldo` | Float | Default `0`. Deuda acumulada |
+| `saldo` | Float | Default `0`. Deuda acumulada del cliente |
 | `estatus` | Enum: `activo`, `inactivo` | Default `activo`. Cambio manual, nunca automático |
 | `fecha_registro` | Date | Autogenerado al crear |
 | `fecha_pago_programada` | Date, nullable | `NULL` hasta el primer abono. Ver regla de ciclo abajo |
@@ -66,29 +67,57 @@
 
 **`pedidos`** (cabecera): `id_pedido`, `id_cliente` (FK), `fecha`.
 
-**`pedidos_articulos`** (detalle, 1 a 4 filas por pedido):
+**`pedidos_articulos`** (detalle, 1 a 4 artículos principales por pedido):
 
 | Campo | Tipo | Regla |
 |---|---|---|
-| `id_articulo` | Integer, PK | — |
+| `id_articulo` | Integer, PK | Nunca aparece en UI |
 | `id_pedido` | FK → `pedidos` | Obligatorio |
 | `rol` | Enum: `principal`, `alternativa` | Default `principal` |
-| `id_articulo_principal` | FK → `pedidos_articulos`, nullable | Solo se llena si `rol = alternativa` |
+| `id_articulo_principal` | FK → `pedidos_articulos`, nullable | Solo se llena si `rol = alternativa`. Enlaza la alternativa con su principal |
 | `tipo_producto` | Enum: `formal`, `informal` | Obligatorio |
-| `proveedor` | Enum: `Price_Shoes`, `Pakar`, `Cklass`, `otro`, nullable | Solo si `tipo_producto = formal` |
-| `id_producto` | String(12), nullable | Referencia libre al catálogo del proveedor, sin FK real |
+| `proveedor` | Enum: `Price_Shoes`, `Pakar`, `Cklass`, `otro`, nullable | Solo si `tipo_producto = formal`. NULL si informal |
+| `id_producto` | String(12), nullable | Referencia libre al catálogo del proveedor. Sin FK real. Solo si formal |
 | `producto` | String(40) | Obligatorio |
-| `marca`, `talla` | String, nullable | Opcionales |
+| `marca`, `talla` | String, nullable | Opcionales en cualquier tipo |
 | `monto` | Float, nullable | Ver regla de resolución abajo |
-| `estatus_articulo` | Enum: `vigente`, `en_almacen`, `devuelto`, `cancelado` | Default `vigente` |
-| `id_articulo_sustituye` | FK → `pedidos_articulos`, nullable | Solo en artículos sustitutos de una devolución |
+| `estatus_articulo` | Enum: `vigente`, `en_almacen`, `devuelto`, `cancelado` | Default `vigente`. Controla el ciclo de vida |
+| `id_articulo_sustituye` | FK → `pedidos_articulos`, nullable | Solo en artículo sustituto de una devolución. Apunta al artículo original devuelto |
+
+**`precios_catalogo`** (catálogo importado desde `tabla_precios.ods`):
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_precio` | Integer, PK | Interno |
+| `proveedor` | Enum: `Price_Shoes`, `Pakar`, `Cklass` | Sin `otro` — ese proveedor no tiene catálogo digitalizado |
+| `id_producto` | String(12) | Normalizado desde `ID`/`CÓDIGO`/`modelo` según pestaña de origen |
+| `precio_venta` | Integer | Precio final de venta que usa el POS |
+| `fecha_catalogo` | Date | Normalizada a ISO. Determina qué precio gana cuando hay duplicados |
+| `catalogo` | String, nullable | Nombre del catálogo/tomo — preservado del .ods, no usado por el POS |
+| `temporada` | String, nullable | Temporada — preservado del .ods, no usado por el POS |
+| `pagina` | Integer, nullable | Página en el catálogo físico — preservado del .ods |
+| `precio_base` | Integer, nullable | Precio sugerido/base — preservado del .ods |
+
+Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos futuros (producto vigente temporada tras temporada). Lookup siempre por `MAX(fecha_catalogo)`.
 
 ### Reglas de negocio
 
-1. **El saldo del cliente NO se carga al registrar el pedido.** Se carga únicamente cuando el artículo se marca `en_almacen` (es decir, cuando llega físicamente). Esta es la regla de negocio más importante del módulo: refleja que solo se cobra lo que efectivamente se surtió.
-2. **Resolución de `monto`:** si `proveedor` tiene lista de precios (`Price_Shoes`, `Pakar`, `Cklass`), el sistema hace lookup automático por `id_producto`. Si `proveedor = otro`, el monto se captura manualmente.
-3. **Devolución:** el artículo pasa a `devuelto`, se revierte su monto del saldo del cliente, y se abre un pedido sustituto vinculado vía `id_articulo_sustituye`.
-4. **Cancelación:** el artículo pasa a `cancelado`. Si su estatus previo era `en_almacen` (ya había impactado saldo), se revierte el monto. Si era `vigente`, no hay nada que revertir porque nunca impactó el saldo.
+1. **Un pedido tiene de 1 a 4 artículos principales.** Solo el primero es obligatorio al crear; los demás se pueden agregar mientras el pedido sea editable (artículos en `vigente`).
+2. **Cada principal puede tener 0 o 1 alternativa.** La alternativa es una buena práctica operativa (se ofrece si el principal no está disponible en el proveedor), pero nunca es obligatoria para guardar el pedido.
+3. **El saldo del cliente NO se carga al registrar el pedido.** Se carga únicamente cuando el artículo se marca `en_almacen`. Solo se cobra lo que efectivamente se surtió.
+4. **Resolución de `monto`:**
+   - `formal` + proveedor con catálogo (`Price_Shoes`, `Pakar`, `Cklass`): lookup automático en `precios_catalogo` por `id_producto`, gana `MAX(fecha_catalogo)`. Si no existe el ID, campo queda vacío y editable.
+   - `formal` + `proveedor = otro`: captura manual obligatoria.
+   - `informal`: captura libre, opcional.
+5. **`estatus_articulo` y su efecto en saldo:**
+   - `vigente` → sin efecto en saldo.
+   - `vigente` → `en_almacen`: `saldo += monto` (el artículo llegó al piso).
+   - `en_almacen` → `devuelto`: `saldo -= monto` (cliente devuelve). Se abre pedido sustituto pre-cargado. El sustituto nace `vigente` e impactará saldo cuando llegue a `en_almacen`.
+   - `vigente` → `cancelado`: sin efecto en saldo (nunca se había cargado).
+   - `en_almacen` → `cancelado`: `saldo -= monto` si `monto IS NOT NULL` (se revierte lo que se había cargado). El artículo pasa a inventario físico.
+6. **`id_articulo_sustituye`** se llena únicamente en el artículo sustituto de una devolución, apuntando al `id_articulo` del original devuelto. En todos los demás casos es `NULL`.
+7. **Lista de Surtido:** vista global de todos los artículos en `vigente` dentro de un período de corte configurable (default: miércoles a martes). Es la lista con la que se realizan las compras al proveedor. Desde esta vista la operadora marca artículos como `en_almacen` — ese es el momento en que el saldo se carga al cliente.
+8. **Sincronización de `precios_catalogo`:** el script `backend/app/scripts/importar_precios.py` lee `tabla_precios.ods` y hace solo `INSERT` de filas nuevas (nunca borra ni sobreescribe). El usuario lo dispara manualmente desde el POS o terminal cuando el proveedor libera catálogo nuevo.
 
 ---
 
@@ -107,19 +136,20 @@
 | `precio_descuento` | Integer, nullable | `NULL` = sin descuento. Con valor = precio vigente |
 | `stock` | Integer | Default `0` |
 | `estatus` | Enum: `disponible`, `disponible_c/descuento`, `en_ruta`, `apartado`, `vendido` | Default `disponible` |
-| `descripcion_ruta` | String, nullable | Obligatorio solo si `estatus = en_ruta` |
+| `descripcion_ruta` | String, nullable | Obligatorio solo si `estatus = en_ruta` (validado en servicio) |
 | `created` | Date | Autogenerado |
 | `changed_status` | Date, nullable | Se actualiza en cada cambio de `estatus` |
 
 ### Reglas de negocio
 
-1. **Transiciones de estatus válidas (no es una lista plana, depende del estado actual):**
+1. **Transiciones de estatus válidas:**
    - `disponible` → `en_ruta`, `disponible_c/descuento`, `apartado`, `vendido`
    - `disponible_c/descuento` → `disponible`, `en_ruta`, `apartado`, `vendido`
    - `en_ruta` → `disponible`, `vendido`
    - `apartado` → `disponible` (cancelación), `vendido` (liquidación)
    - `vendido` → sin transición posible
 2. **`precio_descuento` no tiene columna de porcentaje** — se calcula al vuelo: `(1 - precio_descuento / precio_venta) * 100`.
+3. **Todo cambio de `estatus` debe actualizar `changed_status`** en la misma transacción — invariante global del sistema.
 
 ---
 
@@ -145,13 +175,13 @@
 - **Apartado:**
   1. Cliente obligatorio. Producto debe existir en `inventario` con estatus `disponible` o `disponible_c/descuento`.
   2. **Primer pago mínimo: $100.00.** El backend rechaza montos menores.
-  3. `saldo_resultante = precio_producto - primer_pago`, se **suma** al saldo existente del cliente (nunca se sobrescribe).
+  3. `saldo_resultante = precio_producto - primer_pago`, se **suma** al saldo existente del cliente (`saldo += saldo_resultante`). Nunca se sobrescribe.
   4. `inventario.estatus` cambia a `apartado` en la misma transacción.
   5. Cancelación del apartado: `inventario.estatus` vuelve a `disponible`; el saldo pendiente se resta (el primer pago no se devuelve salvo decisión de la operadora).
 - **Abono:** `saldo_resultante = saldo_actual - monto`. Rechazado si `monto > saldo_actual`. Recalcula `fecha_pago_programada` del cliente. Si el saldo llega a 0, el cliente **no** cambia de estatus automáticamente.
 - **Gasto:** sin cliente ni producto. `descripcion` obligatoria. `saldo_resultante = NULL`. Representa salida de caja.
 
-> El saldo agregado del negocio no es un campo en base de datos — se deriva por consulta agregada sobre `movimientos` (ver Módulo Consulta Global).
+> El saldo agregado del negocio no es un campo en base de datos — se deriva por consulta agregada sobre `movimientos`.
 
 ---
 
@@ -161,39 +191,83 @@
 
 ### Modelo de datos
 
-**`shein_clientes`** (independiente de `clientes` — sin saldo, sin garante, sin frecuencia de pago): `id_shein_cliente`, `nombre` (20), `colonia` (12), `telefono` (Integer, 10 dígitos).
+**`shein_clientes`** (independiente de `clientes` — sin saldo, sin garante, sin frecuencia de pago):
 
-**`shein_pedidos`**: `id_shein_pedido`, `id_shein_cliente` (FK), `id_shein_corte` (FK, nullable hasta asignarse a un corte), `producto`, `monto` (precio al momento del pedido), `monto_vigente` (nullable, se llena si el precio cambió al cerrar el corte), `fecha`.
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_shein_cliente` | Integer, PK | — |
+| `nombre` | String(20) | Obligatorio |
+| `colonia` | String(12) | Obligatorio |
+| `telefono` | Integer | 10 dígitos, obligatorio |
 
-**`shein_cortes`**: `id_shein_corte`, `fecha_corte`, `total_pedidos`, `suma_montos`, `porcentaje_bono`, `bono_monto` (= `suma_montos * porcentaje_bono`, calculado por backend).
+**`shein_pedidos`:**
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_shein_pedido` | Integer, PK | — |
+| `id_shein_cliente` | FK → `shein_clientes` | Obligatorio |
+| `id_shein_corte` | FK → `shein_cortes`, nullable | `NULL` hasta asignarse a un corte |
+| `producto` | String | Obligatorio |
+| `monto` | Float | Precio al momento del pedido |
+| `monto_vigente` | Float, nullable | Se llena si el precio cambió al cerrar el corte |
+| `fecha` | Date | Autogenerado |
+
+**`shein_cortes`:**
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_shein_corte` | Integer, PK | — |
+| `fecha_corte` | Date | Obligatorio |
+| `total_pedidos` | Integer | Calculado por backend |
+| `suma_montos` | Float | Calculado por backend |
+| `porcentaje_bono` | Float | Ej. `0.08` para 8% |
+| `bono_monto` | Float | `suma_montos * porcentaje_bono`, calculado por backend |
 
 ### Reglas de negocio
 
 1. **Por qué `shein_clientes` es independiente:** forzar estos clientes en `clientes` introduciría campos obligatorios que no aplican (garante, saldo, frecuencia de pago) y contaminaría la cartera de crédito real.
-2. **Variación de precios:** si el precio de un artículo bajó entre el pedido y el corte, la tienda absorbe la diferencia sin notificar. Si subió, debe notificarse al cliente antes de ejecutar la compra — el campo `monto_vigente` es el mecanismo de control en MVP.
+2. **Variación de precios:** si el precio bajó entre pedido y corte, la tienda absorbe la diferencia. Si subió, se notifica al cliente antes de ejecutar la compra — `monto_vigente` es el mecanismo de control en MVP.
 3. El bono no pertenece a ningún cliente o artículo individual — es resultado agregado de un corte.
 
 ---
 
 ## 7. Módulo Recargas Telefónicas
 
-Tabla independiente, sin relaciones: `id_recarga`, `compania` (Enum: `Telcel`, `Movistar`, `Unefon`, `AT&T`), `monto`, `fecha` (timestamp completo, autogenerado). Sin validación de tope de monto. Sin impacto en saldo de clientes ni inventario — solo trazabilidad de ingresos.
+Tabla independiente, sin relaciones:
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_recarga` | Integer, PK | — |
+| `compania` | Enum: `Telcel`, `Movistar`, `Unefon`, `AT&T` | Obligatorio |
+| `monto` | Float | Obligatorio |
+| `fecha` | DateTime | Autogenerado (timestamp completo) |
+
+Sin validación de tope de monto. Sin impacto en saldo de clientes ni inventario — solo trazabilidad de ingresos.
 
 ---
 
 ## 8. Autenticación
 
-**`usuarios`**: `id_usuario`, `usuario` (único), `password_hash` (bcrypt), `rol` (Enum: `estandar`, `admin`), `activo` (booleano/entero).
+**`usuarios`:**
 
-- Login construido pero desactivado en MVP (`AUTH_ENABLED = False`).
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_usuario` | Integer, PK | — |
+| `usuario` | String, único | 4 a 16 caracteres, sin espacios |
+| `password_hash` | String | bcrypt. Nunca texto plano |
+| `rol` | String | `estandar` o `admin`. Default `estandar` |
+| `activo` | Integer | `1` = activo, `0` = desactivado. Default `1` |
+| `fecha_registro` | DateTime | Autogenerado |
+
+- Autenticación **activa** en todos los endpoints vía JWT (`python-jose`). Sin flag `AUTH_ENABLED` — no existe en `config.py`.
 - Sin recuperación de contraseña por correo (sistema offline) — la hace el desarrollador directamente en la base de datos.
-- Permisos diferenciados por rol: pendientes de implementación futura, sin cambio de esquema cuando llegue ese momento.
+- Permisos diferenciados por rol: pendientes de implementación futura, sin cambio de esquema.
 
 ---
 
 ## 9. Configuración
 
-**`configuracion`**: tabla clave-valor (`clave` PK, `valor`). Controla qué métodos de pago están activos (`pago_efectivo_activo`, `pago_transferencia_activo`, etc.), CLABEs registradas, y zona horaria (informativa, solo lectura).
+**`configuracion`**: tabla clave-valor (`clave` PK, `valor`). Controla qué métodos de pago están activos (`pago_efectivo_activo`, `pago_transferencia_activo`, etc.), CLABEs registradas, zona horaria (informativa) y período de corte de la Lista de Surtido (día de inicio y fin, default miércoles a martes).
 
 - Efectivo: siempre activo, no desactivable.
 - Transferencia, tarjeta débito/crédito: activos por defecto, se pueden desactivar.
@@ -215,7 +289,9 @@ Tres consultas de solo lectura sobre datos agregados (no reemplazan la Consulta 
 
 Reglas que aplican transversalmente y que cualquier servicio nuevo debe respetar:
 
-- El saldo de un cliente nunca se sobrescribe directamente — siempre se suma o resta (`saldo += monto` / `saldo -= monto`), nunca `saldo = monto`.
+- El saldo de un cliente **nunca se sobrescribe** — siempre `saldo += monto` o `saldo -= monto`. Nunca `saldo = monto`.
 - Ninguna operación de caja se registra sin `forma_pago`.
-- Ningún cambio de estatus en `inventario` ocurre sin actualizar `changed_status`.
+- Ningún cambio de `estatus` en `inventario` ocurre sin actualizar `changed_status` en la misma transacción.
 - Toda fecha de negocio se almacena en `YYYY-MM-DD` (o timestamp completo cuando la tabla lo requiere) y se muestra al usuario en `DD-MM-YYYY`.
+- `id_articulo_sustituye` solo se llena en artículos sustitutos de devolución. En todos los demás casos es `NULL`.
+- El script `importar_precios.py` solo hace `INSERT`. Nunca borra ni sobreescribe filas existentes en `precios_catalogo`.

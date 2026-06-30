@@ -8,59 +8,92 @@
 
 ## Tabla de contenidos
 
-- [Módulo Clientes](#módulo-clientes)
-  - [Modelo de datos](#modelo-de-datos)
-  - [Notas de campo](#notas-de-campo)
-  - [Enum `frecuencia_pago`](#enum-frecuencia_pago)
-  - [Enum `estatus`](#enum-estatus)
-  - [Ciclo de `fecha_pago_programada`](#ciclo-de-fecha_pago_programada)
-  - [Sistema de banderas](#sistema-de-banderas)
-  - [Menú Clientes](#menú-clientes)
-  - [Opción 1 — Registrar Cliente](#opción-1--registrar-cliente)
-  - [Opción 2 — Editar Cliente](#opción-2--editar-cliente)
-  - [Opción 3 — Consulta Cliente](#opción-3--consulta-cliente)
-  - [Opción 4 — Consulta Historial](#opción-4--consulta-historial)
-  - [Schema JSON completo — Clientes](#schema-json-completo--clientes)
-  - [Carga inicial de cartera existente](#carga-inicial-de-cartera-existente)
-- [Módulo Pedidos](#módulo-pedidos)
-  - [Convención de identidades](#convención-de-identidades)
-  - [Modelo de datos — Pedidos](#modelo-de-datos--pedidos)
-  - [Menú Pedidos](#menú-pedidos)
-  - [Formulario Registrar Pedido](#formulario-registrar-pedido)
-  - [Flujo de una devolución](#flujo-de-una-devolución)
-  - [Flujo de una cancelación](#flujo-de-una-cancelación)
-  - [Schema JSON completo — Pedidos](#schema-json-completo--pedidos)
-- [Módulo Inventario](#módulo-inventario)
-  - [Modelo de datos — Inventario](#modelo-de-datos--inventario)
-  - [Notas de campo — Inventario](#notas-de-campo--inventario)
-  - [Enum `categoria`](#enum-categoria)
-  - [Enum `estatus` (inventario)](#enum-estatus-inventario)
-  - [Regla de `precio_descuento`](#regla-de-precio_descuento)
-  - [Menú Inventario](#menú-inventario)
-  - [Schema JSON completo — Inventario](#schema-json-completo--inventario)
-- [Panel Principal — Main Panel](#panel-principal--main-panel)
-  - [Tabla `movimientos`](#tabla-movimientos)
-  - [Módulo Apartado](#módulo-apartado)
-  - [Diseño de pantalla](#diseño-de-pantalla)
-  - [Campos activos por operación](#campos-activos-por-operación)
-  - [Comportamiento por operación](#comportamiento-por-operación)
-  - [Schema JSON — Panel Principal](#schema-json--panel-principal)
-- [Módulo Shein](#módulo-shein)
-  - [Decisiones de diseño — Shein](#decisiones-de-diseño--shein)
-  - [Modelo de datos — Shein](#modelo-de-datos--shein)
-  - [Menú Shein](#menú-shein)
-  - [Cuello de botella — Variación de precios en app Shein](#cuello-de-botella--variación-de-precios-en-app-shein)
-- [Módulo Recargas Telefónicas](#módulo-recargas-telefónicas)
-  - [Modelo de datos — Recargas](#modelo-de-datos--recargas)
-  - [Menú Recargas](#menú-recargas)
-- [Módulo Consulta Global](#módulo-consulta-global)
-  - [Consulta 1 — Ventas totales por período](#consulta-1--ventas-totales-por-período)
-  - [Consulta 2 — Ventas por segmento en período](#consulta-2--ventas-por-segmento-en-período)
-  - [Consulta 3 — Cartera de clientes por segmento](#consulta-3--cartera-de-clientes-por-segmento)
-- [Autenticación y Configuración](#autenticación-y-configuración)
-  - [Autenticación](#autenticación)
-  - [Módulo Setting](#módulo-setting)
-- [Resumen de tablas del sistema](#resumen-de-tablas-del-sistema)
+- [MAIN MENU — pos-boutique](#main-menu--pos-boutique)
+  - [Tabla de contenidos](#tabla-de-contenidos)
+  - [Módulo Clientes](#módulo-clientes)
+    - [Modelo de datos](#modelo-de-datos)
+    - [Notas de campo](#notas-de-campo)
+    - [Enum `frecuencia_pago`](#enum-frecuencia_pago)
+    - [Enum `estatus`](#enum-estatus)
+    - [Ciclo de `fecha_pago_programada`](#ciclo-de-fecha_pago_programada)
+    - [Sistema de banderas](#sistema-de-banderas)
+    - [Menú Clientes](#menú-clientes)
+    - [Opción 1 — Registrar Cliente](#opción-1--registrar-cliente)
+    - [Opción 2 — Editar Cliente](#opción-2--editar-cliente)
+    - [Opción 3 — Consulta Cliente](#opción-3--consulta-cliente)
+    - [Opción 4 — Consulta Historial](#opción-4--consulta-historial)
+    - [Schema JSON completo — Clientes](#schema-json-completo--clientes)
+    - [Carga inicial de cartera existente](#carga-inicial-de-cartera-existente)
+  - [Módulo Pedidos](#módulo-pedidos)
+    - [Convención de identidades](#convención-de-identidades)
+    - [Modelo de datos — Pedidos](#modelo-de-datos--pedidos)
+      - [Tabla `pedidos` (cabecera)](#tabla-pedidos-cabecera)
+      - [Tabla `pedidos_articulos` (líneas)](#tabla-pedidos_articulos-líneas)
+      - [Notas de campo](#notas-de-campo-1)
+      - [Enum `tipo_producto`](#enum-tipo_producto)
+      - [Enum `proveedor`](#enum-proveedor)
+      - [Enum `estatus_articulo`](#enum-estatus_articulo)
+      - [Resolución de `monto` desde `tabla_precios`](#resolución-de-monto-desde-tabla_precios)
+      - [Regla de saldo](#regla-de-saldo)
+    - [Menú Pedidos](#menú-pedidos)
+      - [Opción 1 — Registrar Pedido](#opción-1--registrar-pedido)
+      - [Opción 2 — Registrar Devolución](#opción-2--registrar-devolución)
+      - [Opción 3 — Cancelar Artículo](#opción-3--cancelar-artículo)
+      - [Opción 4 — Lista de Surtido](#opción-4--lista-de-surtido)
+    - [Formulario Registrar Pedido](#formulario-registrar-pedido)
+    - [Flujo de una devolución](#flujo-de-una-devolución)
+    - [Flujo de una cancelación](#flujo-de-una-cancelación)
+    - [Schema JSON completo — Pedidos](#schema-json-completo--pedidos)
+  - [Módulo Inventario](#módulo-inventario)
+    - [Modelo de datos — Inventario](#modelo-de-datos--inventario)
+    - [Notas de campo — Inventario](#notas-de-campo--inventario)
+    - [Enum `categoria`](#enum-categoria)
+    - [Enum `estatus` (inventario)](#enum-estatus-inventario)
+    - [Regla de `precio_descuento`](#regla-de-precio_descuento)
+    - [Menú Inventario](#menú-inventario)
+      - [Opción 1 — Agregar Producto](#opción-1--agregar-producto)
+      - [Opción 2 — Cambiar Estatus](#opción-2--cambiar-estatus)
+      - [Opción 3 — Consulta Inventario](#opción-3--consulta-inventario)
+    - [Schema JSON completo — Inventario](#schema-json-completo--inventario)
+  - [Panel Principal — Main Panel](#panel-principal--main-panel)
+    - [Tabla `movimientos`](#tabla-movimientos)
+    - [Módulo Apartado](#módulo-apartado)
+      - [Estatus `apartado` en `inventario`](#estatus-apartado-en-inventario)
+      - [Ciclo de vida de un Apartado](#ciclo-de-vida-de-un-apartado)
+      - [Reglas del Apartado](#reglas-del-apartado)
+    - [Diseño de pantalla](#diseño-de-pantalla)
+    - [Campos activos por operación](#campos-activos-por-operación)
+    - [Comportamiento por operación](#comportamiento-por-operación)
+      - [Contado](#contado)
+      - [Apartado](#apartado)
+      - [Abono](#abono)
+      - [Gasto](#gasto)
+    - [Schema JSON — Panel Principal](#schema-json--panel-principal)
+  - [Módulo Shein](#módulo-shein)
+    - [Decisiones de diseño — Shein](#decisiones-de-diseño--shein)
+    - [Modelo de datos — Shein](#modelo-de-datos--shein)
+      - [Tabla `shein_clientes`](#tabla-shein_clientes)
+      - [Tabla `shein_pedidos`](#tabla-shein_pedidos)
+      - [Tabla `shein_cortes`](#tabla-shein_cortes)
+    - [Menú Shein](#menú-shein)
+      - [Opción 1 — Registrar Cliente Shein](#opción-1--registrar-cliente-shein)
+      - [Opción 2 — Registrar Pedido Shein](#opción-2--registrar-pedido-shein)
+      - [Opción 3 — Lista de Pedidos](#opción-3--lista-de-pedidos)
+      - [Opción 4 — Registrar Corte](#opción-4--registrar-corte)
+    - [Cuello de botella — Variación de precios en app Shein](#cuello-de-botella--variación-de-precios-en-app-shein)
+  - [Módulo Recargas Telefónicas](#módulo-recargas-telefónicas)
+    - [Modelo de datos — Recargas](#modelo-de-datos--recargas)
+    - [Menú Recargas](#menú-recargas)
+      - [Ventana — Registro de Recarga Telefónica](#ventana--registro-de-recarga-telefónica)
+  - [Módulo Consulta Global](#módulo-consulta-global)
+    - [Consulta 1 — Ventas totales por período](#consulta-1--ventas-totales-por-período)
+    - [Consulta 2 — Ventas por segmento en período](#consulta-2--ventas-por-segmento-en-período)
+    - [Consulta 3 — Cartera de clientes por segmento](#consulta-3--cartera-de-clientes-por-segmento)
+  - [Autenticación y Configuración](#autenticación-y-configuración)
+    - [Autenticación](#autenticación)
+    - [Módulo Setting](#módulo-setting)
+      - [Opciones disponibles](#opciones-disponibles)
+  - [Resumen de tablas del sistema](#resumen-de-tablas-del-sistema)
 
 ---
 
@@ -614,15 +647,67 @@ Solo aplica cuando `tipo_producto = 'formal'`.
 
 #### Resolución de `monto` desde `tabla_precios`
 
-Cuando `proveedor ∈ {Price_Shoes, Pakar, Cklass}` e `id_producto` es ingresado,
-el backend ejecuta un lookup:
+El archivo `tabla_precios.ods` es la fuente de verdad operativa de precios de proveedor.
+Vive fuera del repo, se mantiene en LibreOffice Calc, y se sincroniza manualmente
+a SQLite mediante el script `backend/app/scripts/importar_precios.py` cada vez que
+un proveedor libera catálogo nuevo (frecuencia típica: mensual o bimestral).
 
-```
-monto = tabla_precios[pestaña(proveedor)].VLOOKUP(id_producto)
+**Estructura del archivo — 3 pestañas:**
+
+| Pestaña | Campo identificador | Campo precio | Campo base | Formato `fecha` |
+|---|---|---|---|---|
+| `price_shoes` | `ID` | `precio_venta` | `Sug_credito` | texto `"02-mayo-2026"` |
+| `pakar` | `CÓDIGO` | `precio_venta` | `2 PAGO` | texto `"02-mayo-2026"` |
+| `cklass` | `modelo` | `precio_venta` | `precio_base` | ISO `YYYY-MM-DD` |
+
+El script normaliza los tres campos identificadores a la columna `id_producto` en SQLite,
+y normaliza ambos formatos de fecha a ISO antes de insertar.
+
+**Tabla `precios_catalogo` en SQLite (destino del import):**
+
+```sql
+CREATE TABLE precios_catalogo (
+    id_precio      INTEGER PRIMARY KEY AUTOINCREMENT,
+    proveedor      TEXT    NOT NULL CHECK (proveedor IN ('Price_Shoes', 'Pakar', 'Cklass')),
+    id_producto    TEXT(12) NOT NULL,
+    precio_venta   INTEGER NOT NULL,
+    fecha_catalogo DATE    NOT NULL,
+    -- Columnas auxiliares preservadas por fidelidad al .ods (no usadas por el POS):
+    catalogo       TEXT,
+    temporada      TEXT,
+    pagina         INTEGER,
+    precio_base    INTEGER
+);
 ```
 
-El campo `monto` se muestra autollenado y de solo lectura en UI.
-Si `id_producto` no existe en la lista, el campo queda vacío con aviso y editable.
+Sin restricción `UNIQUE` — el mismo `id_producto` puede aparecer en catálogos futuros
+(producto vigente temporada tras temporada). El import solo hace `INSERT` de combinaciones
+`(proveedor, id_producto, fecha_catalogo)` que no existan ya en SQLite. Nunca borra,
+nunca sobreescribe. SQLite acumula historial completo.
+
+**Lookup en el backend al registrar un artículo formal:**
+
+```sql
+SELECT precio_venta
+FROM precios_catalogo
+WHERE proveedor = :proveedor AND id_producto = :id_producto
+ORDER BY fecha_catalogo DESC
+LIMIT 1
+```
+
+Gana siempre el precio del catálogo más reciente. Si no existe el `id_producto`,
+el campo `monto` queda vacío con aviso y editable (mismo comportamiento que hoy).
+
+**Disparador de sincronización:**
+
+El usuario corre el script manualmente desde el POS (botón "Sincronizar precios"
+en `Módulo Setting`) o desde terminal:
+
+```bash
+python -m app.scripts.importar_precios tabla_precios.ods
+```
+
+No hay sincronización automática ni watcher de archivo.
 
 #### Regla de saldo
 
@@ -2109,10 +2194,9 @@ sistema de banderas del Módulo Clientes.
 
 Al abrir `pos-boutique` se presenta la ventana de login.
 
-> **MVP:** la ventana de login está construida pero **desactivada** al inicio de sesión.
-> Se activa en cuanto el sistema esté en operación real. El toggle es una variable
-> de configuración en `backend/core/config.py`:
-> `AUTH_ENABLED = False  # cambiar a True en producción`.
+> **Estado actual:** la autenticación está **activa**. Todos los endpoints están
+> protegidos con `Depends(get_current_user)`. `config.py` no tiene flag `AUTH_ENABLED`.
+> La sesión se maneja con JWT real (`python-jose`). No se desactiva en MVP.
 
 **Campos:**
 
@@ -2215,6 +2299,7 @@ CREATE TABLE configuracion (
 | `clientes`         | Clientes             | Referenciada por `pedidos`, `movimientos`            |
 | `pedidos`          | Pedidos              | FK → `clientes`                                      |
 | `pedidos_articulos`| Pedidos              | FK → `pedidos`, autorreferencia para `rol`           |
+| `precios_catalogo` | Pedidos              | Sin FK — lookup por `proveedor` + `id_producto`      |
 | `inventario`       | Inventario           | Referenciada por `movimientos`                       |
 | `movimientos`      | Panel Principal      | FK → `clientes`, FK → `inventario`                   |
 | `shein_clientes`   | Shein                | Independiente de `clientes`                          |

@@ -7,16 +7,17 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.database import get_db
 from app.models.models import Usuario
 from app.schemas.token import TokenData
 
 # ── Configuración ─────────────────────────────────────────────────────────────
-# En producción SECRET_KEY debe vivir en .env — por ahora valor fijo para MVP.
-# Rotar esta clave invalida todos los tokens activos.
-SECRET_KEY    = "pos-boutique-secret-key-cambiar-en-produccion"
-ALGORITHM     = "HS256"
-TOKEN_EXPIRY_HOURS = 8  # sesión de una jornada laboral
+# SECRET_KEY, ALGORITHM y TOKEN_EXPIRY_HOURS ya NO viven aquí hardcodeados.
+# Vienen de app/core/config.py (settings), que a su vez lee .env si existe.
+SECRET_KEY          = settings.SECRET_KEY
+ALGORITHM           = settings.ALGORITHM
+TOKEN_EXPIRY_HOURS  = settings.TOKEN_EXPIRY_HOURS
 
 pwd_context   = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -42,33 +43,37 @@ def crear_token(data: dict, expiry: Optional[timedelta] = None) -> str:
 
 
 # ── Usuario ───────────────────────────────────────────────────────────────────
+# Renombrado: Usuario.username -> Usuario.usuario
+#             Usuario.hashed_password -> Usuario.password_hash
+#             Usuario.activo: "true"/"false" (str) -> 1/0 (int)
+# Alineado a app/models/models.py (propuesto, validado por el usuario).
 
-def obtener_usuario(db: Session, username: str) -> Usuario | None:
-    return db.query(Usuario).filter(Usuario.username == username).first()
+def obtener_usuario(db: Session, usuario: str) -> Usuario | None:
+    return db.query(Usuario).filter(Usuario.usuario == usuario).first()
 
 
-def autenticar_usuario(db: Session, username: str, password: str) -> Usuario | None:
-    usuario = obtener_usuario(db, username)
-    if not usuario:
+def autenticar_usuario(db: Session, usuario: str, password: str) -> Usuario | None:
+    user = obtener_usuario(db, usuario)
+    if not user:
         return None
-    if not verificar_password(password, usuario.hashed_password):
+    if not verificar_password(password, user.password_hash):
         return None
-    if usuario.activo != "true":
+    if not user.activo:
         return None
-    return usuario
+    return user
 
 
-def crear_usuario(db: Session, username: str, password: str, rol: str = "estandar") -> Usuario:
-    usuario = Usuario(
-        username=username,
-        hashed_password=hash_password(password),
+def crear_usuario(db: Session, usuario: str, password: str, rol: str = "estandar") -> Usuario:
+    user = Usuario(
+        usuario=usuario,
+        password_hash=hash_password(password),
         rol=rol,
-        activo="true",
+        activo=1,
     )
-    db.add(usuario)
+    db.add(user)
     db.commit()
-    db.refresh(usuario)
-    return usuario
+    db.refresh(user)
+    return user
 
 
 # ── Dependency — protege endpoints ────────────────────────────────────────────
@@ -90,16 +95,16 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload  = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        rol      = payload.get("rol")
-        if username is None:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        usuario = payload.get("sub")
+        rol     = payload.get("rol")
+        if usuario is None:
             raise credentials_error
-        token_data = TokenData(username=username, rol=rol)
+        token_data = TokenData(username=usuario, rol=rol)
     except JWTError:
         raise credentials_error
 
-    usuario = obtener_usuario(db, token_data.username)
-    if not usuario or usuario.activo != "true":
+    user = obtener_usuario(db, token_data.username)
+    if not user or not user.activo:
         raise credentials_error
-    return usuario
+    return user

@@ -19,10 +19,6 @@ un panel único de operación diaria.
 | 1 | [`docs/00_FULLSTACK_DEVELOPMENT.md`](docs/00_FULLSTACK_DEVELOPMENT.md) | **Fuente de verdad.** Especificación de pantallas, formularios y flujos de UI/UX. Tiene precedencia sobre cualquier otro documento si hay contradicción. |
 | 2 | [`docs/REGLAS_NEGOCIO.md`](docs/REGLAS_NEGOCIO.md) | Modelo de datos completo (tablas, enums, relaciones) y reglas de negocio puras, sin UI. |
 | 3 | [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) | Stack técnico, estructura de carpetas, decisiones de arquitectura (auth, base de datos, despliegue). |
-| 4 | [`docs/AUDITORIA.md`](docs/AUDITORIA.md) | Estado real del código hoy, contrastado contra la spec maestra, con brechas priorizadas. |
-| 5 | `docs/CHECKLIST.md` | *(pendiente de reconstrucción — se genera a partir de `AUDITORIA.md` una vez se apruebe el nuevo modelo de datos)* |
-
-No existe hoy un documento de avance de validación (`AVANCE_VALIDACION.md`) confiable — se reconstruirá cuando el checklist tenga avance real que validar.
 
 ---
 

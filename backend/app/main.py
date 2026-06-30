@@ -1,12 +1,15 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.db.init_db import init_db
 from app.api.v1.endpoints import clientes, movimientos, pedidos, pedidos_shein, auth
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    # init_db() (Base.metadata.create_all) ya NO se ejecuta aquí.
+    # Alembic es la única fuente de verdad del esquema: el arranque
+    # real depende de que `alembic upgrade head` ya se haya corrido
+    # antes de levantar la app. init_db.py se conserva solo como
+    # utilidad manual de desarrollo, no se invoca automáticamente.
     yield
 
 app = FastAPI(

@@ -13,6 +13,8 @@ def login(
     form: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
+    # form.username es el campo estándar de OAuth2PasswordRequestForm (no tocar,
+    # es de FastAPI/OAuth2, no de nuestro modelo Usuario).
     usuario = autenticar_usuario(db, form.username, form.password)
     if not usuario:
         raise HTTPException(
@@ -20,5 +22,6 @@ def login(
             detail="Usuario o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    token = crear_token({"sub": usuario.username, "rol": usuario.rol})
+    # Antes: usuario.username -> ya no existe en el modelo (renombrado a Usuario.usuario)
+    token = crear_token({"sub": usuario.usuario, "rol": usuario.rol})
     return {"access_token": token, "token_type": "bearer"}

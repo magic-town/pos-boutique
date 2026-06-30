@@ -4,7 +4,7 @@
 > evidencia confirmada y huecos de visibilidad. No es un checklist de tareas
 > (eso es `CHECKLIST.md`, aún no construido) ni la spec de negocio (eso es
 > `REGLAS_NEGOCIO.md` / `00_FULLSTACK_DEVELOPMENT.md`). Es el documento que
-> permite retomar el trabajo en cualquier sesión nueva sin tener que re-subir
+> permite retomar el trabajo en cualquier sesión nueva sin tener que recargar
 > todo el repo. **Se actualiza cada vez que se revisa código nuevo o se toma
 > una decisión.** Última actualización: tras revisión de `init_db.py`,
 > `pedidos.py`, `pedido.py`, `pedido_service.py`, `models.py` (nuevo),

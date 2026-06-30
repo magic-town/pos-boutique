@@ -978,7 +978,7 @@ Aplica a `formal` e `informal` por igual. El sustituto mantiene siempre el mismo
                 "habilitado_si": { "tipo_producto": "formal" },
                 "nota": "Habilitado para todos los valores de proveedor. Activa lookup de precio solo si proveedor IN [Price_Shoes, Pakar, Cklass]."
               },
-              { "etiqueta": "Producto", "modelo": "producto", "tipo": "String", "longitud": 50, "requerido": true },
+              { "etiqueta": "Producto", "modelo": "producto", "tipo": "String", "longitud": 40, "requerido": true },
               { "etiqueta": "Marca",    "modelo": "marca",    "tipo": "String", "longitud": 20, "requerido": false },
               { "etiqueta": "Talla",    "modelo": "talla",    "tipo": "String", "longitud": 8,  "requerido": false },
               {

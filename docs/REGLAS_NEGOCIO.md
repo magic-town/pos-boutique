@@ -8,6 +8,9 @@
 > `backend/app/models/models.py` y migrado a `pos.db` (`a1b2c3d4e5f6_esquema_inicial.py`).
 > La tabla `precios_catalogo` está diseñada y cerrada pero pendiente de agregar
 > a `models.py` + migración Alembic.
+> El §6 (Módulo Shein) fue rediseñado — `shein_pedidos` cambia de estructura y se
+> agrega `shein_pedidos_articulos`. Ambas están diseñadas y cerradas, pendientes de
+> reflejarse en `models.py` + migración Alembic (esquema anterior aún vive en `pos.db`).
 
 ---
 
@@ -22,8 +25,9 @@
 | `inventario` | Inventario | Existencias propias de la boutique (piso de venta) |
 | `movimientos` | Panel Principal | Registro de toda operación de caja (contado, apartado, abono, gasto) |
 | `shein_clientes` | Shein | Clientes transaccionales de Shein, independientes de `clientes` |
-| `shein_pedidos` | Shein | Pedidos individuales de Shein |
-| `shein_cortes` | Shein | Cortes periódicos que calculan el bono por volumen |
+| `shein_pedidos` | Shein | Cabecera de un pedido Shein (1 a 4 artículos) |
+| `shein_pedidos_articulos` | Shein | Artículos individuales de un pedido Shein (1 a 4 por pedido) |
+| `shein_cortes` | Shein | Cortes periódicos que concentran pedidos y registran el `cupon` obtenido de Shein |
 | `recargas` | Recargas | Registro de recargas telefónicas vendidas |
 | `usuarios` | Autenticación | Cuentas de acceso al sistema |
 | `configuracion` | Configuración | Parámetros del sistema (métodos de pago activos, etc.) |
@@ -188,6 +192,12 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 ## 6. Módulo Shein
 
 > La boutique actúa como intermediaria: compra en la app de Shein a nombre del cliente y cobra el mismo precio, siempre de contado, sin devoluciones.
+>
+> **Corrección de diseño:** `shein_pedidos` deja de ser una tabla plana de un artículo por
+> renglón. Adopta la misma estructura cabecera-detalle que `pedidos` / `pedidos_articulos`
+> (§3): un `shein_pedido` es una cabecera con 1 a 4 artículos en `shein_pedidos_articulos`.
+> A diferencia de Pedidos, **Shein no maneja el concepto de artículo alternativo** — no
+> aplica `rol` ni `id_articulo_principal`.
 
 ### Modelo de datos
 
@@ -200,17 +210,28 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 | `colonia` | String(12) | Obligatorio |
 | `telefono` | Integer | 10 dígitos, obligatorio |
 
-**`shein_pedidos`:**
+**`shein_pedidos`** (cabecera — equivalente a `pedidos` en §3):
 
 | Campo | Tipo | Regla |
 |---|---|---|
-| `id_shein_pedido` | Integer, PK | — |
+| `id_shein_pedido` | Integer, PK | Nunca aparece en UI |
 | `id_shein_cliente` | FK → `shein_clientes` | Obligatorio |
 | `id_shein_corte` | FK → `shein_cortes`, nullable | `NULL` hasta asignarse a un corte |
-| `producto` | String | Obligatorio |
-| `monto` | Float | Precio al momento del pedido |
-| `monto_vigente` | Float, nullable | Se llena si el precio cambió al cerrar el corte |
-| `fecha` | Date | Autogenerado |
+| `estatus_pago` | Enum: `pago_pendiente`, `pagado`, nullable | `NULL` hasta que el corte se guarda. Ver regla 5 |
+| `fecha` | Date | Autogenerado al crear |
+
+**`shein_pedidos_articulos`** (detalle, 1 a 4 artículos por pedido, sin alternativa):
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_shein_articulo` | Integer, PK | Nunca aparece en UI |
+| `id_shein_pedido` | FK → `shein_pedidos` | Obligatorio |
+| `id_articulo` | String(20), nullable | Referencia libre al ID del artículo en la app Shein. Informativo, sin catálogo ni FK real |
+| `producto` | String(60) | Obligatorio. Descripción libre del artículo |
+| `tipo_producto` | Enum: `Nacional`, `Importado` | Obligatorio. Informativo, sin impacto operativo en MVP |
+| `monto` | Float | Obligatorio. Precio en la app al momento en que el cliente solicita el artículo |
+| `monto_vigente` | Float, nullable | Se llena únicamente si el precio cambió al momento del corte (subida o bajada) |
+| `estatus_articulo` | Enum: `vigente`, `confirmado`, `cancelado` | Default `vigente`. Ver regla 6 |
 
 **`shein_cortes`:**
 
@@ -218,16 +239,34 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 |---|---|---|
 | `id_shein_corte` | Integer, PK | — |
 | `fecha_corte` | Date | Obligatorio |
-| `total_pedidos` | Integer | Calculado por backend |
-| `suma_montos` | Float | Calculado por backend |
-| `porcentaje_bono` | Float | Ej. `0.08` para 8% |
-| `bono_monto` | Float | `suma_montos * porcentaje_bono`, calculado por backend |
+| `total_pedidos` | Integer | Cantidad de `shein_pedidos` incluidos en el corte. Calculado por backend |
+| `suma_pedidos` | Float | Suma de los montos confirmados de todos los pedidos incluidos (ver regla 8). Calculado por backend |
+| `total_ticket` | Float | Lo efectivamente pagado en caja OXXO. Captura manual, dato de Shein |
+| `cupon` | Float | `suma_pedidos - total_ticket`. Calculado por backend al guardar |
+
+> `porcentaje_bono` / `bono_monto` del diseño anterior quedan obsoletos: el bono
+> (ahora `cupon`) no se estima con un porcentaje interno, lo determina Shein y se
+> obtiene junto con `total_ticket` al pagar en OXXO.
 
 ### Reglas de negocio
 
 1. **Por qué `shein_clientes` es independiente:** forzar estos clientes en `clientes` introduciría campos obligatorios que no aplican (garante, saldo, frecuencia de pago) y contaminaría la cartera de crédito real.
-2. **Variación de precios:** si el precio bajó entre pedido y corte, la tienda absorbe la diferencia. Si subió, se notifica al cliente antes de ejecutar la compra — `monto_vigente` es el mecanismo de control en MVP.
-3. El bono no pertenece a ningún cliente o artículo individual — es resultado agregado de un corte.
+2. **Un `shein_pedido` tiene de 1 a 4 artículos.** Solo el primero es obligatorio al crear; los demás se pueden agregar mientras el pedido siga editable (`id_shein_corte IS NULL`, con al menos un artículo en `vigente`).
+3. **Sin saldo, sin cartera de crédito.** A diferencia de Pedidos, ningún artículo Shein impacta el `saldo` de ningún cliente en ningún momento del ciclo — el cliente Shein siempre paga de contado en OXXO. `estatus_pago` en `shein_pedidos` es el único mecanismo de seguimiento de cobro.
+4. **Variación de precios (corregido):** ya sea que el precio **baje o suba** entre el momento del pedido y el momento del corte, se notifica al cliente y este debe confirmar el artículo con el precio actualizado. No existe el caso "la tienda absorbe la diferencia en silencio" del diseño anterior.
+5. **Resolución de `estatus_articulo` en el corte:**
+   - Si el precio no cambió: el artículo pasa automáticamente a `confirmado` (con `monto_vigente = NULL`, se usa `monto`).
+   - Si el precio cambió y el cliente confirma: `estatus_articulo = 'confirmado'`, `monto_vigente` se llena con el nuevo precio.
+   - Si el precio cambió y el cliente cancela: `estatus_articulo = 'cancelado'`.
+6. **Cascada de cancelación a nivel pedido:**
+   - Si **todos** los artículos de un `shein_pedido` quedan `cancelado`, el pedido completo se considera cancelado: no se le asigna `id_shein_corte` ni `estatus_pago`. Sin ningún otro impacto en la operación.
+   - Si el pedido conserva **al menos un** artículo `confirmado`, el pedido continúa: se le asigna `id_shein_corte` y `estatus_pago = 'pago_pendiente'`, usando solo los artículos `confirmado` para los cálculos de monto.
+7. **Ciclo de `estatus_pago`:** al guardar un `shein_corte`, todos los `shein_pedidos` incluidos (con al menos un artículo `confirmado`) pasan de `NULL` a `pago_pendiente`. Conforme cada cliente paga en OXXO, su pedido pasa individualmente a `pagado`. `estatus_pago` vive en `shein_pedidos`, no en `shein_clientes` ni en `shein_cortes` — dos pedidos del mismo cliente en cortes distintos pueden tener estatus de pago diferentes.
+8. **Cálculo de montos:**
+   - `monto_pedido` (por pedido): suma de `COALESCE(monto_vigente, monto)` de los artículos `confirmado` de ese pedido. No es una columna almacenada — se deriva por consulta.
+   - `suma_pedidos` (por corte): suma de `monto_pedido` de todos los pedidos incluidos en el corte. Sí se almacena en `shein_cortes`, igual que `bono_monto` en el diseño anterior.
+9. **`cupon` no se calcula internamente.** Shein lo determina externamente y la tienda lo obtiene junto con `total_ticket` al momento de pagar en caja OXXO — ambos se capturan en la misma acción de guardar el corte. `cupon = suma_pedidos - total_ticket`.
+10. **El pago de la tienda al proveedor (OXXO) es informativo y no se registra en el sistema** — no existe un estatus "confirmado → pagado" a nivel `shein_corte`. Lo único que el sistema rastrea después de `fecha_corte` es el cobro al cliente (`estatus_pago` en `shein_pedidos`).
 
 ---
 
@@ -277,11 +316,15 @@ Sin validación de tope de monto. Sin impacto en saldo de clientes ni inventario
 
 ## 10. Módulo Consulta Global
 
-Tres consultas de solo lectura sobre datos agregados (no reemplazan la Consulta Historial por cliente individual):
+Tres consultas de solo lectura sobre datos agregados (no reemplazan la Consulta Historial por cliente individual ni la Consulta de Cortes del Módulo Shein — ver §6):
 
 1. **Ventas totales por período** — suma de `movimientos` (excluyendo `gasto`) agrupada por operación, con total consolidado.
 2. **Ventas por segmento** — distribución entre Caja (movimientos), Shein y Recargas en un período.
 3. **Cartera de clientes por segmento** — clientes con saldo activo agrupados por colonia, con saldo total y promedio.
+
+> El seguimiento de `pago_pendiente` / `pagado` por corte Shein vive en su propia
+> consulta dentro del Módulo Shein (Opción 5 — Consulta de Cortes), no aquí — es
+> información operativa del módulo, no un agregado transversal del negocio.
 
 ---
 
@@ -295,3 +338,5 @@ Reglas que aplican transversalmente y que cualquier servicio nuevo debe respetar
 - Toda fecha de negocio se almacena en `YYYY-MM-DD` (o timestamp completo cuando la tabla lo requiere) y se muestra al usuario en `DD-MM-YYYY`.
 - `id_articulo_sustituye` solo se llena en artículos sustitutos de devolución. En todos los demás casos es `NULL`.
 - El script `importar_precios.py` solo hace `INSERT`. Nunca borra ni sobreescribe filas existentes en `precios_catalogo`.
+- `estatus_pago` (Shein) vive en `shein_pedidos`, nunca en `shein_clientes` — el estatus de cobro es por pedido, no global al cliente.
+- `cupon` (Shein) nunca se calcula por porcentaje interno — siempre se deriva de `suma_pedidos - total_ticket`, con `total_ticket` capturado manualmente al pagar en OXXO.

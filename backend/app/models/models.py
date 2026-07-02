@@ -1,24 +1,23 @@
 """
 Modelo de datos alineado a docs/00_FULLSTACK_DEVELOPMENT.md (fuente de verdad única).
 
-Reemplaza por completo el models.py anterior. Tablas nuevas o reestructuradas:
-- clientes:           + frecuencia_pago, fecha_pago_programada; telefono -> Integer;
-                       estatus simplificado a activo/inactivo.
-- pedidos:             ahora es SOLO cabecera (id_cliente, fecha).
-- pedidos_articulos:   tabla NUEVA (detalle, 1 a 4 artículos por pedido).
-- inventario:          + tipo_producto, precio_descuento, descripcion_ruta;
-                       estatus con 5 valores incl. 'apartado'; created/changed_status.
-- movimientos:         notas -> descripcion (obligatoria solo en 'gasto').
-- shein_clientes:      tabla NUEVA (reemplaza el uso de `clientes` para Shein).
-- shein_pedidos:       tabla NUEVA (reemplaza pedidos_shein, ya no apunta a clientes generales).
-- shein_cortes:        tabla NUEVA.
-- recargas:            tabla NUEVA.
-- configuracion:       tabla NUEVA.
-- usuarios:            sin cambio de fondo (se mantiene username/hashed_password).
+Revisión 2 (ver docs/REPORT.md §0, §2a, §2b). Respecto al models.py ya migrado
+(11 tablas, esquema vigente en pos.db), esta revisión agrega/reestructura:
+- precios_catalogo:    tabla NUEVA (catálogo importado de tabla_precios.ods, §2a).
+- shein_pedidos:        CAMBIA de tabla plana a SOLO cabecera; agrega estatus_pago.
+- shein_pedidos_articulos: tabla NUEVA (detalle, 1 a 4 artículos por pedido Shein,
+                       sin concepto de alternativa).
+- shein_cortes:         CAMBIA columnas: suma_montos -> suma_pedidos; se elimina
+                       porcentaje_bono; bono_monto -> cupon; agrega total_ticket.
+
+El resto de las tablas (clientes, pedidos, pedidos_articulos, inventario,
+movimientos, recargas, usuarios, configuracion) no cambia en esta revisión —
+siguen igual que el models.py vigente en el repo.
 
 NOTA: este archivo se entrega para revisión. La migración Alembic correctiva
-(que reemplaza la actual `pedidos`/`pedidos_shein` y agrega las tablas nuevas)
-es el siguiente paso, una vez se apruebe este esquema.
+(que agrega precios_catalogo y shein_pedidos_articulos, y reestructura
+shein_pedidos/shein_cortes sobre el esquema ya migrado) es el siguiente paso,
+una vez se apruebe este esquema.
 """
 
 from sqlalchemy import (
@@ -107,6 +106,34 @@ class Compania(enum.Enum):
     ATT = "AT&T"
 
 
+class ProveedorCatalogo(enum.Enum):
+    """Subconjunto de Proveedor: precios_catalogo nunca aplica a 'otro'
+    (ese proveedor no tiene catálogo digitalizado). No reutiliza el enum
+    Proveedor de pedidos_articulos porque ese sí incluye 'otro'."""
+    Price_Shoes = "Price_Shoes"
+    Pakar = "Pakar"
+    Cklass = "Cklass"
+
+
+class TipoProductoShein(enum.Enum):
+    """No reutiliza TipoProducto (formal/informal) de Pedidos — valores distintos."""
+    Nacional = "Nacional"
+    Importado = "Importado"
+
+
+class EstatusArticuloShein(enum.Enum):
+    """No reutiliza EstatusArticulo de Pedidos — ciclo de vida distinto,
+    Shein no maneja 'en_almacen' ni 'devuelto'."""
+    vigente = "vigente"
+    confirmado = "confirmado"
+    cancelado = "cancelado"
+
+
+class EstatusPago(enum.Enum):
+    pago_pendiente = "pago_pendiente"
+    pagado = "pagado"
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # MÓDULO CLIENTES
 # ──────────────────────────────────────────────────────────────────────────
@@ -169,6 +196,27 @@ class PedidoArticulo(Base):
     id_articulo_sustituye   = Column(Integer, ForeignKey("pedidos_articulos.id_articulo"), nullable=True)
 
     pedido = relationship("Pedido", back_populates="articulos", foreign_keys=[id_pedido])
+
+
+class PrecioCatalogo(Base):
+    """Catálogo de precios por proveedor, importado desde tabla_precios.ods
+    vía script manual (importar_precios.py). Solo INSERT, nunca se borra ni
+    sobreescribe — SQLite acumula historial completo. Sin UNIQUE: el mismo
+    id_producto puede repetirse en catálogos futuros; desempate siempre por
+    MAX(fecha_catalogo)."""
+    __tablename__ = "precios_catalogo"
+
+    id_precio      = Column(Integer, primary_key=True, index=True)
+    proveedor      = Column(Enum(ProveedorCatalogo), nullable=False)
+    id_producto    = Column(String(12), nullable=False)   # normalizado desde ID/CÓDIGO/modelo
+    precio_venta   = Column(Integer, nullable=False)
+    fecha_catalogo = Column(Date, nullable=False)
+
+    # Columnas auxiliares del .ods, preservadas para fidelidad, no usadas por el POS:
+    catalogo       = Column(String, nullable=True)
+    temporada      = Column(String, nullable=True)
+    pagina         = Column(Integer, nullable=True)
+    precio_base    = Column(Integer, nullable=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -238,27 +286,47 @@ class SheinCorte(Base):
 
     id_shein_corte  = Column(Integer, primary_key=True, index=True)
     fecha_corte     = Column(Date, nullable=False)
-    total_pedidos   = Column(Integer, nullable=False)
-    suma_montos     = Column(Float, nullable=False)
-    porcentaje_bono = Column(Float, nullable=False)   # ej. 0.08 para 8%
-    bono_monto      = Column(Float, nullable=False)   # suma_montos * porcentaje_bono
+    total_pedidos   = Column(Integer, nullable=False)          # calculado por backend
+    suma_pedidos    = Column(Float, nullable=False)             # renombrado desde suma_montos; calculado por backend
+    total_ticket    = Column(Float, nullable=False)             # NUEVO: captura manual, pagado en OXXO
+    cupon           = Column(Float, nullable=False)             # renombrado desde bono_monto; = suma_pedidos - total_ticket
+    # porcentaje_bono ELIMINADO — el cupón ya no se estima por porcentaje interno.
 
     pedidos = relationship("SheinPedido", back_populates="corte")
 
 
 class SheinPedido(Base):
+    """Cabecera. Un pedido Shein agrupa de 1 a 4 artículos (shein_pedidos_articulos).
+    CAMBIA respecto al diseño anterior: deja de ser tabla plana."""
     __tablename__ = "shein_pedidos"
 
     id_shein_pedido  = Column(Integer, primary_key=True, index=True)
     id_shein_cliente = Column(Integer, ForeignKey("shein_clientes.id_shein_cliente"), nullable=False)
     id_shein_corte   = Column(Integer, ForeignKey("shein_cortes.id_shein_corte"), nullable=True)
-    producto         = Column(String, nullable=False)
-    monto            = Column(Float, nullable=False)        # precio al momento del pedido
-    monto_vigente    = Column(Float, nullable=True)         # se llena al cerrar corte si el precio varió
+    estatus_pago     = Column(Enum(EstatusPago), nullable=True)   # NUEVO — por pedido, nunca en cliente/corte
     fecha            = Column(Date, server_default=func.current_date(), nullable=False)
 
-    cliente = relationship("SheinCliente", back_populates="pedidos")
-    corte   = relationship("SheinCorte", back_populates="pedidos")
+    cliente   = relationship("SheinCliente", back_populates="pedidos")
+    corte     = relationship("SheinCorte", back_populates="pedidos")
+    articulos = relationship("SheinPedidoArticulo", back_populates="pedido")
+
+
+class SheinPedidoArticulo(Base):
+    """Detalle (tabla NUEVA). Cada renglón es un artículo Shein — sin concepto
+    de alternativa: a diferencia de Pedidos, no aplica rol ni id_articulo_principal."""
+    __tablename__ = "shein_pedidos_articulos"
+
+    id_shein_articulo = Column(Integer, primary_key=True, index=True)
+    id_shein_pedido    = Column(Integer, ForeignKey("shein_pedidos.id_shein_pedido"), nullable=False)
+    id_articulo        = Column(String(20), nullable=True)   # referencia libre a la app Shein, sin FK real
+    producto            = Column(String(60), nullable=False)
+    tipo_producto        = Column(Enum(TipoProductoShein), nullable=False)
+    monto                = Column(Float, nullable=False)       # precio al momento del pedido
+    monto_vigente        = Column(Float, nullable=True)        # se llena si el precio varió (sube o baja) al corte
+    estatus_articulo     = Column(Enum(EstatusArticuloShein), nullable=False,
+                                   default=EstatusArticuloShein.vigente)
+
+    pedido = relationship("SheinPedido", back_populates="articulos")
 
 
 # ──────────────────────────────────────────────────────────────────────────

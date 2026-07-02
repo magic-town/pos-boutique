@@ -64,8 +64,7 @@ misma nomenclatura que `models.py`).
 
 - Pedidos (nuevo, reemplaza el flujo plano viejo): `schemas/pedido.py`,
   `services/pedido_service.py`, `endpoints/pedidos.py`.
-- Shein (nuevo, reemplaza el flujo plano viejo): `schemas/pedido_shein.py`,
-  `services/pedido_shein_service.py`, `endpoints/pedidos_shein.py`.
+- ~~Shein~~ — completado. Ver §5 paso 2 (cerrado) y §4.1.
 - Script `backend/app/scripts/importar_precios.py` — sincroniza
   `tabla_precios.ods` → `precios_catalogo`. Solo `INSERT`, nunca borra ni
   sobreescribe.
@@ -196,10 +195,11 @@ regla 8.
 | `app/api/v1/endpoints/clientes.py` | Endpoints Cliente | Todos protegidos con `Depends(get_current_user)`. |
 | `app/api/v1/endpoints/movimientos.py` | Endpoints Movimiento | Mismo patrón de protección. CRUD básico completo. |
 | `app/api/v1/endpoints/pedidos.py` | Endpoints Pedido (viejo) | Modelo plano. Se reemplaza completo — §5 paso 1. |
-| `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein (viejo) | FK a `clientes` (incorrecto) y estructura plana. Se reemplaza completo — §5 paso 2. |
+| `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein | Implementado y probado (5 flujos: cliente, pedido, lista, resolución de artículo, corte). §5 paso 2 cerrado. |
 | `app/schemas/pedido.py` | Schema Pedido (viejo) | Estructura plana con `opcion_*`. Referencia de qué NO repetir. |
-| `app/schemas/pedido_shein.py` | Schema Shein (viejo) | Se reemplaza completo — §5 paso 2. |
+| `app/schemas/pedido_shein.py` | Schema Shein | Implementado. `max_length` agregado en `nombre`(20)/`colonia`(12)/`producto`(60)/`id_articulo`(20) para alinear con `String(N)` de `models.py` — verificado con `curl` contra servidor real (`422` al exceder, `201` en caso válido). |
 | `app/services/pedido_service.py` | Lógica Pedido (viejo) | Modelo plano: `Pedido(producto=..., marca=..., talla=...)`. Sin nada reutilizable — se reemplaza completo. |
+| `app/services/pedido_shein_service.py` | Lógica Shein | Implementado. `monto_pedido` derivado siempre de artículos `confirmado` (nunca replicado). Pedido con todos los artículos `cancelado` no recibe `id_shein_corte`/`estatus_pago`. |
 | `requirements.txt` | Dependencias | `python-jose` + `passlib`/`bcrypt` — JWT real. Sin `pytest`. Falta agregar `odfpy` para el script de import. |
 | `docs/00_FULLSTACK_DEVELOPMENT.md` | Spec UI/UX | Confirma `tabla_precios`/`precios_catalogo`, módulo Inventario, módulo Recargas, módulo Setting, módulo Shein — todos documentados al mismo nivel de detalle. Único hallazgo: inconsistencia interna de longitud de `producto` (INC-13, ver §6). |
 | `docs/REGLAS_NEGOCIO.md` | Modelo de datos + reglas de negocio | Alineado por completo a `00_FULLSTACK_DEVELOPMENT.md`, incluye Shein cabecera-detalle. Pendiente: definición formal de `precios_catalogo` (ver §1 punto 2). |
@@ -210,7 +210,6 @@ regla 8.
 | Archivo | Por qué importa |
 |---|---|
 | `app/services/auth_service.py` | Contiene `autenticar_usuario`, `crear_token`, `get_current_user`. Citado con líneas concretas por evidencia externa (L46–48, L103, L107), no visto directamente todavía. Bloqueante para §5 paso 7 hasta confirmación directa. |
-| `app/services/pedido_shein_service.py` | Lógica Shein vieja — confirmar antes de reemplazar si tiene algo reutilizable. Ver §5 paso 2. |
 | Endpoints/servicios de Inventario | No hay evidencia de que existan en código. Spec completa disponible. |
 | Endpoints/servicios de Recargas | Mismo caso: spec completa, cero evidencia de código. |
 | Endpoints/servicios de Setting/Configuración | Mismo caso: spec completa, marcada explícitamente como "esqueleto MVP". |
@@ -244,6 +243,12 @@ regla 8.
    L26–36) — la columna es `nullable=False` en el modelo. El primer `INSERT`
    real falla en tiempo de ejecución: es un crash garantizado, no una
    degradación silenciosa (INC-02).
+6. **`app/schemas/__init__.py` importaba nombres inexistentes de Shein**
+   (`PedidoSheinCreate`/`PedidoSheinRead` en vez de `SheinPedidoCreate`/
+   `SheinPedidoRead`) — residuo del nombre viejo previo a la reestructura
+   cabecera-detalle. Tumbaba el arranque completo del servidor
+   (`ImportError` en cadena desde `main.py`). Corregido y verificado con
+   `uvicorn` levantando limpio (INC-14).
 
 ---
 
@@ -255,11 +260,11 @@ regla 8.
    - `schemas/pedido.py` (nuevo), `services/pedido_service.py` (nuevo),
      `endpoints/pedidos.py` (nuevo). Cubre 4 flujos: Registrar Pedido, Registrar
      Devolución, Cancelar Artículo, Lista de Surtido.
-2. **Módulo Shein** — reescritura completa, sin dependencia del paso 1:
-   `schemas/pedido_shein.py` (nuevo), `services/pedido_shein_service.py`
-   (nuevo), `endpoints/pedidos_shein.py` (nuevo). Cubre 5 flujos: Registrar
-   Cliente Shein, Registrar Pedido Shein, Lista de Pedidos, Registrar Corte,
-   Consulta de Cortes.
+2. **Módulo Shein** — ✅ CERRADO. `schemas/pedido_shein.py`,
+   `services/pedido_shein_service.py`, `endpoints/pedidos_shein.py`
+   implementados y probados end-to-end (login JWT + `curl` real) contra
+   `pos.db` en head `b2c3d4e5f6a7`. Cubre los 5 flujos. Bug de import
+   encontrado y corregido en el camino (INC-14, ver §4.3).
 3. Ajuste de `schemas/cliente.py` y `services/cliente_service.py`:
    - Quitar `"liquidado"` de `rehabilitar_cliente()`.
    - Ajustar tipo `telefono`/`ref_telefono` a `int` (INC-01).
@@ -331,6 +336,6 @@ No hace falta resubir los archivos de §4.1 — solo los que aparezcan en §4.2
 cuando se lleguen a tocar, o cualquier archivo que haya cambiado desde la
 última actualización de este documento.
 
-**Siguiente paso de código, ya desbloqueado:** módulo Pedidos (§5 paso 1) y
-módulo Shein (§5 paso 2) — ambos con su prerrequisito técnico de `models.py`
-ya resuelto y migrado, sin dependencia entre ambos.
+**Siguiente paso de código, ya desbloqueado:** módulo Pedidos (§5 paso 1) —
+único pendiente entre los dos primeros pasos; módulo Shein (§5 paso 2) ya
+cerrado.

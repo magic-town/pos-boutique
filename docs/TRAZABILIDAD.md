@@ -1,6 +1,7 @@
 # TRAZABILIDAD — Referencia Técnica de pos-boutique
 
-> **Para quién es:** para ti (Gabriel), dueño y desarrollador de pos-boutique.
+> **Para quién es:** para el responsable del desarrollo y mantenimiento del producto. 
+> Una combinación entre Product Owner y Team Lider.
 > Asume que entiendes lógica y estructuras de datos, pero explica la jerga
 > técnica la primera vez que aparece. Cada afirmación cita el archivo del que
 > fue tomada. Si algo está pendiente de implementar, se marca explícitamente

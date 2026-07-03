@@ -658,11 +658,11 @@ un proveedor libera catálogo nuevo (frecuencia típica: mensual o bimestral).
 
 **Estructura del archivo — 3 pestañas:**
 
-| Pestaña | Campo identificador | Campo precio | Campo base | Formato `fecha` |
-|---|---|---|---|---|
-| `price_shoes` | `ID` | `precio_venta` | `Sug_credito` | texto `"02-mayo-2026"` |
-| `pakar` | `CÓDIGO` | `precio_venta` | `2 PAGO` | texto `"02-mayo-2026"` |
-| `cklass` | `modelo` | `precio_venta` | `precio_base` | ISO `YYYY-MM-DD` |
+| Pestaña       | Campo identificador | Campo precio   | Campo base    | Formato `fecha`        |
+| ------------- | ------------------- | -------------- | ------------- | ---------------------- |
+| `price_shoes` | `ID`                | `precio_venta` | `Sug_credito` | texto `"02-mayo-2026"` |
+| `pakar`       | `CÓDIGO`            | `precio_venta` | `2 PAGO`      | texto `"02-mayo-2026"` |
+| `cklass`      | `modelo`            | `precio_venta` | `precio_base` | ISO `YYYY-MM-DD`       |
 
 El script normaliza los tres campos identificadores a la columna `id_producto` en SQLite,
 y normaliza ambos formatos de fecha a ISO antes de insertar.
@@ -1199,13 +1199,13 @@ CREATE TABLE inventario (
 
 **Transiciones válidas:**
 
-| Estatus actual           | Transiciones permitidas                                          |
-| ------------------------ | ---------------------------------------------------------------- |
+| Estatus actual           | Transiciones permitidas                                            |
+| ------------------------ | ------------------------------------------------------------------ |
 | `disponible`             | → `en_ruta`, → `disponible_c/descuento`, → `apartado`, → `vendido` |
-| `disponible_c/descuento` | → `disponible`, → `en_ruta`, → `apartado`, → `vendido`          |
-| `en_ruta`                | → `disponible`, → `vendido`                                     |
-| `apartado`               | → `disponible` (cancelación), → `vendido` (liquidación)         |
-| `vendido`                | — (sin transición posible desde UI)                             |
+| `disponible_c/descuento` | → `disponible`, → `en_ruta`, → `apartado`, → `vendido`             |
+| `en_ruta`                | → `disponible`, → `vendido`                                        |
+| `apartado`               | → `disponible` (cancelación), → `vendido` (liquidación)            |
+| `vendido`                | — (sin transición posible desde UI)                                |
 
 ---
 
@@ -1635,12 +1635,12 @@ campos_condicionales_por_operacion:
 
 ### Campos activos por operación
 
-| Operación | No. Cliente        | Producto / Origen              | Monto                   | Forma Pago | `saldo_resultante`    | Descripción    |
-| --------- | ------------------ | ------------------------------ | ----------------------- | ---------- | --------------------- | -------------- |
-| Contado   | Opcional           | ✅ (Catálogo o Inventario)      | ✅                       | ✅          | NULL                  | —              |
-| Apartado  | Obligatorio        | ✅ (solo Inventario)            | ✅ (1er pago, mín $100) | ✅          | ✅ precio − pago       | —              |
-| Abono     | Obligatorio        | ❌                              | ✅                       | ✅          | ✅ saldo − monto       | —              |
-| Gasto     | Deshabilitado      | ❌                              | ✅                       | ✅          | NULL                  | ✅ obligatorio  |
+| Operación | No. Cliente   | Producto / Origen         | Monto                  | Forma Pago | `saldo_resultante` | Descripción   |
+| --------- | ------------- | ------------------------- | ---------------------- | ---------- | ------------------ | ------------- |
+| Contado   | Opcional      | ✅ (Catálogo o Inventario) | ✅                      | ✅          | NULL               | —             |
+| Apartado  | Obligatorio   | ✅ (solo Inventario)       | ✅ (1er pago, mín $100) | ✅          | ✅ precio − pago    | —             |
+| Abono     | Obligatorio   | ❌                         | ✅                      | ✅          | ✅ saldo − monto    | —             |
+| Gasto     | Deshabilitado | ❌                         | ✅                      | ✅          | NULL               | ✅ obligatorio |
 
 ---
 
@@ -1869,12 +1869,12 @@ CREATE TABLE shein_clientes (
 );
 ```
 
-| Campo              | Nota                                                                    |
-| ------------------ | ----------------------------------------------------------------------- |
-| `id_shein_cliente` | PK interna. Identificador operativo visible en UI como consecutivo.     |
-| `nombre`           | Nombre completo. Máximo 20 caracteres.                                  |
-| `colonia`          | Máximo 12 caracteres.                                                   |
-| `telefono`         | 10 dígitos. Obligatorio. Sin guiones ni espacios.                       |
+| Campo              | Nota                                                                |
+| ------------------ | ------------------------------------------------------------------- |
+| `id_shein_cliente` | PK interna. Identificador operativo visible en UI como consecutivo. |
+| `nombre`           | Nombre completo. Máximo 20 caracteres.                              |
+| `colonia`          | Máximo 12 caracteres.                                               |
+| `telefono`         | 10 dígitos. Obligatorio. Sin guiones ni espacios.                   |
 
 > Esta tabla es independiente de `clientes`. No existe FK entre ellas. Un cliente que
 > tenga crédito en la tienda y también compre por Shein tiene registros en ambas tablas
@@ -1898,12 +1898,12 @@ CREATE TABLE shein_pedidos (
 );
 ```
 
-| Campo              | Nota                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------- |
-| `id_shein_pedido`  | PK interna. No aparece en UI — se muestra como consecutivo (`#1`, `#2`...).               |
-| `id_shein_corte`   | `NULL` mientras el pedido está pendiente de corte. Se asigna al guardar un corte, y solo si el pedido conserva al menos un artículo `confirmado`. |
-| `estatus_pago`     | `NULL` hasta que el corte se guarda → `pago_pendiente` → `pagado` conforme el cliente paga. Vive aquí, no en `shein_clientes`. |
-| `fecha`            | Fecha de creación del pedido (momento en que el cliente solicita el primer artículo).     |
+| Campo             | Nota                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id_shein_pedido` | PK interna. No aparece en UI — se muestra como consecutivo (`#1`, `#2`...).                                                                       |
+| `id_shein_corte`  | `NULL` mientras el pedido está pendiente de corte. Se asigna al guardar un corte, y solo si el pedido conserva al menos un artículo `confirmado`. |
+| `estatus_pago`    | `NULL` hasta que el corte se guarda → `pago_pendiente` → `pagado` conforme el cliente paga. Vive aquí, no en `shein_clientes`.                    |
+| `fecha`           | Fecha de creación del pedido (momento en que el cliente solicita el primer artículo).                                                             |
 
 #### Tabla `shein_pedidos_articulos` (detalle)
 
@@ -1931,16 +1931,16 @@ CREATE TABLE shein_pedidos_articulos (
 );
 ```
 
-| Campo               | Nota                                                                                                    |
-| -------------------- | --------------------------------------------------------------------------------------------------------- |
-| `id_shein_articulo`  | PK interna. No aparece en UI.                                                                             |
-| `id_shein_pedido`    | FK a cabecera. No aparece en UI.                                                                          |
-| `id_articulo`        | Campo que captura el ejecutivo con el ID del artículo tal como aparece en la app Shein. Opcional, informativo, sin lookup. |
-| `producto`           | Descripción libre. Obligatorio. Coexiste con `id_articulo` — no lo reemplaza.                              |
-| `tipo_producto`      | `Nacional` o `Importado`. Obligatorio, informativo, sin impacto operativo declarado en MVP.                |
-| `monto`              | Precio capturado al momento de la solicitud del cliente.                                                   |
-| `monto_vigente`      | Se llena únicamente durante **Registrar Corte**, y solo si el precio en la app cambió respecto a `monto`. |
-| `estatus_articulo`   | Controla la resolución del artículo en el corte. Ver [Enum `estatus_articulo` (Shein)](#flujo-de-variación-de-precios-y-cancelación-en-cascada). |
+| Campo               | Nota                                                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id_shein_articulo` | PK interna. No aparece en UI.                                                                                                                    |
+| `id_shein_pedido`   | FK a cabecera. No aparece en UI.                                                                                                                 |
+| `id_articulo`       | Campo que captura el ejecutivo con el ID del artículo tal como aparece en la app Shein. Opcional, informativo, sin lookup.                       |
+| `producto`          | Descripción libre. Obligatorio. Coexiste con `id_articulo` — no lo reemplaza.                                                                    |
+| `tipo_producto`     | `Nacional` o `Importado`. Obligatorio, informativo, sin impacto operativo declarado en MVP.                                                      |
+| `monto`             | Precio capturado al momento de la solicitud del cliente.                                                                                         |
+| `monto_vigente`     | Se llena únicamente durante **Registrar Corte**, y solo si el precio en la app cambió respecto a `monto`.                                        |
+| `estatus_articulo`  | Controla la resolución del artículo en el corte. Ver [Enum `estatus_articulo` (Shein)](#flujo-de-variación-de-precios-y-cancelación-en-cascada). |
 
 #### Tabla `shein_cortes`
 
@@ -1997,11 +1997,11 @@ opciones:
 Formulario de alta. Escribe en tabla `shein_clientes`. Sin cambios respecto al diseño
 anterior.
 
-| Etiqueta | Modelo    | Tipo    | Longitud | Requerido |
-| -------- | --------- | ------- | -------- | --------- |
-| Nombre   | `nombre`  | String  | 20       | ✅         |
-| Colonia  | `colonia` | String  | 12       | ✅         |
-| Teléfono | `telefono`| Integer | 10       | ✅         |
+| Etiqueta | Modelo     | Tipo    | Longitud | Requerido |
+| -------- | ---------- | ------- | -------- | --------- |
+| Nombre   | `nombre`   | String  | 20       | ✅         |
+| Colonia  | `colonia`  | String  | 12       | ✅         |
+| Teléfono | `telefono` | Integer | 10       | ✅         |
 
 - En éxito: `"Cliente Shein registrado correctamente."` y limpia el formulario.
 - En error: `"No se pudo guardar. Intenta de nuevo."`
@@ -2035,14 +2035,14 @@ ejecutivo los activa con **"+ Agregar artículo"**.
 Tabla de pedidos pendientes de corte (`id_shein_corte IS NULL`), a nivel **pedido**
 (no artículo) — el desglose de artículos se consulta expandiendo el renglón.
 
-| Columna         | Fuente                                                                |
-| --------------- | ---------------------------------------------------------------------- |
-| No. Pedido      | `shein_pedidos.id_shein_pedido`                                        |
-| Fecha           | `shein_pedidos.fecha`                                                  |
-| Cliente         | `shein_clientes.nombre`                                                |
-| Total artículos | `COUNT(shein_pedidos_articulos.id_shein_articulo)`                     |
-| Monto pedido    | `SUM(monto)` de artículos en `vigente` (aún sin resolver en corte)     |
-| Estatus         | `"Pendiente de corte"` — constante mientras `id_shein_corte IS NULL`   |
+| Columna         | Fuente                                                               |
+| --------------- | -------------------------------------------------------------------- |
+| No. Pedido      | `shein_pedidos.id_shein_pedido`                                      |
+| Fecha           | `shein_pedidos.fecha`                                                |
+| Cliente         | `shein_clientes.nombre`                                              |
+| Total artículos | `COUNT(shein_pedidos_articulos.id_shein_articulo)`                   |
+| Monto pedido    | `SUM(monto)` de artículos en `vigente` (aún sin resolver en corte)   |
+| Estatus         | `"Pendiente de corte"` — constante mientras `id_shein_corte IS NULL` |
 
 Al expandir un renglón se muestra el detalle: `id_articulo`, `producto`, `tipo_producto`, `monto`.
 
@@ -2199,14 +2199,14 @@ Sin concepto de alternativa — cada artículo es un renglón independiente.
 
 **Campos por renglón de artículo:**
 
-| Etiqueta            | Modelo          | Tipo               | Requerido | Nota                                                                 |
-| -------------------- | --------------- | ------------------ | --------- | ---------------------------------------------------------------------- |
-| ID Artículo          | `id_articulo`   | String(20)         | No        | Referencia libre al ID en la app Shein. Coexiste con `producto`.       |
-| Producto             | `producto`      | String(60)         | ✅         | Descripción del artículo.                                              |
-| Tipo Producto        | `tipo_producto` | Enum (select)       | ✅         | `Nacional` \| `Importado`. Informativo en MVP.                         |
-| Monto                | `monto`         | Float               | ✅         | Precio en la app al momento de la solicitud.                           |
-| Monto actualizado    | `monto_vigente` | Float               | —         | Deshabilitado en este formulario. Solo se habilita en Registrar Corte. |
-| Cancelar             | —               | Acción (botón)      | —         | Antes de guardar: remueve el renglón opcional. Después de guardado, con el pedido aún editable: cancela el artículo (`estatus_articulo = 'cancelado'`), sujeto a la [cascada de cancelación](#flujo-de-variación-de-precios-y-cancelación-en-cascada). |
+| Etiqueta          | Modelo          | Tipo           | Requerido | Nota                                                                                                                                                                                                                                                   |
+| ----------------- | --------------- | -------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ID Artículo       | `id_articulo`   | String(20)     | No        | Referencia libre al ID en la app Shein. Coexiste con `producto`.                                                                                                                                                                                       |
+| Producto          | `producto`      | String(60)     | ✅         | Descripción del artículo.                                                                                                                                                                                                                              |
+| Tipo Producto     | `tipo_producto` | Enum (select)  | ✅         | `Nacional` \| `Importado`. Informativo en MVP.                                                                                                                                                                                                         |
+| Monto             | `monto`         | Float          | ✅         | Precio en la app al momento de la solicitud.                                                                                                                                                                                                           |
+| Monto actualizado | `monto_vigente` | Float          | —         | Deshabilitado en este formulario. Solo se habilita en Registrar Corte.                                                                                                                                                                                 |
+| Cancelar          | —               | Acción (botón) | —         | Antes de guardar: remueve el renglón opcional. Después de guardado, con el pedido aún editable: cancela el artículo (`estatus_articulo = 'cancelado'`), sujeto a la [cascada de cancelación](#flujo-de-variación-de-precios-y-cancelación-en-cascada). |
 
 **Botón Guardar:**
 
@@ -2236,11 +2236,11 @@ confirmación explícita del artículo al precio actualizado.
 
 **Enum `estatus_articulo` (Shein):**
 
-| Valor        | Cuándo se asigna                                                                                   |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
-| `vigente`    | Al registrar el pedido. Artículo pendiente de pasar por un corte.                                     |
+| Valor        | Cuándo se asigna                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------------------ |
+| `vigente`    | Al registrar el pedido. Artículo pendiente de pasar por un corte.                                            |
 | `confirmado` | En Registrar Corte: automático si el precio no cambió; manual si cambió y el cliente aceptó el nuevo precio. |
-| `cancelado`  | En Registrar Corte: el precio cambió y el cliente no aceptó el nuevo precio.                          |
+| `cancelado`  | En Registrar Corte: el precio cambió y el cliente no aceptó el nuevo precio.                                 |
 
 **Cascada de cancelación:**
 
@@ -2481,11 +2481,11 @@ CREATE TABLE recargas (
 );
 ```
 
-| Campo      | Nota                                                                          |
-| ---------- | ----------------------------------------------------------------------------- |
-| `compania` | Enum fijo. Ortografía correcta: `Unefon` (no `Unifon`).                      |
-| `monto`    | Float. Sin validación de tope — la operadora captura el monto real.           |
-| `fecha`    | Timestamp completo. El backend lo autogenera — la operadora no lo captura.    |
+| Campo      | Nota                                                                       |
+| ---------- | -------------------------------------------------------------------------- |
+| `compania` | Enum fijo. Ortografía correcta: `Unefon` (no `Unifon`).                    |
+| `monto`    | Float. Sin validación de tope — la operadora captura el monto real.        |
+| `fecha`    | Timestamp completo. El backend lo autogenera — la operadora no lo captura. |
 
 ---
 
@@ -2754,21 +2754,21 @@ CREATE TABLE configuracion (
 
 ## Resumen de tablas del sistema
 
-| Tabla              | Módulo               | Relaciones principales                               |
-| ------------------ | -------------------- | ---------------------------------------------------- |
-| `clientes`         | Clientes             | Referenciada por `pedidos`, `movimientos`            |
-| `pedidos`          | Pedidos              | FK → `clientes`                                      |
-| `pedidos_articulos`| Pedidos              | FK → `pedidos`, autorreferencia para `rol`           |
-| `precios_catalogo` | Pedidos              | Sin FK — lookup por `proveedor` + `id_producto`      |
-| `inventario`       | Inventario           | Referenciada por `movimientos`                       |
-| `movimientos`      | Panel Principal      | FK → `clientes`, FK → `inventario`                   |
-| `shein_clientes`         | Shein                | Independiente de `clientes`                          |
-| `shein_pedidos`          | Shein                | FK → `shein_clientes`, FK → `shein_cortes` (nullable) |
-| `shein_pedidos_articulos`| Shein                | FK → `shein_pedidos`                                  |
-| `shein_cortes`           | Shein                | Referenciada por `shein_pedidos`                      |
-| `recargas`         | Recargas Telefónicas | Independiente                                        |
-| `usuarios`         | Autenticación        | Independiente                                        |
-| `configuracion`    | Setting              | Independiente                                        |
+| Tabla                     | Módulo               | Relaciones principales                                |
+| ------------------------- | -------------------- | ----------------------------------------------------- |
+| `clientes`                | Clientes             | Referenciada por `pedidos`, `movimientos`             |
+| `pedidos`                 | Pedidos              | FK → `clientes`                                       |
+| `pedidos_articulos`       | Pedidos              | FK → `pedidos`, autorreferencia para `rol`            |
+| `precios_catalogo`        | Pedidos              | Sin FK — lookup por `proveedor` + `id_producto`       |
+| `inventario`              | Inventario           | Referenciada por `movimientos`                        |
+| `movimientos`             | Panel Principal      | FK → `clientes`, FK → `inventario`                    |
+| `shein_clientes`          | Shein                | Independiente de `clientes`                           |
+| `shein_pedidos`           | Shein                | FK → `shein_clientes`, FK → `shein_cortes` (nullable) |
+| `shein_pedidos_articulos` | Shein                | FK → `shein_pedidos`                                  |
+| `shein_cortes`            | Shein                | Referenciada por `shein_pedidos`                      |
+| `recargas`                | Recargas Telefónicas | Independiente                                         |
+| `usuarios`                | Autenticación        | Independiente                                         |
+| `configuracion`           | Setting              | Independiente                                         |
 
 > **Siguiente paso:** con este documento el mapa del sistema está completo.
 > El siguiente documento de la secuencia es la especificación de la API REST

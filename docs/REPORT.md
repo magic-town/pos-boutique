@@ -45,7 +45,7 @@ explícita del usuario en la sesión.
 | `clientes` | Clientes | — |
 | `pedidos` | Pedidos | Cabecera. |
 | `pedidos_articulos` | Pedidos | Detalle, 1 a 4 artículos, con `rol` (principal/alternativa). |
-| `precios_catalogo` | Pedidos | Catálogo importado de `tabla_precios.ods`. Estructura migrada; **sin datos** — falta correr el script de importación (§5 paso 1). |
+| `precios_catalogo` | Pedidos | Catálogo importado de `tabla_precios.ods`. **Poblada**: 15,564 filas (`Price_Shoes` 5,816 / `Pakar` 7,268 / `Cklass` 2,480), corrida vía `importar_precios.py` contra el archivo completo (~18,300 filas leídas). |
 | `inventario` | Inventario | — |
 | `movimientos` | Panel Principal | — |
 | `shein_clientes` | Shein | Independiente de `clientes`. |
@@ -62,12 +62,8 @@ misma nomenclatura que `models.py`).
 **Pendiente de implementación en código sobre este modelo ya migrado**
 (schemas/services/endpoints — ver §5 para orden):
 
-- Pedidos (nuevo, reemplaza el flujo plano viejo): `schemas/pedido.py`,
-  `services/pedido_service.py`, `endpoints/pedidos.py`.
+- ~~Pedidos~~ — completado. Ver §5 paso 1 (cerrado) y §4.1.
 - ~~Shein~~ — completado. Ver §5 paso 2 (cerrado) y §4.1.
-- Script `backend/app/scripts/importar_precios.py` — sincroniza
-  `tabla_precios.ods` → `precios_catalogo`. Solo `INSERT`, nunca borra ni
-  sobreescribe.
 - Ajustes puntuales a Clientes, Movimientos y Auth ya existentes — ver §5,
   pasos 5–7.
 - Inventario, Recargas y Setting/Configuración — sin código todavía, spec
@@ -97,8 +93,10 @@ misma nomenclatura que `models.py`).
 | ¿Qué columnas guarda `precios_catalogo`? | Todas las columnas del `.ods`, incluidas las no usadas por el POS (`catalogo`, `pagina`, `precio_base`) — se preservan por fidelidad al archivo original. |
 | ¿Cómo resuelve el POS el precio de un artículo? | `SELECT precio_venta WHERE proveedor = :p AND id_producto = :id ORDER BY fecha_catalogo DESC LIMIT 1` — gana la fecha más reciente. |
 | ¿`id_producto` es único por proveedor? | No. El mismo `id_producto` puede repetirse en catálogos futuros. Sin restricción `UNIQUE`. Desempate siempre por `MAX(fecha_catalogo)`. |
-| ¿Cuándo sube el saldo de un artículo de pedido? | Al marcarse `en_almacen`, no al registrar el pedido. |
+| ¿Cuándo sube el saldo de un artículo de pedido? | Al marcarse `en_almacen`, no al registrar el pedido. Confirmado con pruebas end-to-end reales (§5 paso 1). |
 | Estructura de documentación | `00_FULLSTACK_DEVELOPMENT.md` = spec de UI. `REGLAS_NEGOCIO.md` = modelo de datos. `ARQUITECTURA.md` = decisiones técnicas. `REPORT.md` = estado, no spec. |
+| ¿Qué hacer con la columna `redondea` del `.ods`? | Descartarla al leer el archivo. No forma parte del modelo (`models.py` no la tiene) ni de `REGLAS_NEGOCIO.md`/`00_FULLSTACK_DEVELOPMENT.md`. No requiere migración. |
+| ¿Qué hacer con valores no numéricos en `pagina` del `.ods` (p. ej. `'166BEBES'`)? | Guardar `NULL`. Columna auxiliar, no usada por el POS — sin implicación en el archivo original ni en el sistema. No requiere migración ni cambio de tipo en `models.py`. |
 
 ### 3.1 Diseño de `precios_catalogo`
 
@@ -194,22 +192,23 @@ regla 8.
 | `app/schemas/token.py` | Schema Token | `TokenData.username` (L13) en vez de `usuario`. No es bug funcional — nombre interno del schema, no mapea al modelo vía `from_attributes`, y `auth_service.py` lo usa de forma consistente. Severidad baja (INC-09), no bloqueante. |
 | `app/api/v1/endpoints/clientes.py` | Endpoints Cliente | Todos protegidos con `Depends(get_current_user)`. |
 | `app/api/v1/endpoints/movimientos.py` | Endpoints Movimiento | Mismo patrón de protección. CRUD básico completo. |
-| `app/api/v1/endpoints/pedidos.py` | Endpoints Pedido (viejo) | Modelo plano. Se reemplaza completo — §5 paso 1. |
+| `app/api/v1/endpoints/pedidos.py` | Endpoints Pedido | Reescrito completo, reemplaza el modelo plano viejo. 4 flujos (Registrar Pedido, Registrar Devolución, Cancelar Artículo, Lista de Surtido) probados end-to-end con `curl` real (login JWT + `no_cliente = PRUEBA-001`) contra `pos.db` en head `b2c3d4e5f6a7`. §5 paso 1 cerrado. |
 | `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein | Implementado y probado (5 flujos: cliente, pedido, lista, resolución de artículo, corte). §5 paso 2 cerrado. |
-| `app/schemas/pedido.py` | Schema Pedido (viejo) | Estructura plana con `opcion_*`. Referencia de qué NO repetir. |
+| `app/schemas/pedido.py` | Schema Pedido | Reescrito completo (`ArticuloCreate`/`ArticuloConAlternativa`/`PedidoCreate`/etc.), reemplaza la estructura plana con `opcion_*`. Valida reglas por `tipo_producto`/`proveedor` (monto obligatorio si `proveedor = otro`). |
 | `app/schemas/pedido_shein.py` | Schema Shein | Implementado. `max_length` agregado en `nombre`(20)/`colonia`(12)/`producto`(60)/`id_articulo`(20) para alinear con `String(N)` de `models.py` — verificado con `curl` contra servidor real (`422` al exceder, `201` en caso válido). |
-| `app/services/pedido_service.py` | Lógica Pedido (viejo) | Modelo plano: `Pedido(producto=..., marca=..., talla=...)`. Sin nada reutilizable — se reemplaza completo. |
+| `app/services/pedido_service.py` | Lógica Pedido | Reescrito completo, reemplaza `Pedido(producto=..., marca=..., talla=...)`. Incluye lookup de precio (`ORDER BY fecha_catalogo DESC LIMIT 1`), transacciones de devolución/cancelación con reversión condicional de saldo (solo si el artículo ya había pasado por `en_almacen`) — ambos casos probados con `curl` real. |
 | `app/services/pedido_shein_service.py` | Lógica Shein | Implementado. `monto_pedido` derivado siempre de artículos `confirmado` (nunca replicado). Pedido con todos los artículos `cancelado` no recibe `id_shein_corte`/`estatus_pago`. |
-| `requirements.txt` | Dependencias | `python-jose` + `passlib`/`bcrypt` — JWT real. Sin `pytest`. Falta agregar `odfpy` para el script de import. |
+| `app/scripts/importar_precios.py` | Script de import de precios | Implementado y corrido contra `tabla_precios.ods` completo. 15,564 filas nuevas insertadas (ver §2). Descarta `redondea`, guarda `NULL` en `pagina` no numérica (ver §3). Solo `INSERT`, idempotente por `(proveedor, id_producto, fecha_catalogo)`. |
+| `requirements.txt` | Dependencias | `python-jose` + `passlib`/`bcrypt` — JWT real. Sin `pytest`. `pandas` + `odfpy` agregados (requeridos por `importar_precios.py`). |
 | `docs/00_FULLSTACK_DEVELOPMENT.md` | Spec UI/UX | Confirma `tabla_precios`/`precios_catalogo`, módulo Inventario, módulo Recargas, módulo Setting, módulo Shein — todos documentados al mismo nivel de detalle. Único hallazgo: inconsistencia interna de longitud de `producto` (INC-13, ver §6). |
 | `docs/REGLAS_NEGOCIO.md` | Modelo de datos + reglas de negocio | Alineado por completo a `00_FULLSTACK_DEVELOPMENT.md`, incluye Shein cabecera-detalle. Pendiente: definición formal de `precios_catalogo` (ver §1 punto 2). |
-| `tabla_precios.ods` | Catálogo de precios por proveedor | 3 pestañas (`price_shoes`, `pakar`, `cklass`). Esquema documentado en §3.1. Fuente de verdad operativa — se mantiene en `.ods`, se sincroniza a SQLite vía script manual. |
+| `tabla_precios.ods` | Catálogo de precios por proveedor | 3 pestañas (`price_shoes`, `pakar`, `cklass`). Esquema documentado en §3.1. Fuente de verdad operativa — se mantiene en `.ods`, se sincroniza a SQLite vía script manual. Ya sincronizada (§2). 34 filas de `cklass` con `id_producto` > 12 caracteres (descripciones, no códigos) quedan fuera del catálogo — sin match, el monto se captura a mano en el formulario (decisión del usuario). |
 
 ### 4.2 Mencionados pero NO vistos (pedir antes de tocar)
 
 | Archivo | Por qué importa |
 |---|---|
-| `app/services/auth_service.py` | Contiene `autenticar_usuario`, `crear_token`, `get_current_user`. Citado con líneas concretas por evidencia externa (L46–48, L103, L107), no visto directamente todavía. Bloqueante para §5 paso 7 hasta confirmación directa. |
+| `app/services/auth_service.py` | Contiene `autenticar_usuario`, `crear_token`, `get_current_user`. Confirmado vía `grep` esta sesión: `get_current_user` en L81, `hash_password`/`verificar_password` con `passlib`/`bcrypt` (`CryptContext`, `schemes=["bcrypt"]`) en L22/28/32, `verificar_password`/`password_hash` en L59/69. Suficiente para usarlo desde `endpoints/pedidos.py` (§5 paso 1) y para el login de pruebas. **Archivo completo aún no visto** — sigue bloqueante para renombrar `username`→`usuario` (§5 paso 7). |
 | Endpoints/servicios de Inventario | No hay evidencia de que existan en código. Spec completa disponible. |
 | Endpoints/servicios de Recargas | Mismo caso: spec completa, cero evidencia de código. |
 | Endpoints/servicios de Setting/Configuración | Mismo caso: spec completa, marcada explícitamente como "esqueleto MVP". |
@@ -242,7 +241,13 @@ regla 8.
 5. **`crear_cliente()` no asigna `frecuencia_pago`** (`cliente_service.py`
    L26–36) — la columna es `nullable=False` en el modelo. El primer `INSERT`
    real falla en tiempo de ejecución: es un crash garantizado, no una
-   degradación silenciosa (INC-02).
+   degradación silenciosa (INC-02). **Confirmado en runtime esta sesión**: al
+   probar `POST /api/v1/clientes` para crear un cliente de prueba para el
+   módulo Pedidos, el servidor devolvió `500` con
+   `sqlite3.IntegrityError: NOT NULL constraint failed: clientes.frecuencia_pago`
+   — traceback completo coincide exactamente con lo ya documentado aquí. No
+   se corrigió (fuera de alcance de §5 paso 1); se usó un `INSERT` manual en
+   SQLite como workaround solo para destrabar las pruebas de Pedidos.
 6. **`app/schemas/__init__.py` importaba nombres inexistentes de Shein**
    (`PedidoSheinCreate`/`PedidoSheinRead` en vez de `SheinPedidoCreate`/
    `SheinPedidoRead`) — residuo del nombre viejo previo a la reestructura
@@ -254,12 +259,16 @@ regla 8.
 
 ## 5. Ruta de trabajo (orden, no checklist de tareas individuales)
 
-1. **Módulo Pedidos** — reescritura completa:
-   - Prerrequisito técnico: correr `importar_precios.py` contra `tabla_precios.ods`
-     (el script mismo aún no está escrito — construirlo es parte de este paso).
-   - `schemas/pedido.py` (nuevo), `services/pedido_service.py` (nuevo),
-     `endpoints/pedidos.py` (nuevo). Cubre 4 flujos: Registrar Pedido, Registrar
-     Devolución, Cancelar Artículo, Lista de Surtido.
+1. **Módulo Pedidos** — ✅ CERRADO. `importar_precios.py` (nuevo),
+   `schemas/pedido.py` (reescrito), `services/pedido_service.py` (reescrito),
+   `endpoints/pedidos.py` (reescrito) implementados y probados end-to-end
+   (login JWT + `curl` real) contra `pos.db` en head `b2c3d4e5f6a7`. Cubre los
+   4 flujos: Registrar Pedido (lookup automático de precio + captura manual
+   para `proveedor = otro` / `informal`), Registrar Devolución, Cancelar
+   Artículo (probados ambos casos: `vigente` sin impacto de saldo, `en_almacen`
+   con reversión), Lista de Surtido (`vigente` → `en_almacen`, saldo `+=`).
+   Import de precios corrido contra el `.ods` completo: 15,564 filas nuevas
+   (ver §2).
 2. **Módulo Shein** — ✅ CERRADO. `schemas/pedido_shein.py`,
    `services/pedido_shein_service.py`, `endpoints/pedidos_shein.py`
    implementados y probados end-to-end (login JWT + `curl` real) contra
@@ -336,6 +345,8 @@ No hace falta resubir los archivos de §4.1 — solo los que aparezcan en §4.2
 cuando se lleguen a tocar, o cualquier archivo que haya cambiado desde la
 última actualización de este documento.
 
-**Siguiente paso de código, ya desbloqueado:** módulo Pedidos (§5 paso 1) —
-único pendiente entre los dos primeros pasos; módulo Shein (§5 paso 2) ya
-cerrado.
+**Siguiente paso de código, ya desbloqueado:** ajuste de `schemas/cliente.py`
++ `services/cliente_service.py` (§5 paso 3) — módulo Pedidos (§5 paso 1) y
+módulo Shein (§5 paso 2) ya cerrados. El paso 3 ya no es solo deuda
+documentada: el crash de `frecuencia_pago` (INC-02) se reprodujo en runtime
+esta sesión al intentar crear un cliente de prueba (ver §4.3 punto 5).

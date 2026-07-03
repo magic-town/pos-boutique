@@ -145,3 +145,4 @@ backend/pos.db
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
+pos.db

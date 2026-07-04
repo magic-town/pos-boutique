@@ -217,7 +217,8 @@ regla 8.
 | `app/schemas/inventario.py` | Schema Inventario | Nuevo. `ProductoCreate`/`CambiarEstatusRequest`/`SegmentoDescuento`/etc. Primera implementación de código de este módulo. |
 | `app/services/inventario_service.py` | Lógica Inventario | Nuevo. Transiciones de estatus validadas por tabla (`TRANSICIONES_VALIDAS`), descuento masivo solo afecta `disponible`→`disponible_c/descuento` (y su reversa), nunca `vendido`/`apartado`/`en_ruta`. |
 | `app/api/v1/endpoints/inventario.py` | Endpoints Inventario | Nuevo. **Pendiente registrar en `main.py`**: `app.include_router(inventario.router, prefix="/api/v1")` — a diferencia de Pedidos, este router no existía antes. |
-| `app/scripts/importar_inventario.py` | Script de carga inicial de Inventario | Nuevo. Solo `INSERT` desde `inventario_bz.ods` — sin clave natural para detectar duplicados (ver §3), a diferencia de `importar_precios.py`. Columnas del `.ods` **provisionales**, pendiente confirmar contra el archivo real (rótulos + 2 registros, aún no subido). |
+| `app/services/movimiento_service.py` | Lógica Movimientos | Existente, con código real revisado línea por línea esta sesión — ver `§4.3` puntos 1, 3, 4. No reescrito (fuera de alcance de esta sesión). |
+| `app/services/cliente_service.py` | Lógica Clientes | Existente, con código real revisado línea por línea esta sesión — ver `§4.3` puntos 3, 5. No reescrito (fuera de alcance de esta sesión). |
 | `requirements.txt` | Dependencias | `python-jose` + `passlib`/`bcrypt` — JWT real. Sin `pytest`. `pandas` + `odfpy` agregados (requeridos por `importar_precios.py`). |
 | `docs/00_FULLSTACK_DEVELOPMENT.md` | Spec UI/UX | Confirma `tabla_precios`/`precios_catalogo`, módulo Inventario, módulo Recargas, módulo Setting, módulo Shein — todos documentados al mismo nivel de detalle. INC-13 (inconsistencia de longitud de `producto`) corregido por el usuario. |
 | `docs/REGLAS_NEGOCIO.md` | Modelo de datos + reglas de negocio | Alineado por completo a `00_FULLSTACK_DEVELOPMENT.md`, incluye Shein cabecera-detalle. Pendiente: definición formal de `precios_catalogo` (ver §1 punto 2). |
@@ -236,43 +237,105 @@ regla 8.
 
 ### 4.3 Riesgos activos confirmados (bugs con evidencia, no inferencias)
 
+> **Inventario definitivo, por `grep` sobre todo el documento, no por
+> memoria:** son **14 códigos en total** (`INC-01` a `INC-14`) — mi
+> respuesta original en esta sesión decía "14" (correcto), luego dije "5"
+> (incorrecto), luego "7" (incorrecto) — ambas correcciones intermedias
+> estaban mal. De los 14:
+> - **Re-verificados esta sesión con código real** (`movimiento_service.py`,
+>   `cliente_service.py`, subidos por el usuario): `INC-02, 03, 04, 05, 06,
+>   07, 11` — los 7 de abajo. Todos **persisten**.
+> - **No re-verificables esta sesión** (archivos no compartidos —
+>   `schemas/cliente.py`, `schemas/usuario.py`, `schemas/token.py`,
+>   `schemas/movimiento.py`): `INC-01, 08, 09, 10`. Siguen documentados en
+>   `§4.1` con su evidencia original, sin cambios.
+> - **Ya resueltos, sin tocar**: `INC-12, 13, 14`.
+> Si `TRAZABILIDAD.md` tiene códigos fuera de estos 14, son ajenos a este
+> documento.
+
+0. **`Movimiento(..., notas=data.notas)` — columna inexistente, crash total
+   del módulo** (`movimiento_service.py` L61). El modelo real
+   (`models.py` L262) tiene `descripcion`, no `notas`. SQLAlchemy lanza
+   `TypeError: 'notas' is an invalid keyword argument for Movimiento` en
+   **cualquier** llamada a `registrar_movimiento()` — `contado`, `apartado`,
+   `abono` y `gasto` por igual. **Es el bug más severo del grupo**: bloquea
+   el módulo completo, no un caso de negocio específico (INC-03/INC-11).
+   Efecto colateral importante: como el `TypeError` ocurre *antes* de
+   `db.commit()`, hoy enmascara a los puntos 1, 2 y 3 de abajo (nunca llegan
+   a ejecutarse en la práctica) — van a reaparecer en cuanto se corrija este
+   punto 0, si no se corrigen junto con él.
 1. **Sobrescritura de saldo en apartado** (`movimiento_service.py` L37) —
    `cliente.saldo = saldo_resultante` en vez de `cliente.saldo +=
-   saldo_resultante` (INC-05).
-2. **Sin mínimo de $100 en apartado** (`movimiento_service.py` L28–36) — la
-   rama de `apartado` solo valida `monto < 0`, no `monto >= 100` (INC-06).
-3. **Estados de cliente obsoletos (`"liquidado"`)** — aparece en tres lugares:
-   `movimiento_service.py` L52 (`registrar_movimiento()` lo asigna al llegar
-   `saldo` a 0), `cancelar_movimiento()` (lo vuelve a poner como `"activo"` al
-   revertir, heredando el mismo problema de fondo), y `cliente_service.py`
-   L67/L73 (`rehabilitar_cliente()` lee y escribe `"liquidado"`). El enum
-   nuevo (`EstatusCliente`) solo tiene `activo`/`inactivo` — los tres puntos
-   deben corregirse juntos, no uno a la vez (INC-07).
-4. **`cancelar_movimiento()` — bug de diseño, no de línea.** Al revertir un
-   movimiento, el método busca el `saldo_resultante` del movimiento anterior
-   del cliente completo, sin filtrar por tipo de operación. Si ese movimiento
-   anterior fue un `apartado` afectado por el bug del punto 1, el "saldo
-   anterior" recuperado es matemáticamente incorrecto — persiste
-   independientemente de que se corrija el `+=` del punto 1, si ya hay datos
-   de prueba generados antes del fix. Necesita rediseño de la lógica de
-   reversión. Depende de que el punto 1 se resuelva primero — no se puede
-   arreglar en paralelo.
-5. **`crear_cliente()` no asigna `frecuencia_pago`** (`cliente_service.py`
-   L26–36) — la columna es `nullable=False` en el modelo. El primer `INSERT`
-   real falla en tiempo de ejecución: es un crash garantizado, no una
-   degradación silenciosa (INC-02). **Confirmado en runtime esta sesión**: al
-   probar `POST /api/v1/clientes` para crear un cliente de prueba para el
-   módulo Pedidos, el servidor devolvió `500` con
-   `sqlite3.IntegrityError: NOT NULL constraint failed: clientes.frecuencia_pago`
-   — traceback completo coincide exactamente con lo ya documentado aquí. No
-   se corrigió (fuera de alcance de §5 paso 1); se usó un `INSERT` manual en
-   SQLite como workaround solo para destrabar las pruebas de Pedidos.
-6. **`app/schemas/__init__.py` importaba nombres inexistentes de Shein**
+   saldo_resultante`. **Código persiste sin corregir**, aunque hoy
+   inalcanzable en runtime por el punto 0. Riesgo real una vez corregido el
+   punto 0: si el cliente ya tenía saldo de otra fuente (ej. un pedido
+   `en_almacen`), un apartado lo borraría en vez de sumarse — viola el
+   invariante de `REGLAS_NEGOCIO.md §11` que sí se respetó en Pedidos
+   (INC-05).
+2. **Sin mínimo de $100 en apartado** (`movimiento_service.py` L28–34) — la
+   rama de `apartado` solo valida `data.monto < 0`, no `monto >= 100`.
+   **Código persiste sin corregir**, igualmente inalcanzable hoy por el
+   punto 0. El spec sí exige el mínimo:
+   `docs/FULLSTACK/module_movimientos.md` L162: *"Backend valida: monto >=
+   100. Si no: 'El primer pago mínimo es $100.00.'"* (INC-06).
+3. **Sin validación de `descripcion` obligatoria en `gasto`** — el código
+   real solo tiene ramas `if`/`elif` para `apartado` y `abono`
+   (`movimiento_service.py` L28–51). No existe ninguna rama para `gasto` ni
+   `contado`: ninguna validación se ejecuta para esos dos casos, incluida la
+   obligatoriedad de `descripcion` cuando `operacion = 'gasto'`. **PERSISTE,
+   confirmado por ausencia de código** (no es una línea con el bug, es la
+   rama entera que falta) (INC-04). También inalcanzable hoy por el punto 0
+   si `gasto` pasa por el mismo constructor roto.
+4. **Estados de cliente obsoletos (`"liquidado"`)** — tres sitios, los tres
+   confirmados en el código subido:
+   - `movimiento_service.py` L52 (`registrar_movimiento()`, rama `abono`):
+     asigna `cliente.estatus = "liquidado"` — también inalcanzable hoy por
+     el punto 0, si `abono` pasa por el mismo constructor roto.
+   - `movimiento_service.py` L124 (`cancelar_movimiento()`): revierte a
+     `"activo"` (válido, no crashea, pero perpetúa el concepto). Esta
+     función NO pasa por el `Movimiento(...)` roto del punto 0 — si se
+     llega a ejecutar, si crashea.
+   - `cliente_service.py` L73 (`rehabilitar_cliente()`): compara
+     `cliente.estatus == "liquidado"`.
+
+   **PERSISTE, y escala de "estado obsoleto" a crash garantizado.** La
+   columna real (`models.py`) es `Column(Enum(EstatusCliente), ...)` con
+   `EstatusCliente` = solo `activo`/`inactivo` — un `Enum` real de
+   SQLAlchemy, no `String` libre. Asignar `"liquidado"` en L52 fallaría con
+   `LookupError` al hacer flush, mismo tipo de crash que el punto 0, si
+   algún día es alcanzable. Como consecuencia, la comparación en
+   `cliente_service.py` L73 es código muerto: ningún cliente puede llegar a
+   tener `estatus == "liquidado"` almacenado (INC-07).
+5. **`cancelar_movimiento()` — bug de diseño, no de línea** (L109–118). Al
+   revertir, busca el `saldo_resultante` del movimiento anterior del
+   cliente **sin filtrar por `operacion`** —
+   `Movimiento.saldo_resultante.isnot(None)` es el único filtro además de
+   `id_cliente`. **PERSISTE.** Si ese anterior fue un `apartado` ya afectado
+   por el bug del punto 1, el "saldo anterior" recuperado es incorrecto.
+   Depende de que el punto 1 se corrija primero — no se arregla en
+   paralelo.
+6. **`crear_cliente()` no asigna `frecuencia_pago`** (`cliente_service.py`
+   L23–37) — el `Cliente(...)` real, línea por línea, no tiene
+   `frecuencia_pago=` en ningún lado; la columna es `nullable=False` en el
+   modelo. **PERSISTE, con evidencia doble**: el código estático subido hoy
+   coincide exactamente con el `IntegrityError` reproducido en runtime en
+   sesión anterior (`sqlite3.IntegrityError: NOT NULL constraint failed:
+   clientes.frecuencia_pago`) — mismo bug, dos formas de evidencia (INC-02).
+7. **`app/schemas/__init__.py` importaba nombres inexistentes de Shein**
    (`PedidoSheinCreate`/`PedidoSheinRead` en vez de `SheinPedidoCreate`/
    `SheinPedidoRead`) — residuo del nombre viejo previo a la reestructura
    cabecera-detalle. Tumbaba el arranque completo del servidor
    (`ImportError` en cadena desde `main.py`). Corregido y verificado con
-   `uvicorn` levantando limpio (INC-14).
+   `uvicorn` levantando limpio (INC-14). No re-verificado esta sesión — no
+   se subió `schemas/__init__.py`.
+
+**Hallazgo nuevo, no documentado antes (no es una re-verificación, es
+código no visto hasta hoy):** en `registrar_movimiento()`, la rama
+`apartado` (L28–37) asigna `cliente.saldo = saldo_resultante` sin validar
+que `cliente` no sea `None`. Si `data.id_cliente` es `None`, esto sería
+`AttributeError` en vez de un error de negocio manejado. No se asigna
+número INC — pendiente de que el usuario confirme si `apartado` sin cliente
+es un caso real de negocio antes de tratarlo como bug.
 
 ---
 
@@ -398,11 +461,17 @@ con el usuario, no inferido):**
    pasar `schemas/pedido_shein.py`, `pedido_shein_service.py`,
    `endpoints/pedidos_shein.py` para escribir `test_shein.py` sin adivinar.
 
-**Bloqueado, esperando al usuario — no intentar resolver por inferencia:**
-`§4.3` (Riesgos activos) lista 14 incidencias sin control de estatus; el
-usuario confirmó que la mayoría ya expiró y que INC-02/05/06 persisten, pero
-la lista completa vive en `TRAZABILIDAD.md` (no compartido en esta sesión).
-No reescribir `§4.3` sin esa evidencia — la regla de esa sección es
-explícita: *"bugs con evidencia, no inferencias."* Además, evaluar si
-`TRAZABILIDAD.md` debe dejar de trackear incidencias por duplicado (regla de
-una sola vía, mismo criterio que rige `FULLSTACK/`).
+**Reconciliación de incidencias — hecha esta sesión, con dos autocorrecciones
+en el camino.** La sesión pasó por tres conteos distintos antes de llegar al
+correcto: "14" (correcto desde el inicio) → "5" (error) → "7" (error,
+contaba solo los re-verificables con los archivos compartidos) → **14
+confirmado por `grep` sobre todo el documento**, de los cuales 7
+(`INC-02,03,04,05,06,07,11`) se re-verificaron línea por línea contra
+`movimiento_service.py`/`cliente_service.py` reales — los 7 persisten, uno
+escaló de severidad (INC-07, ahora crash garantizado por tipo `Enum` real) y
+uno resultó ser el más grave de todos (INC-03/INC-11: rompe el 100% de
+`registrar_movimiento()`, no un caso de negocio específico). Los 4 restantes
+sin re-verificar esta sesión (`INC-01,08,09,10`) requieren
+`schemas/cliente.py`, `schemas/usuario.py`, `schemas/token.py`,
+`schemas/movimiento.py` — no compartidos hoy. Ver `§4.3` para el detalle
+completo.

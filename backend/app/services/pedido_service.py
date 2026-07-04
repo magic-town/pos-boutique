@@ -133,11 +133,11 @@ def crear_pedido(db: Session, payload: PedidoCreate) -> Pedido:
 
         for slot in payload.articulos:
             principal = _crear_articulo(db, pedido.id_pedido, slot.principal, RolArticulo.principal)
-            if slot.alternativa is not None:
+            for alternativa in slot.alternativas:
                 _crear_articulo(
                     db,
                     pedido.id_pedido,
-                    slot.alternativa,
+                    alternativa,
                     RolArticulo.alternativa,
                     id_articulo_principal=principal.id_articulo,
                 )

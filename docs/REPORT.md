@@ -14,7 +14,12 @@
 
 1. **`docs/00_FULLSTACK_DEVELOPMENT.md`** — spec de UI/UX, autoridad máxima si
    hay contradicción. Sin pendientes de contenido conocidos. Única
-   inconsistencia interna: INC-13, ver §6.
+   inconsistencia interna: INC-13, ver §6. **Segmentado en `docs/FULLSTACK/`**
+   (un `module_<nombre>.md` por módulo + `resumen_tablas.md` transversal) —
+   para trabajar un módulo específico, leer solo su archivo ahí, no el
+   monolito completo. Ver `docs/FULLSTACK/README.md` para el mapa y estado
+   de cada uno. El monolito sigue siendo la fuente si hay duda de fidelidad
+   de la extracción.
 2. **`docs/REGLAS_NEGOCIO.md`** — modelo de datos + reglas de negocio, derivado
    de (1). Pendiente: agregar definición formal de la tabla `precios_catalogo`
    (columnas, regla de no-unicidad de `id_producto`, FK conceptual a
@@ -64,6 +69,8 @@ misma nomenclatura que `models.py`).
 
 - ~~Pedidos~~ — completado. Ver §5 paso 1 (cerrado) y §4.1.
 - ~~Shein~~ — completado. Ver §5 paso 2 (cerrado) y §4.1.
+- ~~Inventario~~ — completado (primera implementación de código; el modelo
+  SQLAlchemy ya existía sin usarse). Ver §5 nuevo paso y §4.1.
 - Ajustes puntuales a Clientes, Movimientos y Auth ya existentes — ver §5,
   pasos 5–7.
 - Inventario, Recargas y Setting/Configuración — sin código todavía, spec
@@ -97,6 +104,13 @@ misma nomenclatura que `models.py`).
 | Estructura de documentación | `00_FULLSTACK_DEVELOPMENT.md` = spec de UI. `REGLAS_NEGOCIO.md` = modelo de datos. `ARQUITECTURA.md` = decisiones técnicas. `REPORT.md` = estado, no spec. |
 | ¿Qué hacer con la columna `redondea` del `.ods`? | Descartarla al leer el archivo. No forma parte del modelo (`models.py` no la tiene) ni de `REGLAS_NEGOCIO.md`/`00_FULLSTACK_DEVELOPMENT.md`. No requiere migración. |
 | ¿Qué hacer con valores no numéricos en `pagina` del `.ods` (p. ej. `'166BEBES'`)? | Guardar `NULL`. Columna auxiliar, no usada por el POS — sin implicación en el archivo original ni en el sistema. No requiere migración ni cambio de tipo en `models.py`. |
+| ¿Cuántas alternativas puede tener un artículo principal? | 0 a 1, salvo que el **principal** sea `proveedor = Price_Shoes`, en cuyo caso hasta 3 (4 artículos en ese renglón). La condición se evalúa sobre el proveedor del principal, no de cada alternativa. Cambio de capa de aplicación (`schemas/pedido.py`, `pedido_service.py`) — `models.py` no requirió cambios: `id_articulo_principal` ya era un FK sin `UNIQUE`, así que la base de datos ya soportaba múltiples alternativas por principal. |
+| ¿Cómo se verifica que un módulo sigue funcionando sin repetir `curl` a mano? | Directorio `backend/test/` (pytest + `TestClient`), un archivo por módulo mapeado 1:1 a `FULLSTACK/module_<nombre>.md`. No reemplaza las guías `aux_*.md` (esas son para que una persona entienda el flujo); el directorio `test/` es para verificar que sigue funcionando, sin explicar nada. Ver `backend/test/README.md`. |
+| ¿Cómo se segmenta `00_FULLSTACK_DEVELOPMENT.md`? | Un `FULLSTACK/module_<nombre>.md` por módulo, mismo nivel de detalle que `module_pedidos.md` (ya existente). Regla de una sola vía: `REPORT.md` puede referenciar a los `module_*.md`, nunca al revés — un documento de módulo debe bastarse solo. |
+| ¿`inventario_bz.ods` sincroniza cambios en re-subidas futuras (UPSERT), o solo agrega productos nuevos? | Solo `INSERT`. Sin clave natural en el archivo para detectar duplicados — responsabilidad operativa correrlo solo con mercancía genuinamente nueva. |
+| ¿El descuento de Inventario se captura en `inventario_bz.ods` o en el sistema? | Exclusivamente en el sistema (`POST /inventario/descuento-masivo`). El `.ods` nunca trae `precio_descuento` — es una funcionalidad nueva que no existía antes del POS, sin equivalente en los registros físicos de la usuaria. |
+| ¿Cómo se define el "segmento" de un descuento masivo? | Filtro por `categoria`/`tipo_producto`/`marca`/`talla`/`color`, y/o selección manual de `ids_producto` — no excluyentes, se combinan con AND. Sin campo de fecha de expiración: se retira manualmente con la operación simétrica (`/descuento-masivo/retirar`). |
+| ¿Qué hacer con las 6 secciones restantes de `00_FULLSTACK_DEVELOPMENT.md`? | Extraídas verbatim a `docs/FULLSTACK/module_clientes.md`, `module_movimientos.md`, `module_shein.md`, `module_recargas.md`, `module_consulta.md`, `module_setting.md` + `resumen_tablas.md` (transversal). Ver `docs/FULLSTACK/README.md` para el mapa completo. Segmentación 100% completa; código/test siguen pendientes por módulo (ver esa tabla). |
 
 ### 3.1 Diseño de `precios_catalogo`
 
@@ -199,6 +213,10 @@ regla 8.
 | `app/services/pedido_service.py` | Lógica Pedido | Reescrito completo, reemplaza `Pedido(producto=..., marca=..., talla=...)`. Incluye lookup de precio (`ORDER BY fecha_catalogo DESC LIMIT 1`), transacciones de devolución/cancelación con reversión condicional de saldo (solo si el artículo ya había pasado por `en_almacen`) — ambos casos probados con `curl` real. |
 | `app/services/pedido_shein_service.py` | Lógica Shein | Implementado. `monto_pedido` derivado siempre de artículos `confirmado` (nunca replicado). Pedido con todos los artículos `cancelado` no recibe `id_shein_corte`/`estatus_pago`. |
 | `app/scripts/importar_precios.py` | Script de import de precios | Implementado y corrido contra `tabla_precios.ods` completo. 15,564 filas nuevas insertadas (ver §2). Descarta `redondea`, guarda `NULL` en `pagina` no numérica (ver §3). Solo `INSERT`, idempotente por `(proveedor, id_producto, fecha_catalogo)`. |
+| `app/schemas/inventario.py` | Schema Inventario | Nuevo. `ProductoCreate`/`CambiarEstatusRequest`/`SegmentoDescuento`/etc. Primera implementación de código de este módulo. |
+| `app/services/inventario_service.py` | Lógica Inventario | Nuevo. Transiciones de estatus validadas por tabla (`TRANSICIONES_VALIDAS`), descuento masivo solo afecta `disponible`→`disponible_c/descuento` (y su reversa), nunca `vendido`/`apartado`/`en_ruta`. |
+| `app/api/v1/endpoints/inventario.py` | Endpoints Inventario | Nuevo. **Pendiente registrar en `main.py`**: `app.include_router(inventario.router, prefix="/api/v1")` — a diferencia de Pedidos, este router no existía antes. |
+| `app/scripts/importar_inventario.py` | Script de carga inicial de Inventario | Nuevo. Solo `INSERT` desde `inventario_bz.ods` — sin clave natural para detectar duplicados (ver §3), a diferencia de `importar_precios.py`. Columnas del `.ods` **provisionales**, pendiente confirmar contra el archivo real (rótulos + 2 registros, aún no subido). |
 | `requirements.txt` | Dependencias | `python-jose` + `passlib`/`bcrypt` — JWT real. Sin `pytest`. `pandas` + `odfpy` agregados (requeridos por `importar_precios.py`). |
 | `docs/00_FULLSTACK_DEVELOPMENT.md` | Spec UI/UX | Confirma `tabla_precios`/`precios_catalogo`, módulo Inventario, módulo Recargas, módulo Setting, módulo Shein — todos documentados al mismo nivel de detalle. Único hallazgo: inconsistencia interna de longitud de `producto` (INC-13, ver §6). |
 | `docs/REGLAS_NEGOCIO.md` | Modelo de datos + reglas de negocio | Alineado por completo a `00_FULLSTACK_DEVELOPMENT.md`, incluye Shein cabecera-detalle. Pendiente: definición formal de `precios_catalogo` (ver §1 punto 2). |
@@ -269,6 +287,19 @@ regla 8.
    con reversión), Lista de Surtido (`vigente` → `en_almacen`, saldo `+=`).
    Import de precios corrido contra el `.ods` completo: 15,564 filas nuevas
    (ver §2).
+
+1.1. **Módulo Inventario** — ✅ CÓDIGO CERRADO, pendiente probar end-to-end.
+   Primera implementación (el modelo SQLAlchemy ya existía, sin usarse).
+   `schemas/inventario.py`, `services/inventario_service.py`,
+   `endpoints/inventario.py` (nuevo, falta registrar en `main.py`),
+   `scripts/importar_inventario.py` (nuevo, columnas provisionales — falta
+   confirmar contra `inventario_bz.ods` real). Agrega Opción 4/5 (Descuento
+   Masivo aplicar/retirar) al spec original, sin requerir migración —
+   `precio_descuento` y `EstatusInventario.disponible_c_descuento` ya
+   existían en `models.py`. `FULLSTACK/module_inventario.md` extraído
+   verbatim de `00_FULLSTACK_DEVELOPMENT.md` + secciones nuevas marcadas
+   como tal. `test/test_inventario.py` escrito, no corrido todavía contra
+   servidor real (falta registrar el router primero).
 2. **Módulo Shein** — ✅ CERRADO. `schemas/pedido_shein.py`,
    `services/pedido_shein_service.py`, `endpoints/pedidos_shein.py`
    implementados y probados end-to-end (login JWT + `curl` real) contra
@@ -314,6 +345,15 @@ regla 8.
 
 ## 6. Acción pendiente del usuario sobre la documentación
 
+**🔴 Urgente, fuera de documentación — rotar contraseña real.** Al segmentar
+`00_FULLSTACK_DEVELOPMENT.md` (§3, última fila) se encontró que la sección
+de seed (`backend/db/seed.py`) tenía contraseñas de usuario en texto plano,
+incluida la de `sonia` — usuario real ya en uso en esta sesión (ver
+`aux_pedidos.md`). Se redactaron en `docs/FULLSTACK/module_setting.md`, pero
+si esa contraseña sigue siendo la vigente en `pos.db`, **rotarla ahora**, y
+no volver a poner contraseñas reales en texto plano en ningún documento que
+se suba a git.
+
 Un solo pendiente de edición, de tu lado, no de Claude (regla de §1: tú editas
 `00_FULLSTACK_DEVELOPMENT.md` y `REGLAS_NEGOCIO.md`, Claude no los reescribe
 salvo instrucción explícita en la sesión):
@@ -345,8 +385,11 @@ No hace falta resubir los archivos de §4.1 — solo los que aparezcan en §4.2
 cuando se lleguen a tocar, o cualquier archivo que haya cambiado desde la
 última actualización de este documento.
 
-**Siguiente paso de código, ya desbloqueado:** ajuste de `schemas/cliente.py`
-+ `services/cliente_service.py` (§5 paso 3) — módulo Pedidos (§5 paso 1) y
+**Siguiente paso de código, ya desbloqueado:** probar Inventario end-to-end
+(registrar router en `main.py`, correr `test/test_inventario.py`, confirmar
+`inventario_bz.ods` real contra las columnas provisionales del script de
+import) — y, en paralelo, ajuste de `schemas/cliente.py` +
+`services/cliente_service.py` (§5 paso 3). Módulo Pedidos (§5 paso 1) y
 módulo Shein (§5 paso 2) ya cerrados. El paso 3 ya no es solo deuda
 documentada: el crash de `frecuencia_pago` (INC-02) se reprodujo en runtime
 esta sesión al intentar crear un cliente de prueba (ver §4.3 punto 5).

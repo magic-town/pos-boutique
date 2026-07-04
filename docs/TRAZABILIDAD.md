@@ -937,19 +937,6 @@ se corrige ningún archivo — solo se documenta.
 
 ---
 
-### INC-13: `00_FULLSTACK_DEVELOPMENT.md` — `producto` en spec es `TEXT(40)`, en schema JSON es `longitud: 50`
-
-- **Spec SQL:** `00_FULLSTACK_DEVELOPMENT.md` L583: `producto TEXT(40) NOT NULL`.
-- **Spec JSON (schema del formulario):** `00_FULLSTACK_DEVELOPMENT.md` L981:
-  `"longitud": 50` para el campo `producto`.
-- **Modelo ORM:** `models.py` L163: `producto = Column(String(40))`.
-- **Impacto:** la longitud máxima en la spec del formulario (50) es mayor que la
-  del modelo (40). Si la operadora ingresa un producto de 45 caracteres, el
-  formulario lo aceptaría pero SQLite podría truncarlo o rechazarlo dependiendo
-  de la configuración.
-
----
-
 ### Resumen de incongruencias
 
 | ID | Archivos involucrados | Severidad | Ya documentada en REPORT |
@@ -966,7 +953,6 @@ se corrige ningún archivo — solo se documenta.
 | INC-10 | `schemas/cliente.py` vs spec | Media | No |
 | INC-11 | `services/movimiento_service.py` vs `models.py` | Alta | Implícita (§6.6) |
 | INC-12 | `REPORT.md` §5.4 vs `main.py` | Informativa | No — REPORT desactualizado |
-| INC-13 | `00_FULLSTACK_DEVELOPMENT.md` interna | Baja | No |
 
 ---
 

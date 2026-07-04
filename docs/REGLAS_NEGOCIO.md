@@ -107,7 +107,15 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 ### Reglas de negocio
 
 1. **Un pedido tiene de 1 a 4 artículos principales.** Solo el primero es obligatorio al crear; los demás se pueden agregar mientras el pedido sea editable (artículos en `vigente`).
-2. **Cada principal puede tener 0 o 1 alternativa.** La alternativa es una buena práctica operativa (se ofrece si el principal no está disponible en el proveedor), pero nunca es obligatoria para guardar el pedido.
+2. **Cada principal puede tener 0 o 1 alternativa**, salvo cuando
+   `proveedor = Price_Shoes` en el **principal**, en cuyo caso puede tener
+   **hasta 3 alternativas** (1 principal + 3 alternativas = 4 artículos en
+   ese renglón). La condición se evalúa sobre el proveedor del principal, no
+   de cada alternativa individual — si el principal es Price_Shoes, las
+   alternativas heredan el límite de 3, sin importar su propio proveedor. La
+   alternativa (o alternativas) es una buena práctica operativa (se ofrece si
+   el principal no está disponible en el proveedor), pero nunca es
+   obligatoria para guardar el pedido.
 3. **El saldo del cliente NO se carga al registrar el pedido.** Se carga únicamente cuando el artículo se marca `en_almacen`. Solo se cobra lo que efectivamente se surtió.
 4. **Resolución de `monto`:**
    - `formal` + proveedor con catálogo (`Price_Shoes`, `Pakar`, `Cklass`): lookup automático en `precios_catalogo` por `id_producto`, gana `MAX(fecha_catalogo)`. Si no existe el ID, campo queda vacío y editable.

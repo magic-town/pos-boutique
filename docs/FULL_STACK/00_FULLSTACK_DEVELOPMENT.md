@@ -1125,13 +1125,6 @@ Aplica a `formal` e `informal` por igual. El sustituto mantiene siempre el mismo
 
 ## Módulo Inventario
 
-> Corrige la nomenclatura del `README.md` donde este módulo aparece como
-> "Piso de Venta". El nombre correcto es **Inventario**. No existe almacén
-> separado — el piso de venta y el almacén son el mismo espacio físico.
-> El módulo gestiona las existencias propias de la boutique.
-
----
-
 ### Modelo de datos — Inventario
 
 ```sql

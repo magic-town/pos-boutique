@@ -53,10 +53,30 @@ class ArticuloCreate(BaseModel):
 
 
 class ArticuloConAlternativa(BaseModel):
-    """Un 'slot' del formulario: artículo principal + alternativa opcional."""
+    """Un 'slot' del formulario: artículo principal + alternativas opcionales.
+
+    REGLAS_NEGOCIO.md §3 regla 2: máximo 1 alternativa, salvo que el
+    PRINCIPAL sea proveedor Price_Shoes, en cuyo caso el máximo sube a 3
+    (1 principal + 3 alternativas = 4 artículos en este renglón). La
+    condición se evalúa sobre el proveedor del principal, nunca de cada
+    alternativa individual.
+    """
 
     principal: ArticuloCreate
-    alternativa: Optional[ArticuloCreate] = None
+    alternativas: list[ArticuloCreate] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validar_limite_alternativas(self):
+        limite = 3 if self.principal.proveedor == Proveedor.Price_Shoes else 1
+        if len(self.alternativas) > limite:
+            raise ValueError(
+                f"Máximo {limite} alternativa(s) cuando el principal es "
+                f"'{self.principal.proveedor}' (REGLAS_NEGOCIO.md §3 regla 2)."
+                if limite == 1 else
+                f"Máximo {limite} alternativas cuando el principal es Price_Shoes "
+                f"(REGLAS_NEGOCIO.md §3 regla 2)."
+            )
+        return self
 
 
 class PedidoCreate(BaseModel):

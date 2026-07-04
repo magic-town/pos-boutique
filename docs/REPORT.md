@@ -13,8 +13,9 @@
 ## 1. Jerarquía de fuentes
 
 1. **`docs/00_FULLSTACK_DEVELOPMENT.md`** — spec de UI/UX, autoridad máxima si
-   hay contradicción. Sin pendientes de contenido conocidos. Única
-   inconsistencia interna: INC-13, ver §6. **Segmentado en `docs/FULLSTACK/`**
+   hay contradicción. **INC-13 corregido por el usuario directamente en el
+   documento** (longitud de `producto` ya consistente). **Segmentado en
+   `docs/FULLSTACK/`**
    (un `module_<nombre>.md` por módulo + `resumen_tablas.md` transversal) —
    para trabajar un módulo específico, leer solo su archivo ahí, no el
    monolito completo. Ver `docs/FULLSTACK/README.md` para el mapa y estado
@@ -218,7 +219,7 @@ regla 8.
 | `app/api/v1/endpoints/inventario.py` | Endpoints Inventario | Nuevo. **Pendiente registrar en `main.py`**: `app.include_router(inventario.router, prefix="/api/v1")` — a diferencia de Pedidos, este router no existía antes. |
 | `app/scripts/importar_inventario.py` | Script de carga inicial de Inventario | Nuevo. Solo `INSERT` desde `inventario_bz.ods` — sin clave natural para detectar duplicados (ver §3), a diferencia de `importar_precios.py`. Columnas del `.ods` **provisionales**, pendiente confirmar contra el archivo real (rótulos + 2 registros, aún no subido). |
 | `requirements.txt` | Dependencias | `python-jose` + `passlib`/`bcrypt` — JWT real. Sin `pytest`. `pandas` + `odfpy` agregados (requeridos por `importar_precios.py`). |
-| `docs/00_FULLSTACK_DEVELOPMENT.md` | Spec UI/UX | Confirma `tabla_precios`/`precios_catalogo`, módulo Inventario, módulo Recargas, módulo Setting, módulo Shein — todos documentados al mismo nivel de detalle. Único hallazgo: inconsistencia interna de longitud de `producto` (INC-13, ver §6). |
+| `docs/00_FULLSTACK_DEVELOPMENT.md` | Spec UI/UX | Confirma `tabla_precios`/`precios_catalogo`, módulo Inventario, módulo Recargas, módulo Setting, módulo Shein — todos documentados al mismo nivel de detalle. INC-13 (inconsistencia de longitud de `producto`) corregido por el usuario. |
 | `docs/REGLAS_NEGOCIO.md` | Modelo de datos + reglas de negocio | Alineado por completo a `00_FULLSTACK_DEVELOPMENT.md`, incluye Shein cabecera-detalle. Pendiente: definición formal de `precios_catalogo` (ver §1 punto 2). |
 | `tabla_precios.ods` | Catálogo de precios por proveedor | 3 pestañas (`price_shoes`, `pakar`, `cklass`). Esquema documentado en §3.1. Fuente de verdad operativa — se mantiene en `.ods`, se sincroniza a SQLite vía script manual. Ya sincronizada (§2). 34 filas de `cklass` con `id_producto` > 12 caracteres (descripciones, no códigos) quedan fuera del catálogo — sin match, el monto se captura a mano en el formulario (decisión del usuario). |
 
@@ -358,12 +359,8 @@ Un solo pendiente de edición, de tu lado, no de Claude (regla de §1: tú edita
 `00_FULLSTACK_DEVELOPMENT.md` y `REGLAS_NEGOCIO.md`, Claude no los reescribe
 salvo instrucción explícita en la sesión):
 
-- **Decidir y corregir INC-13**: el campo `producto` de `pedidos_articulos`
-  aparece con dos longitudes distintas citadas en `00_FULLSTACK_DEVELOPMENT.md`
-  — una en el SQL de ejemplo, otra en el schema JSON del formulario. Verifica
-  el valor vigente en el documento y ajusta la otra línea para que coincidan.
-  Esto es lo único que bloquea fijar el tipo definitivo de esa columna si
-  llegara a diferir del `String(40)` ya migrado en `models.py` (§5 paso 8).
+- ~~Decidir y corregir INC-13~~ — resuelto por el usuario directamente en
+  `00_FULLSTACK_DEVELOPMENT.md`.
 
 Por separado, sigue pendiente que `REGLAS_NEGOCIO.md` incorpore la definición
 formal de `precios_catalogo` (columnas, no-unicidad de `id_producto`, FK
@@ -385,11 +382,27 @@ No hace falta resubir los archivos de §4.1 — solo los que aparezcan en §4.2
 cuando se lleguen a tocar, o cualquier archivo que haya cambiado desde la
 última actualización de este documento.
 
-**Siguiente paso de código, ya desbloqueado:** probar Inventario end-to-end
-(registrar router en `main.py`, correr `test/test_inventario.py`, confirmar
-`inventario_bz.ods` real contra las columnas provisionales del script de
-import) — y, en paralelo, ajuste de `schemas/cliente.py` +
-`services/cliente_service.py` (§5 paso 3). Módulo Pedidos (§5 paso 1) y
-módulo Shein (§5 paso 2) ya cerrados. El paso 3 ya no es solo deuda
-documentada: el crash de `frecuencia_pago` (INC-02) se reprodujo en runtime
-esta sesión al intentar crear un cliente de prueba (ver §4.3 punto 5).
+**Siguiente paso de código, ya desbloqueado, en este orden exacto (decidido
+con el usuario, no inferido):**
+
+1. Registrar router de Inventario en `main.py` (una línea).
+2. Correr `pytest test/ -v` para Pedidos e Inventario, confirmar que
+   ejecutan limpio contra `pos.db` real. `conftest.py` ya no depende de un
+   reseteo manual de contraseña (fixture `_fijar_password_admin`
+   autosuficiente) — si aun así falla, es un bug real, no un problema de
+   entorno.
+3. Revisar los huecos de cobertura documentados en `backend/test/README.md`
+   (`test_pedidos.py`/`test_inventario.py`) y decidir si se completan antes
+   o después de la primera corrida limpia.
+4. **Shein pausado a propósito** hasta confirmar 1-3. Cuando se retome,
+   pasar `schemas/pedido_shein.py`, `pedido_shein_service.py`,
+   `endpoints/pedidos_shein.py` para escribir `test_shein.py` sin adivinar.
+
+**Bloqueado, esperando al usuario — no intentar resolver por inferencia:**
+`§4.3` (Riesgos activos) lista 14 incidencias sin control de estatus; el
+usuario confirmó que la mayoría ya expiró y que INC-02/05/06 persisten, pero
+la lista completa vive en `TRAZABILIDAD.md` (no compartido en esta sesión).
+No reescribir `§4.3` sin esa evidencia — la regla de esa sección es
+explícita: *"bugs con evidencia, no inferencias."* Además, evaluar si
+`TRAZABILIDAD.md` debe dejar de trackear incidencias por duplicado (regla de
+una sola vía, mismo criterio que rige `FULLSTACK/`).

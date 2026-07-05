@@ -216,7 +216,6 @@ regla 8.
 | `app/scripts/importar_precios.py` | Script de import de precios | Implementado y corrido contra `tabla_precios.ods` completo. 15,564 filas nuevas insertadas (ver §2). Descarta `redondea`, guarda `NULL` en `pagina` no numérica (ver §3). Solo `INSERT`, idempotente por `(proveedor, id_producto, fecha_catalogo)`. |
 | `app/schemas/inventario.py` | Schema Inventario | Nuevo. `ProductoCreate`/`CambiarEstatusRequest`/`SegmentoDescuento`/etc. Primera implementación de código de este módulo. |
 | `app/services/inventario_service.py` | Lógica Inventario | Nuevo. Transiciones de estatus validadas por tabla (`TRANSICIONES_VALIDAS`), descuento masivo solo afecta `disponible`→`disponible_c/descuento` (y su reversa), nunca `vendido`/`apartado`/`en_ruta`. |
-| `app/api/v1/endpoints/inventario.py` | Endpoints Inventario | Nuevo. **Pendiente registrar en `main.py`**: `app.include_router(inventario.router, prefix="/api/v1")` — a diferencia de Pedidos, este router no existía antes. |
 | `app/services/movimiento_service.py` | Lógica Movimientos | Existente, con código real revisado línea por línea esta sesión — ver `§4.3` puntos 1, 3, 4. No reescrito (fuera de alcance de esta sesión). |
 | `app/services/cliente_service.py` | Lógica Clientes | Existente, con código real revisado línea por línea esta sesión — ver `§4.3` puntos 3, 5. No reescrito (fuera de alcance de esta sesión). |
 | `requirements.txt` | Dependencias | `python-jose` + `passlib`/`bcrypt` — JWT real. Sin `pytest`. `pandas` + `odfpy` agregados (requeridos por `importar_precios.py`). |
@@ -448,16 +447,16 @@ cuando se lleguen a tocar, o cualquier archivo que haya cambiado desde la
 **Siguiente paso de código, ya desbloqueado, en este orden exacto (decidido
 con el usuario, no inferido):**
 
-1. Registrar router de Inventario en `main.py` (una línea).
-2. Correr `pytest test/ -v` para Pedidos e Inventario, confirmar que
+
+1. Correr `pytest test/ -v` para Pedidos e Inventario, confirmar que
    ejecutan limpio contra `pos.db` real. `conftest.py` ya no depende de un
    reseteo manual de contraseña (fixture `_fijar_password_admin`
    autosuficiente) — si aun así falla, es un bug real, no un problema de
    entorno.
-3. Revisar los huecos de cobertura documentados en `backend/test/README.md`
+2. Revisar los huecos de cobertura documentados en `backend/test/README.md`
    (`test_pedidos.py`/`test_inventario.py`) y decidir si se completan antes
    o después de la primera corrida limpia.
-4. **Shein pausado a propósito** hasta confirmar 1-3. Cuando se retome,
+3. **Shein pausado a propósito** hasta confirmar 1-3. Cuando se retome,
    pasar `schemas/pedido_shein.py`, `pedido_shein_service.py`,
    `endpoints/pedidos_shein.py` para escribir `test_shein.py` sin adivinar.
 

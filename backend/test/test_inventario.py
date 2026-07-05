@@ -61,7 +61,7 @@ class TestCambiarEstatus:
         resp = client.patch(
             f"/api/v1/inventario/{producto['id_producto']}/estatus",
             headers=auth_headers,
-            json={"nuevo_estatus": "disponible_c_descuento", "precio_descuento": 600},
+            json={"nuevo_estatus": "disponible_c/descuento", "precio_descuento": 600},
         )
         assert resp.status_code == 400
 

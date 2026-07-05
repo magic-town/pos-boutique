@@ -197,6 +197,13 @@ class TestLimiteAlternativas:
 class TestSurtidoDevolucionCancelacion:
     def test_surtir_sube_saldo(self, client, auth_headers, cliente_prueba):
         id_articulo = _crear_pedido_informal(client, auth_headers, cliente_prueba.no_cliente, "Producto surtir", 200)
+        
+        from app.db.database import SessionLocal
+        from app.models.models import Cliente
+        db = SessionLocal()
+        saldo_antes = db.query(Cliente).filter(Cliente.no_cliente == cliente_prueba.no_cliente).first().saldo
+        db.close()
+        assert saldo_antes == 0.0  # no debe subir al solo registrar el pedido, solo al surtir
 
         resp = client.patch(f"/api/v1/pedidos/lista-surtido/{id_articulo}/surtir", headers=auth_headers)
         assert resp.status_code == 200, resp.text

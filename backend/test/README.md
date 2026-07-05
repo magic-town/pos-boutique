@@ -10,6 +10,8 @@ que el flujo sigue funcionando, sin explicar nada.
 
 ## Cómo correr
 
+Correr desde `backend/`, requiere `pytest.ini`
+
 ```bash
 cd backend
 pip install pytest httpx --break-system-packages
@@ -34,16 +36,16 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
 
 ## Módulos y su estado (actualizar conforme se agreguen)
 
-| Módulo | `FULLSTACK/module_*.md` | `test_*.py` |
-|---|---|---|
-| Pedidos | ✅ existe | ✅ `test_pedidos.py` (no corrido aún) |
-| Inventario | ✅ existe | ✅ `test_inventario.py` (no corrido aún) |
-| Shein | ✅ existe | ❌ pendiente (código existente, sin test) |
-| Clientes | ✅ existe | ❌ pendiente (bloqueado por INC-02) |
-| Movimientos | ✅ existe | ❌ pendiente (bloqueado por INC-05/06) |
-| Recargas | ✅ existe | ❌ pendiente (sin código todavía) |
-| Consulta | ✅ existe | ❌ pendiente (sin código todavía) |
-| Setting | ✅ existe | ❌ pendiente (Auth existente; Setting sin código) |
+| Módulo | `FULLSTACK/module_*.md` | `test_*.py` | `casos_uso` |
+|---|---|---|---|
+| Pedidos | ✅ existe | ✅ `test_pedidos.py` (no corrido aún) | ❌ en diseño |
+| Inventario | ✅ existe | ✅ `test_inventario.py` (no corrido aún) | ❌ en diseño |
+| Shein | ✅ existe | ❌ pendiente (código existente, sin test) | ❌ en diseño |
+| Clientes | ✅ existe | ❌ pendiente (bloqueado por INC-02) | ❌ en diseño |
+| Movimientos | ✅ existe | ❌ pendiente (bloqueado por INC-05/06) | ❌ en diseño |
+| Recargas | ✅ existe | ❌ pendiente (sin código todavía) | ❌ en diseño |
+| Consulta | ✅ existe | ❌ pendiente (sin código todavía) | ❌ en diseño |
+| Setting | ✅ existe | ❌ pendiente (Auth existente; Setting sin código) | ❌ en diseño |
 
 Ver `docs/FULLSTACK/README.md` para el detalle de cada uno (es la fuente de
 verdad de esta tabla — actualízala ahí primero, luego refleja aquí).
@@ -53,10 +55,7 @@ verdad de esta tabla — actualízala ahí primero, luego refleja aquí).
 ### `test_pedidos.py`
 
 Cubre: lookup automático de precio, `informal` con monto libre, cliente
-inexistente (404), límite de alternativas (3 para Price_Shoes / 1 para el
-resto, ambos límites superiores), surtir (`+=` saldo), devolución (`-=` +
-precarga), cancelar `vigente` (sin impacto) y `en_almacen` (revierte),
-escenario integral de 3 artículos mixto.
+inexistente (404), límite de alternativas (3 para Price_Shoes / 1 para el resto, ambos límites superiores), saldo del cliente sin cambios mientras el artículo está `vigente` (aunque ya tenga monto resuelto) y solo sub (`+=`) al pasar a `en_almacen`, devolución (`-=` + precarga), cancelar `vigente` (sin impacto) y `en_almacen` (revierte),
 
 **Huecos que NO están cubiertos todavía** (encontrados al revisar, no
 inventados para parecer exhaustivo):

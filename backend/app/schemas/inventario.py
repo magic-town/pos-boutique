@@ -23,7 +23,7 @@ class ProductoCreate(BaseModel):
     descripcion: str = Field(max_length=40)
     talla: Optional[str] = Field(default=None, max_length=10)
     color: Optional[str] = Field(default=None, max_length=10)
-    marca: Optional[str] = Field(default=None, max_length=12)
+    marca: Optional[str] = Field(default=None, max_length=20)
     precio_venta: int
     stock: int = 0
 

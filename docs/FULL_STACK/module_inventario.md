@@ -19,7 +19,7 @@ CREATE TABLE inventario (
     descripcion       TEXT(40) NOT NULL,
     talla             TEXT(10),
     color             TEXT(10),
-    marca             TEXT(12),
+    marca             TEXT(20),
     precio_venta      INTEGER NOT NULL,
     precio_descuento  INTEGER,              -- NULL = sin descuento activo.
                                             -- NOT NULL = precio vigente con descuento.
@@ -136,7 +136,7 @@ Formulario de alta de producto. Escribe en tabla `inventario`.
 | Descripción      | `descripcion`   | String        | 40       | ✅         |
 | Talla            | `talla`         | String        | 10       | ❌         |
 | Color            | `color`         | String        | 10       | ❌         |
-| Marca            | `marca`         | String        | 12       | ❌         |
+| Marca            | `marca`         | String        | 20       | ❌         |
 | Precio Venta     | `precio_venta`  | Integer       | —        | ✅         |
 | Stock            | `stock`         | Integer       | —        | ✅         |
 
@@ -266,7 +266,7 @@ Columnas visibles por default:
         { "etiqueta": "Descripción",   "modelo": "descripcion",  "tipo": "String",  "longitud": 40, "requerido": true  },
         { "etiqueta": "Talla",         "modelo": "talla",         "tipo": "String",  "longitud": 10, "requerido": false },
         { "etiqueta": "Color",         "modelo": "color",         "tipo": "String",  "longitud": 10, "requerido": false },
-        { "etiqueta": "Marca",         "modelo": "marca",         "tipo": "String",  "longitud": 12, "requerido": false },
+        { "etiqueta": "Marca",         "modelo": "marca",         "tipo": "String",  "longitud": 20, "requerido": false },
         { "etiqueta": "Precio Venta",  "modelo": "precio_venta",  "tipo": "Integer",                 "requerido": true  },
         { "etiqueta": "Stock",         "modelo": "stock",         "tipo": "Integer",                 "requerido": true  }
       ],
@@ -303,7 +303,7 @@ Columnas visibles por default:
         "campos_visibles": ["descripcion", "categoria", "estatus", "precio_venta", "precio_descuento"],
         "transiciones_por_estatus": {
           "disponible":             ["en_ruta", "disponible_c/descuento", "apartado", "vendido"],
-          "disponible_c/descuento": ["disponible", "en_ruta", "apartado", "vendido"],
+          "disponible_c_descuento": ["disponible", "en_ruta", "apartado", "vendido"],
           "en_ruta":                ["disponible", "vendido"],
           "apartado":               ["disponible", "vendido"]
         },
@@ -390,7 +390,7 @@ Columnas visibles por default:
 
 > Todo lo de aquí en adelante es adición posterior a `00_FULLSTACK_DEVELOPMENT.md`.
 > No requirió cambios en `models.py` — `precio_descuento` (nullable) y el
-> enum `EstatusInventario.disponible_c_descuento` ya existían en el modelo
+> enum `EstatusInventario.disponible_c/descuento` ya existían en el modelo
 > original, sin usarse todavía desde ningún endpoint.
 
 ### Carga inicial desde `inventario_bz.ods`

@@ -14,7 +14,10 @@ Correr desde `backend/`, requiere `pytest.ini`
 
 ```bash
 cd backend
-pip install pytest httpx --break-system-packages
+python3 -m venv venv          # si no existe ya
+source venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
 pytest test/ -v
 ```
 
@@ -38,8 +41,8 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
 
 | Módulo | `FULLSTACK/module_*.md` | `test_*.py` | `casos_uso` |
 |---|---|---|---|
-| Pedidos | ✅ existe | ✅ `test_pedidos.py` (no corrido aún) | ❌ en diseño |
-| Inventario | ✅ existe | ✅ `test_inventario.py` (no corrido aún) | ❌ en diseño |
+| Pedidos | ✅ existe | ✅ `test_pedidos.py` (corrido, verde) | ✅ `casos_pedidos.md` |
+| Inventario | ✅ existe | ✅ `test_inventario.py` (corrido, verde) | ✅ `casos_inventario.md` |
 | Shein | ✅ existe | ❌ pendiente (código existente, sin test) | ❌ en diseño |
 | Clientes | ✅ existe | ❌ pendiente (bloqueado por INC-02) | ❌ en diseño |
 | Movimientos | ✅ existe | ❌ pendiente (bloqueado por INC-05/06) | ❌ en diseño |
@@ -50,12 +53,14 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
 Ver `docs/FULLSTACK/README.md` para el detalle de cada uno (es la fuente de
 verdad de esta tabla — actualízala ahí primero, luego refleja aquí).
 
+Detalle en lenguaje llano de cada caso, mapeado 1:1 a los tests de abajo: `casos_inventario.md`, `casos_pedidos.md`.
+
 ## Cobertura conocida (revisado contra el spec, no solo "ya quedó")
 
 ### `test_pedidos.py`
 
 Cubre: lookup automático de precio, `informal` con monto libre, cliente
-inexistente (404), límite de alternativas (3 para Price_Shoes / 1 para el resto, ambos límites superiores), saldo del cliente sin cambios mientras el artículo está `vigente` (aunque ya tenga monto resuelto) y solo sub (`+=`) al pasar a `en_almacen`, devolución (`-=` + precarga), cancelar `vigente` (sin impacto) y `en_almacen` (revierte),
+inexistente (404), límite de alternativas (3 para Price_Shoes / 1 para el resto, ambos límites superiores), saldo del cliente sin cambios mientras el artículo está `vigente` (aunque ya tenga monto resuelto) y solo sube (`+=`) al pasar a `en_almacen`, devolución (`-=` + precarga), cancelar `vigente` (sin impacto) y `en_almacen` (revierte), escenario integral de 3 artículos mixto.
 
 **Huecos que NO están cubiertos todavía** (encontrados al revisar, no
 inventados para parecer exhaustivo):
@@ -87,9 +92,8 @@ rechazado, productos `vendido` no afectados por descuento masivo.
 - Consulta con múltiples filtros combinados a la vez (`categoria` +
   `tipo_producto` + `marca` juntos) — solo se probó un filtro por vez.
 
-Antes de correr `pytest`, decide si quieres que complete estos huecos ahora
-o después de confirmar que lo ya escrito ejecuta limpio — son casos nuevos,
-no arreglos de lo existente.
+Quedan pendientes de cerrar en una sesión aparte — son casos nuevos, no
+arreglos de lo ya escrito, y no bloquean nada de lo que ya está en verde.
 
 ## Al agregar un módulo nuevo
 

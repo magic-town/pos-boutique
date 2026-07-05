@@ -11,6 +11,7 @@ from app.models.models import (
 from app.schemas.pedido_shein import (
     SheinClienteCreate,
     SheinPedidoCreate,
+    SheinArticuloCreate,
     SheinArticuloEstatusUpdate,
     SheinCorteCreate,
     SheinPedidoRead,
@@ -48,11 +49,25 @@ def _monto_efectivo(articulo: SheinPedidoArticulo) -> float:
 
 def _monto_pedido(pedido: SheinPedido) -> float:
     """REGLAS_NEGOCIO §6 regla 8: monto_pedido se deriva siempre filtrando
-    estatus_articulo = 'confirmado' — nunca se replica como cálculo aparte."""
+    estatus_articulo = 'confirmado' — nunca se replica como cálculo aparte.
+    Usado para reportes post-corte (suma_pedidos, Consulta de Cortes)."""
     return sum(
         _monto_efectivo(a)
         for a in pedido.articulos
         if a.estatus_articulo == EstatusArticuloShein.confirmado
+    )
+
+
+def _monto_pedido_vigente(pedido: SheinPedido) -> float:
+    """module_shein.md Opción 3 (Lista de Pedidos): SUM(monto) de artículos
+    aún 'vigente' -- el monto original capturado, sin resolver todavía en
+    corte. Campo distinto de `monto_pedido` (arriba), que es exclusivamente
+    post-resolución. No usar esta función para suma_pedidos ni reportes de
+    Consulta de Cortes."""
+    return sum(
+        a.monto
+        for a in pedido.articulos
+        if a.estatus_articulo == EstatusArticuloShein.vigente
     )
 
 
@@ -65,6 +80,7 @@ def _pedido_a_read(pedido: SheinPedido) -> SheinPedidoRead:
         fecha=pedido.fecha,
         articulos=[SheinArticuloRead.model_validate(a) for a in pedido.articulos],
         monto_pedido=_monto_pedido(pedido),
+        monto_pedido_vigente=_monto_pedido_vigente(pedido),
     )
 
 
@@ -89,6 +105,47 @@ def crear_shein_pedido(db: Session, data: SheinPedidoCreate) -> SheinPedidoRead:
         for a in data.articulos
     ]
     db.add(pedido)
+    db.commit()
+    db.refresh(pedido)
+    return _pedido_a_read(pedido)
+
+
+def agregar_articulo_shein(
+    db: Session, id_shein_pedido: int, data: SheinArticuloCreate
+) -> SheinPedidoRead:
+    """module_shein.md Opción 2: 'Pedido editable: mientras id_shein_corte
+    IS NULL, el pedido admite agregar artículos opcionales adicionales
+    (hasta 4)...' (INC-15)."""
+    pedido = (
+        db.query(SheinPedido)
+        .options(joinedload(SheinPedido.articulos))
+        .filter(SheinPedido.id_shein_pedido == id_shein_pedido)
+        .first()
+    )
+    if not pedido:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pedido Shein {id_shein_pedido} no encontrado",
+        )
+    if pedido.id_shein_corte is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El pedido ya fue incluido en un corte; ya no es editable.",
+        )
+    if len(pedido.articulos) >= 4:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Un pedido Shein admite máximo 4 artículos.",
+        )
+
+    nuevo_articulo = SheinPedidoArticulo(
+        id_shein_pedido=id_shein_pedido,
+        id_articulo=data.id_articulo,
+        producto=data.producto,
+        tipo_producto=data.tipo_producto,
+        monto=data.monto,
+    )
+    db.add(nuevo_articulo)
     db.commit()
     db.refresh(pedido)
     return _pedido_a_read(pedido)
@@ -163,19 +220,16 @@ def crear_shein_corte(db: Session, data: SheinCorteCreate) -> SheinCorte:
             detail=f"Pedidos ya incluidos en un corte previo: {sorted(ya_en_corte)}",
         )
 
-    sin_resolver = [
-        p.id_shein_pedido
-        for p in pedidos
-        if any(a.estatus_articulo == EstatusArticuloShein.vigente for a in p.articulos)
-    ]
-    if sin_resolver:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Los siguientes pedidos tienen artículos sin confirmar o cancelar "
-                f"contra el proveedor: {sorted(sin_resolver)}"
-            ),
-        )
+    # module_shein.md Opción 4, paso 2 de la transacción documentada: los
+    # artículos 'vigente' sin cambio de precio se autoconfirman al momento
+    # de registrar el corte -- la operadora solo resuelve a mano (vía PATCH,
+    # antes de este endpoint) los que sí cambiaron de precio o se cancelan.
+    # Antes (INC-17): esto rechazaba el corte completo con 409 en vez de
+    # autoconfirmar, obligando a resolver a mano el 100% de los artículos.
+    for p in pedidos:
+        for a in p.articulos:
+            if a.estatus_articulo == EstatusArticuloShein.vigente:
+                a.estatus_articulo = EstatusArticuloShein.confirmado
 
     # Un pedido cuyos artículos quedaron todos 'cancelado' se considera cancelado
     # por completo: no recibe id_shein_corte ni estatus_pago (REPORT §3).

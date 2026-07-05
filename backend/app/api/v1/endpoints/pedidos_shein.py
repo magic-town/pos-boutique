@@ -6,6 +6,7 @@ from app.schemas.pedido_shein import (
     SheinClienteRead,
     SheinPedidoCreate,
     SheinPedidoRead,
+    SheinArticuloCreate,
     SheinArticuloRead,
     SheinArticuloEstatusUpdate,
     SheinCorteCreate,
@@ -57,6 +58,18 @@ def listar_shein_pedidos(
     _: object = Depends(get_current_user),
 ):
     return service.obtener_shein_pedidos(db, id_shein_cliente=id_shein_cliente, sin_corte=sin_corte)
+
+
+# Pedido editable mientras id_shein_corte IS NULL (module_shein.md Opción 2):
+# agrega un artículo adicional (hasta 4) a un pedido ya existente (INC-15).
+@router.post("/pedidos/{id_shein_pedido}/articulos", response_model=SheinPedidoRead, status_code=status.HTTP_201_CREATED)
+def agregar_articulo_shein_pedido(
+    id_shein_pedido: int,
+    data: SheinArticuloCreate,
+    db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
+):
+    return service.agregar_articulo_shein(db, id_shein_pedido, data)
 
 
 # Soporte necesario para el flujo de corte: confirmar/cancelar un artículo

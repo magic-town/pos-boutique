@@ -69,13 +69,13 @@ misma nomenclatura que `models.py`).
 (schemas/services/endpoints — ver §5 para orden):
 
 - ~~Pedidos~~ — completado. Ver §5 paso 1 (cerrado) y §4.1.
-- ~~Shein~~ — completado. Ver §5 paso 2 (cerrado) y §4.1.
+- Shein — implementado, 3 divergencias de negocio confirmadas (INC-15/16/17).
+  Ver §5 paso 2 (reabierto parcialmente) y §4.1.
 - ~~Inventario~~ — completado (primera implementación de código; el modelo
   SQLAlchemy ya existía sin usarse). Ver §5 nuevo paso y §4.1.
 - Ajustes puntuales a Clientes, Movimientos y Auth ya existentes — ver §5,
   pasos 5–7.
-- Inventario, Recargas y Setting/Configuración — sin código todavía, spec
-  completa disponible.
+- Recargas y Setting/Configuración — sin código todavía, spec completa disponible.
 
 ---
 
@@ -208,17 +208,19 @@ regla 8.
 | `app/api/v1/endpoints/clientes.py` | Endpoints Cliente | Todos protegidos con `Depends(get_current_user)`. |
 | `app/api/v1/endpoints/movimientos.py` | Endpoints Movimiento | Mismo patrón de protección. CRUD básico completo. |
 | `app/api/v1/endpoints/pedidos.py` | Endpoints Pedido | Reescrito completo, reemplaza el modelo plano viejo. 4 flujos (Registrar Pedido, Registrar Devolución, Cancelar Artículo, Lista de Surtido) probados end-to-end con `curl` real (login JWT + `no_cliente = PRUEBA-001`) contra `pos.db` en head `b2c3d4e5f6a7`. §5 paso 1 cerrado. |
-| `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein | Implementado y probado (5 flujos: cliente, pedido, lista, resolución de artículo, corte). §5 paso 2 cerrado. |
+| `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein | Implementado, probado con `curl` en su momento (5 flujos). Revisión línea por línea esta sesión (previa a `test_shein.py`) encontró 3 divergencias reales contra `module_shein.md` — ver `§4.3` puntos 8–10 (INC-15/16/17). §5 paso 2 reabierto parcialmente. |
+| `app/api/v1/endpoints/inventario.py` | Endpoints Inventario | Nuevo. Registrado en `main.py`, confirmado corriendo en verde con `pytest`. |
 | `app/schemas/pedido.py` | Schema Pedido | Reescrito completo (`ArticuloCreate`/`ArticuloConAlternativa`/`PedidoCreate`/etc.), reemplaza la estructura plana con `opcion_*`. Valida reglas por `tipo_producto`/`proveedor` (monto obligatorio si `proveedor = otro`). |
 | `app/schemas/pedido_shein.py` | Schema Shein | Implementado. `max_length` agregado en `nombre`(20)/`colonia`(12)/`producto`(60)/`id_articulo`(20) para alinear con `String(N)` de `models.py` — verificado con `curl` contra servidor real (`422` al exceder, `201` en caso válido). |
 | `app/services/pedido_service.py` | Lógica Pedido | Reescrito completo, reemplaza `Pedido(producto=..., marca=..., talla=...)`. Incluye lookup de precio (`ORDER BY fecha_catalogo DESC LIMIT 1`), transacciones de devolución/cancelación con reversión condicional de saldo (solo si el artículo ya había pasado por `en_almacen`) — ambos casos probados con `curl` real. |
-| `app/services/pedido_shein_service.py` | Lógica Shein | Implementado. `monto_pedido` derivado siempre de artículos `confirmado` (nunca replicado). Pedido con todos los artículos `cancelado` no recibe `id_shein_corte`/`estatus_pago`. |
+| `app/services/pedido_shein_service.py` | Lógica Shein | Implementado. `_monto_pedido()` filtra siempre por `confirmado` — correcto para post-corte (`REGLAS_NEGOCIO §6 regla 8`), pero reutilizado también para Lista de Pedidos pre-corte, donde da `0` (INC-16). `crear_shein_corte()` rechaza en vez de autoconfirmar `vigente` sin cambio de precio (INC-17). Sin endpoint para agregar artículos a un pedido ya existente (INC-15). Pedido con todos los artículos `cancelado` no recibe `id_shein_corte`/`estatus_pago` — esta parte sí correcta. |
 | `app/scripts/importar_precios.py` | Script de import de precios | Implementado y corrido contra `tabla_precios.ods` completo. 15,564 filas nuevas insertadas (ver §2). Descarta `redondea`, guarda `NULL` en `pagina` no numérica (ver §3). Solo `INSERT`, idempotente por `(proveedor, id_producto, fecha_catalogo)`. |
 | `app/schemas/inventario.py` | Schema Inventario | Nuevo. `ProductoCreate`/`CambiarEstatusRequest`/`SegmentoDescuento`/etc. Primera implementación de código de este módulo. |
 | `app/services/inventario_service.py` | Lógica Inventario | Nuevo. Transiciones de estatus validadas por tabla (`TRANSICIONES_VALIDAS`), descuento masivo solo afecta `disponible`→`disponible_c/descuento` (y su reversa), nunca `vendido`/`apartado`/`en_ruta`. |
 | `app/services/movimiento_service.py` | Lógica Movimientos | Existente, con código real revisado línea por línea esta sesión — ver `§4.3` puntos 1, 3, 4. No reescrito (fuera de alcance de esta sesión). |
 | `app/services/cliente_service.py` | Lógica Clientes | Existente, con código real revisado línea por línea esta sesión — ver `§4.3` puntos 3, 5. No reescrito (fuera de alcance de esta sesión). |
-| `requirements.txt` | Dependencias | `python-jose` + `passlib`/`bcrypt` — JWT real. Sin `pytest`. `pandas` + `odfpy` agregados (requeridos por `importar_precios.py`). |
+| `requirements.txt` | Dependencias de producción | `python-jose` + `passlib`/`bcrypt` — JWT real. `pandas` + `odfpy` agregados (requeridos por `importar_precios.py`). |
+| `requirements-dev.txt` | Dependencias de test | Nuevo. `-r requirements.txt` + `pytest`/`httpx` — separadas de producción porque no corren ahí. Instalar con `pip install -r requirements-dev.txt` antes de correr `pytest`. |
 | `docs/00_FULLSTACK_DEVELOPMENT.md` | Spec UI/UX | Confirma `tabla_precios`/`precios_catalogo`, módulo Inventario, módulo Recargas, módulo Setting, módulo Shein — todos documentados al mismo nivel de detalle. INC-13 (inconsistencia de longitud de `producto`) corregido por el usuario. |
 | `docs/REGLAS_NEGOCIO.md` | Modelo de datos + reglas de negocio | Alineado por completo a `00_FULLSTACK_DEVELOPMENT.md`, incluye Shein cabecera-detalle. Pendiente: definición formal de `precios_catalogo` (ver §1 punto 2). |
 | `tabla_precios.ods` | Catálogo de precios por proveedor | 3 pestañas (`price_shoes`, `pakar`, `cklass`). Esquema documentado en §3.1. Fuente de verdad operativa — se mantiene en `.ods`, se sincroniza a SQLite vía script manual. Ya sincronizada (§2). 34 filas de `cklass` con `id_producto` > 12 caracteres (descripciones, no códigos) quedan fuera del catálogo — sin match, el monto se captura a mano en el formulario (decisión del usuario). |
@@ -228,19 +230,18 @@ regla 8.
 | Archivo | Por qué importa |
 |---|---|
 | `app/services/auth_service.py` | Contiene `autenticar_usuario`, `crear_token`, `get_current_user`. Confirmado vía `grep` esta sesión: `get_current_user` en L81, `hash_password`/`verificar_password` con `passlib`/`bcrypt` (`CryptContext`, `schemes=["bcrypt"]`) en L22/28/32, `verificar_password`/`password_hash` en L59/69. Suficiente para usarlo desde `endpoints/pedidos.py` (§5 paso 1) y para el login de pruebas. **Archivo completo aún no visto** — sigue bloqueante para renombrar `username`→`usuario` (§5 paso 7). |
-| Endpoints/servicios de Inventario | No hay evidencia de que existan en código. Spec completa disponible. |
-| Endpoints/servicios de Recargas | Mismo caso: spec completa, cero evidencia de código. |
-| Endpoints/servicios de Setting/Configuración | Mismo caso: spec completa, marcada explícitamente como "esqueleto MVP". |
+| Endpoints/servicios de Recargas | spec completa, cero evidencia de código. |
+| Endpoints/servicios de Setting/Configuración | spec completa, marcada explícitamente como "esqueleto MVP". |
 | `backend/tests/*` | Contenido real no visto. Referenciado como vacío. |
 | `.env` / variables de entorno reales | No vistas. `config.py` solo define el default de `DATABASE_URL`. |
 
 ### 4.3 Riesgos activos confirmados (bugs con evidencia, no inferencias)
 
 > **Inventario definitivo, por `grep` sobre todo el documento, no por
-> memoria:** son **14 códigos en total** (`INC-01` a `INC-14`) — mi
+> memoria:** son **17 códigos en total** (`INC-01` a `INC-17`) — mi
 > respuesta original en esta sesión decía "14" (correcto), luego dije "5"
 > (incorrecto), luego "7" (incorrecto) — ambas correcciones intermedias
-> estaban mal. De los 14:
+> estaban mal. De los 14 originales:
 > - **Re-verificados esta sesión con código real** (`movimiento_service.py`,
 >   `cliente_service.py`, subidos por el usuario): `INC-02, 03, 04, 05, 06,
 >   07, 11` — los 7 de abajo. Todos **persisten**.
@@ -249,7 +250,10 @@ regla 8.
 >   `schemas/movimiento.py`): `INC-01, 08, 09, 10`. Siguen documentados en
 >   `§4.1` con su evidencia original, sin cambios.
 > - **Ya resueltos, sin tocar**: `INC-12, 13, 14`.
-> Si `TRAZABILIDAD.md` tiene códigos fuera de estos 14, son ajenos a este
+> - **Nuevos, módulo Shein, confirmados esta sesión contra código real**
+>   (`pedido_shein_service.py`, `pedidos_shein.py`): `INC-15, 16, 17` — ver
+>   bloque aparte al final de esta sección.
+> Si `TRAZABILIDAD.md` tiene códigos fuera de estos 17, son ajenos a este
 > documento.
 
 0. **`Movimiento(..., notas=data.notas)` — columna inexistente, crash total
@@ -336,6 +340,54 @@ que `cliente` no sea `None`. Si `data.id_cliente` es `None`, esto sería
 número INC — pendiente de que el usuario confirme si `apartado` sin cliente
 es un caso real de negocio antes de tratarlo como bug.
 
+**Módulo Shein — 3 hallazgos nuevos, confirmados esta sesión contra código
+real (`pedido_shein_service.py`, `pedidos_shein.py`, `module_shein.md`), al
+revisar los métodos antes de escribir `test_shein.py`:**
+
+8. **(INC-15) Sin endpoint para agregar artículos a un pedido Shein ya
+   existente.** El spec (`module_shein.md`, Opción 2) exige explícitamente:
+   *"Pedido editable: mientras `id_shein_corte IS NULL`, el pedido admite
+   agregar artículos opcionales adicionales (hasta 4)..."*. `pedidos_shein.py`
+   solo expone `POST /shein/pedidos` (crea el pedido completo de una vez,
+   1-4 artículos) y `PATCH /pedidos/articulos/{id}` (resuelve un artículo ya
+   existente). No existe ningún endpoint para insertar un artículo adicional
+   en un pedido ya guardado. Si la operadora capturó solo el Artículo 1 y el
+   cliente pide agregar otro antes del corte, hoy no hay forma de hacerlo
+   sin reescribir el pedido completo.
+9. **(INC-16) `Lista de Pedidos` (`GET /shein/pedidos`) siempre muestra
+   `monto_pedido: 0` para pedidos pendientes de corte.** El spec (Opción 3)
+   define la columna "Monto pedido" como `SUM(monto)` de artículos en
+   **`vigente`** ("aún sin resolver en corte"). Pero `_monto_pedido()`
+   (`pedido_shein_service.py`), usada también para poblar ese campo en
+   `SheinPedidoRead`, suma exclusivamente artículos `estatus_articulo ==
+   confirmado` — filtro correcto para el contexto de post-corte
+   (`REGLAS_NEGOCIO §6 regla 8`, que sí exige ese filtro), pero equivocado
+   para esta vista. Un pedido recién creado tiene todos sus artículos en
+   `vigente` (nada es `confirmado` todavía, eso solo ocurre en Opción 4) —
+   así que cualquier fila de `GET /shein/pedidos?sin_corte=true` muestra
+   `monto_pedido: 0` sin importar el monto real capturado.
+10. **(INC-17) `crear_shein_corte()` rechaza el corte en vez de autoconfirmar
+    artículos sin cambio de precio.** El spec (Opción 4, paso 2 de la
+    transacción documentada) dice que, al confirmar el corte, el sistema debe
+    autoconfirmar los artículos `vigente` sin cambio de precio
+    (`UPDATE ... SET estatus_articulo = 'confirmado' WHERE estatus_articulo =
+    'vigente'`) — la operadora solo debería resolver a mano los que sí
+    cambiaron de precio o se cancelan. El código real hace lo opuesto:
+    ```python
+    sin_resolver = [p.id_shein_pedido for p in pedidos
+                    if any(a.estatus_articulo == EstatusArticuloShein.vigente
+                           for a in p.articulos)]
+    if sin_resolver:
+        raise HTTPException(409, "...")
+    ```
+    Si cualquier artículo de cualquier pedido seleccionado sigue `vigente`,
+    el corte completo se rechaza con `409` — nunca hay un `UPDATE` que
+    autoconfirme. Esto obliga a resolver manualmente el 100% de los
+    artículos, incluidos los que no cambiaron de precio, anulando el punto
+    completo del paso 2 del spec. Es el más severo de los tres: bloquea el
+    flujo completo de Opción 4 tal como está descrito, no solo un caso de
+    borde.
+
 ---
 
 ## 5. Ruta de trabajo (orden, no checklist de tareas individuales)
@@ -351,23 +403,32 @@ es un caso real de negocio antes de tratarlo como bug.
    Import de precios corrido contra el `.ods` completo: 15,564 filas nuevas
    (ver §2).
 
-1.1. **Módulo Inventario** — ✅ CÓDIGO CERRADO, pendiente probar end-to-end.
-   Primera implementación (el modelo SQLAlchemy ya existía, sin usarse).
-   `schemas/inventario.py`, `services/inventario_service.py`,
-   `endpoints/inventario.py` (nuevo, falta registrar en `main.py`),
-   `scripts/importar_inventario.py` (nuevo, columnas provisionales — falta
-   confirmar contra `inventario_bz.ods` real). Agrega Opción 4/5 (Descuento
-   Masivo aplicar/retirar) al spec original, sin requerir migración —
-   `precio_descuento` y `EstatusInventario.disponible_c_descuento` ya
-   existían en `models.py`. `FULLSTACK/module_inventario.md` extraído
-   verbatim de `00_FULLSTACK_DEVELOPMENT.md` + secciones nuevas marcadas
-   como tal. `test/test_inventario.py` escrito, no corrido todavía contra
-   servidor real (falta registrar el router primero).
-2. **Módulo Shein** — ✅ CERRADO. `schemas/pedido_shein.py`,
+   1.1. **Módulo Inventario** — ✅ CERRADO. Probado end-to-end con `pytest`
+      (no solo `curl` manual), 19/19 tests en verde. Primera implementación
+      de código de este módulo (el modelo SQLAlchemy ya existía, sin
+      usarse). `schemas/inventario.py`, `services/inventario_service.py`,
+      `endpoints/inventario.py` (ya registrado en `main.py`),
+      `scripts/importar_inventario.py` (nuevo, columnas provisionales — falta
+      confirmar contra `inventario_bz.ods` real). Agrega Opción 4/5 (Descuento
+      Masivo aplicar/retirar) al spec original, sin requerir migración —
+      `precio_descuento` y `EstatusInventario.disponible_c_descuento` ya
+      existían en `models.py`. `FULLSTACK/module_inventario.md` extraído
+      verbatim de `00_FULLSTACK_DEVELOPMENT.md` + secciones nuevas marcadas
+      como tal.
+2. **Módulo Shein** — ⚠️ REABIERTO PARCIALMENTE. `schemas/pedido_shein.py`,
    `services/pedido_shein_service.py`, `endpoints/pedidos_shein.py`
    implementados y probados end-to-end (login JWT + `curl` real) contra
-   `pos.db` en head `b2c3d4e5f6a7`. Cubre los 5 flujos. Bug de import
-   encontrado y corregido en el camino (INC-14, ver §4.3).
+   `pos.db` en head `b2c3d4e5f6a7`. Cubre los 5 flujos a nivel de "corre sin
+   crashear". Bug de import encontrado y corregido en el camino (INC-14, ver
+   §4.3). Revisión línea por línea contra `module_shein.md` (previa a
+   `test_shein.py`) encontró 3 divergencias de negocio reales — ver §4.3
+   puntos 8–10 (INC-15/16/17): falta endpoint para agregar artículos a un
+   pedido existente, `monto_pedido` da `0` en Lista de Pedidos, y
+   `crear_shein_corte()` no autoconfirma artículos sin cambio de precio.
+   `test_shein.py` pendiente de escribirse — se puede cubrir lo que sí
+   funciona (Registrar Cliente, creación de pedido, resolución de artículo,
+   corte con todo pre-resuelto, consulta de cortes); los 3 puntos anteriores
+   quedan fuera de cobertura hasta que se corrijan.
 3. Ajuste de `schemas/cliente.py` y `services/cliente_service.py`:
    - Quitar `"liquidado"` de `rehabilitar_cliente()`.
    - Ajustar tipo `telefono`/`ref_telefono` a `int` (INC-01).
@@ -391,17 +452,15 @@ es un caso real de negocio antes de tratarlo como bug.
    `int` en `UsuarioRead`). Requiere ver `auth_service.py` directamente antes
    de tocarlo (§4.2). `schemas/token.py` no requiere cambio funcional
    (INC-09, severidad baja).
-6. Construcción desde cero de Inventario — spec completa disponible, solo
-   falta schema + servicio + endpoint en código.
-7. Construcción desde cero de Recargas y Setting/Configuración (Setting con
+6. Construcción desde cero de Recargas y Setting/Configuración (Setting con
    alcance explícito "esqueleto MVP" — no construir lógica de permisos
    diferenciada todavía).
-8. Antes o junto con el paso 1: usuario decide y corrige la inconsistencia
+7. Antes o junto con el paso 1: usuario decide y corrige la inconsistencia
    interna de longitud de `producto` (INC-13, ver §6) en
    `00_FULLSTACK_DEVELOPMENT.md`. No bloquea el inicio del paso 1, pero sí debe
    resolverse antes de fijar el `String(N)` definitivo si cambia respecto al
    ya migrado en `models.py`.
-9. Solo entonces: `CHECKLIST.md` real, con criterio de completado = pipeline +
+8. Solo entonces: `CHECKLIST.md` real, con criterio de completado = pipeline +
    test.
 
 ---
@@ -448,15 +507,14 @@ cuando se lleguen a tocar, o cualquier archivo que haya cambiado desde la
 con el usuario, no inferido):**
 
 
-1. Correr `pytest test/ -v` para Pedidos e Inventario, confirmar que
-   ejecutan limpio contra `pos.db` real. `conftest.py` ya no depende de un
-   reseteo manual de contraseña (fixture `_fijar_password_admin`
-   autosuficiente) — si aun así falla, es un bug real, no un problema de
-   entorno.
-2. Revisar los huecos de cobertura documentados en `backend/test/README.md`
-   (`test_pedidos.py`/`test_inventario.py`) y decidir si se completan antes
-   o después de la primera corrida limpia.
-3. **Shein pausado a propósito** hasta confirmar 1-3. Cuando se retome,
+1. `pytest test/ -v` para Pedidos e Inventario — ✅ CERRADO, 19/19 en verde.
+   `conftest.py` no dependió de reseteo manual de contraseña, como se
+   anticipó.
+2. Huecos de cobertura de `backend/test/README.md` — ✅ revisados y
+   completados. Documentación humana de casos agregada:
+   `test/casos_inventario.md`, `test/casos_pedidos.md` (espejo en lenguaje
+   llano de cada test, mapeado a `module_X.md`).
+3. **Shein, ya desbloqueado** (puntos 1-2 confirmados). Cuando se retome,
    pasar `schemas/pedido_shein.py`, `pedido_shein_service.py`,
    `endpoints/pedidos_shein.py` para escribir `test_shein.py` sin adivinar.
 

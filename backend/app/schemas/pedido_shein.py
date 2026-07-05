@@ -109,6 +109,9 @@ class SheinPedidoRead(BaseModel):
     fecha:            date
     articulos:        list[SheinArticuloRead]
     monto_pedido:     float   # calculado: suma de artículos 'confirmado' (monto_vigente si aplica)
+    monto_pedido_vigente: float  # calculado: suma de `monto` de artículos aún 'vigente' -- para
+                                 # Lista de Pedidos (module_shein.md Opción 3), antes de pasar por
+                                 # Corte. NO confundir con `monto_pedido` (post-resolución).
 
     model_config = {"from_attributes": True}
 

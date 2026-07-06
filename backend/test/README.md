@@ -44,7 +44,7 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
 | Pedidos | ✅ existe | ✅ `test_pedidos.py` (corrido, verde) | ✅ `casos_pedidos.md` |
 | Inventario | ✅ existe | ✅ `test_inventario.py` (corrido, verde) | ✅ `casos_inventario.md` |
 | Shein | ✅ existe | ✅ `test_shein.py` (corrido, verde) | ✅ `casos_shein.md` |
-| Clientes | ✅ existe | ❌ pendiente (bloqueado por INC-02) | ❌ en diseño |
+| Clientes | ✅ existe | 🟡 `test_clientes.py` escrito, no corrido en verde todavía (INC-02 ya resuelto, ver `docs/REPORT.md §4.3`) | ✅ `casos_clientes.md` |
 | Movimientos | ✅ existe | ❌ pendiente (bloqueado por INC-05/06) | ❌ en diseño |
 | Recargas | ✅ existe | ❌ pendiente (sin código todavía) | ❌ en diseño |
 | Consulta | ✅ existe | ❌ pendiente (sin código todavía) | ❌ en diseño |
@@ -53,7 +53,7 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
 Ver `docs/FULLSTACK/README.md` para el detalle de cada uno (es la fuente de
 verdad de esta tabla — actualízala ahí primero, luego refleja aquí).
 
-Detalle en lenguaje llano de cada caso, mapeado 1:1 a los tests de abajo: `casos_inventario.md`, `casos_pedidos.md`, `casos_shein.md`.
+Detalle en lenguaje llano de cada caso, mapeado 1:1 a los tests de abajo: `casos_inventario.md`, `casos_pedidos.md`, `casos_shein.md`, `casos_clientes.md`.
 
 ## Cobertura conocida (revisado contra el spec, no solo "ya quedó")
 
@@ -124,6 +124,41 @@ Escenario integral (`test_escenario_shein_ciclo_completo`) que ejercita los
 Igual que Inventario: son casos nuevos o de borde, no arreglos de lo ya
 escrito, y no bloquean el estado en verde actual.
 
+### `test_clientes.py`
+
+**🟡 Escrito, no corrido en verde todavía** — a diferencia de las tres
+secciones anteriores. Antes de correrlo hace falta (ver `docs/REPORT.md`,
+§5 punto 3 / §4.3):
+
+1. Actualizar el fixture `cliente_prueba` de este `conftest.py` (ver nota
+   abajo, ya desactualizada).
+2. Confirmar las rutas asumidas contra `app/api/v1/endpoints/clientes.py`
+   real (`GET /clientes/{id}`, `GET /clientes?q=`, `PATCH
+   /clientes/{id}/rehabilitar` — solo `POST /clientes` fue confirmada por
+   el usuario).
+3. Confirmar o exponer una fixture `db_session` (usada en un solo test para
+   forzar `estatus = "inactivo"` sin depender de un endpoint de baja que no
+   existe en el spec).
+
+Cubre (una vez en verde): alta con las 4 variantes de `frecuencia_pago` y
+sus campos condicionales, rango de `dia_pago_especifico` (1-31, bordes
+inválidos 0/32), longitud máxima de los campos de texto (`nombre`,
+`colonia`, `ref_nombre`, `ref_colonia`, `frecuencia_pago_detalle` — INC-18,
+hallazgo de esta sesión), consecutivo de `no_cliente` por colonia,
+normalización de mayúsculas en `no_cliente`, consulta por id/búsqueda
+parcial, y rehabilitar (activo idempotente / inactivo→activo / inexistente).
+
+**Huecos deliberados, no cubiertos:**
+- "Editar Cliente" — sin `service`/`endpoint` todavía, no se inventa el
+  caso.
+- Enviar `dia_pago_especifico`/`frecuencia_pago_detalle` cuando la
+  `frecuencia_pago` no los requiere — el validador hoy lo acepta sin
+  rechazar (decisión de diseño abierta, ver `casos_clientes.md` §5).
+- Concurrencia en `generar_no_cliente()` (sin lock) — riesgo de
+  arquitectura anotado, no bloqueante para un solo usuario concurrente.
+- La fórmula real de `fecha_pago_programada` — vive en Movimientos, se
+  prueba en `test_movimientos.py`, no aquí.
+
 ## Al agregar un módulo nuevo
 
 1. Extraer `FULLSTACK/module_<nombre>.md` del monolito (o pedir que se
@@ -135,11 +170,21 @@ escrito, y no bloquean el estado en verde actual.
    reproducirlo en Python.
 4. Actualizar la tabla de arriba.
 
-## Por qué `cliente_prueba` no usa `POST /api/v1/clientes`
+## Por qué `cliente_prueba` todavía no usa `POST /api/v1/clientes`
 
-INC-02 (ver `REPORT.md §4.3`) hace que ese endpoint falle con
-`IntegrityError`. El fixture crea el cliente directo en SQLAlchemy como
-workaround documentado, en un solo lugar. Cuando se corrija el módulo
-Clientes (paso 3 de la ruta de trabajo), el fixture cambia una vez en
-`conftest.py` y todos los tests que dependen de él quedan corregidos sin
-tocarlos.
+**🟡 Esta sección describe el estado previo a esta sesión — ya no es
+válida, pendiente de que el usuario aplique el cambio.** INC-02 (ver
+`REPORT.md §4.3`) hacía que ese endpoint fallara con `IntegrityError` — el
+fixture creaba el cliente directo en SQLAlchemy como workaround, en un solo
+lugar. **INC-02 ya está resuelto en `schemas/cliente.py` /
+`services/cliente_service.py`** (ver `REPORT.md`), así que el workaround ya
+no es necesario, pero el cambio de fixture en sí **no se aplicó todavía**
+— no se compartió `conftest.py` real esta sesión, así que no se editó a
+ciegas. Falta:
+
+1. Reemplazar el bypass SQLAlchemy de `cliente_prueba` por una llamada real
+   a `POST /api/v1/clientes` con un payload válido (ver `casos_clientes.md`
+   §1, caso 1.1, para un payload mínimo de referencia).
+2. Correr toda la suite (`pytest test/ -v`) después del cambio — otros
+   módulos (Pedidos, Shein) dependen de `cliente_prueba` y podrían verse
+   afectados si el fixture cambia de forma.

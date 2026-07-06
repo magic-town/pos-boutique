@@ -46,6 +46,8 @@
 | `colonia` | String(20) | Obligatorio |
 | `telefono` | Integer | 10 dígitos, obligatorio |
 | `frecuencia_pago` | Enum: `semanal`, `quincenal`, `dia_especifico_mes`, `otro` | Obligatorio |
+| `dia_pago_especifico` | Integer, nullable | 1-31. Obligatorio solo si `frecuencia_pago = dia_especifico_mes`. Se define una sola vez al registrar y persiste mientras la cuenta esté activa |
+| `frecuencia_pago_detalle` | String(60), nullable | Obligatorio solo si `frecuencia_pago = otro`. Texto libre con el acuerdo especial |
 | `ref_nombre` | String(40) | Obligatorio |
 | `ref_colonia` | String(40) | Obligatorio |
 | `ref_telefono` | Integer, nullable | 10 dígitos, opcional |
@@ -57,7 +59,28 @@
 ### Reglas de negocio
 
 1. **`saldo = 0` no implica baja automática.** El cambio a `inactivo` siempre es una decisión operativa explícita de la operadora.
-2. **Ciclo de `fecha_pago_programada`:** se instancia en el primer abono (`fecha_abono + frecuencia_pago`) y se recalcula en cada abono subsiguiente desde la fecha real del abono, no desde la fecha programada anterior. Si `frecuencia_pago = otro`, el sistema nunca calcula esta fecha.
+2. **Ciclo de `fecha_pago_programada` — cálculo diferenciado por `frecuencia_pago`:**
+   Se instancia en el primer abono y se recalcula en cada abono subsiguiente
+   (nunca al registrar al cliente). La **fórmula** de cálculo depende del tipo
+   de frecuencia:
+   - **`semanal`:** rodante, sin cambios. `fecha_pago_programada = fecha_abono + 7 días`,
+     recalculada desde la fecha real de cada abono (no desde la fecha programada anterior).
+   - **`quincenal`:** deja de ser rodante. Se fija a **fechas de calendario**: el
+     día `15` de cada mes y el **último día del mes** (28, 29, 30 o 31 según
+     corresponda). `fecha_pago_programada` = la próxima de esas dos fechas
+     posterior a la fecha del abono.
+   - **`dia_especifico_mes`:** se fija al día capturado en `dia_pago_especifico`
+     al registrar al cliente. `fecha_pago_programada` = la próxima ocurrencia
+     de ese día posterior a la fecha del abono. Si el día no existe en un mes
+     dado (p. ej. `31` en febrero), se aplica el mismo *clamp* al último día
+     del mes que usa `quincenal`.
+   - **`otro`:** sin cambios — el sistema nunca calcula esta fecha;
+     `fecha_pago_programada` permanece `NULL` siempre. El acuerdo se documenta
+     en `frecuencia_pago_detalle`, capturado una sola vez al registrar.
+   > Implementación pendiente: la fórmula vive en `movimiento_service.py`
+   > (ver docs/REPORT.md, ajuste de Movimientos) — hoy solo se documenta la
+   > regla y se captura el dato de origen (`dia_pago_especifico` /
+   > `frecuencia_pago_detalle`) en el alta del cliente.
 3. **Sistema de banderas (visual, no bloqueante):**
    - 🟡 Amarilla: `fecha_pago_programada - hoy <= 2 días`
    - 🔴 Roja: `hoy > fecha_pago_programada`

@@ -43,8 +43,12 @@ explícita del usuario en la sesión.
 
 13 tablas, todas migradas y alineadas a spec. Migraciones vigentes:
 `a1b2c3d4e5f6` (esquema inicial) → `b2c3d4e5f6a7` (agrega `precios_catalogo` y
-`shein_pedidos_articulos`; reestructura `shein_pedidos` y `shein_cortes`).
-`alembic current` en `b2c3d4e5f6a7` (head).
+`shein_pedidos_articulos`; reestructura `shein_pedidos` y `shein_cortes`) →
+`c3d4e5f6a7b8` (agrega `dia_pago_especifico` y `frecuencia_pago_detalle` a
+`clientes`, ver §5 punto 3). `alembic current` reportado en `c3d4e5f6a7b8`
+(head) — aplicada y verificada con `.schema clientes` según el usuario; no
+re-confirmada en esta sesión contra `pos.db` real (no se compartió acceso
+directo a la base).
 
 | Tabla | Módulo | Notas |
 |---|---|---|
@@ -73,8 +77,12 @@ misma nomenclatura que `models.py`).
   corregidas (INC-15/16/17, ver §4.3). Ver §5 paso 2 (cerrado) y §4.1.
 - ~~Inventario~~ — completado (primera implementación de código; el modelo
   SQLAlchemy ya existía sin usarse). Ver §5 nuevo paso y §4.1.
-- Ajustes puntuales a Clientes, Movimientos y Auth ya existentes — ver §5,
-  pasos 5–7.
+- **Clientes** — código cerrado esta sesión (INC-01, INC-02, INC-07, INC-10
+  resueltos; INC-18 nuevo encontrado y resuelto en el mismo cambio, ver
+  §4.3). **Pendiente de que el usuario ejecute la verificación real**
+  (`curl`/`pytest`) — ver §5 punto 3 para el detalle exacto de qué falta
+  correr antes de marcarlo `✅ CERRADO` como Pedidos/Inventario/Shein.
+- Ajustes puntuales a Movimientos y Auth ya existentes — ver §5, pasos 6–7.
 - Recargas y Setting/Configuración — sin código todavía, spec completa disponible.
 
 ---
@@ -86,7 +94,7 @@ misma nomenclatura que `models.py`).
 | ¿Se conserva data de `pos.db`? | No. Reset limpio ejecutado; el esquema nace de `models.py` vía Alembic. |
 | ¿Multi-empresa / multi-sucursal? | No existe ni se planea. Negocio único, una operadora. |
 | ¿Async o sync en SQLAlchemy? | Síncrono (`database.py`, `create_engine` estándar, sin `aiosqlite`). |
-| ¿`telefono`/`ref_telefono` tipo de dato? | `Integer` (10 dígitos), no `String`. Implementado en `models.py`; pendiente de ajuste en `schemas/cliente.py` (§5 paso 5, INC-01). |
+| ¿`telefono`/`ref_telefono` tipo de dato? | `Integer` (10 dígitos), no `String`. Implementado en `models.py`; pendiente de ajuste en `schemas/cliente.py` (§5 punto 3, INC-01). |
 | ¿Nombres de campo en `Usuario`? | `usuario` (no `username`) y `password_hash` (no `hashed_password`). Pendiente de ajuste en `schemas/usuario.py` y `auth.py` (§5 paso 7, INC-08). |
 | ¿`pedidos` plano o cabecera-detalle? | Cabecera-detalle (`pedidos` + `pedidos_articulos`), 1 a 4 artículos principales, cada uno con 0 o 1 alternativa. |
 | ¿Shein comparte tabla de clientes? | No. `shein_clientes` independiente. |
@@ -196,8 +204,8 @@ regla 8.
 | `alembic/versions/b2c3d4e5f6a7_...py` | Migración correctiva | Agrega `precios_catalogo` y `shein_pedidos_articulos`; reestructura `shein_pedidos`/`shein_cortes`. Probada con `upgrade`/`downgrade` limpios y corrida contra `pos.db` real. |
 | `app/db/init_db.py` | Inicializador de BD | Función existe en el archivo pero ya no se invoca desde `main.py`. Alembic es la única fuente de esquema. |
 | `app/main.py` | Bootstrap FastAPI | Confirma que `init_db()` no se ejecuta en `lifespan`. Registra 5 routers. CORS solo a `localhost:5173`. |
-| `app/schemas/cliente.py` | Schema Cliente | `telefono: str` (L9) / `ref_telefono: Optional[str]` (L12) deberían ser `int` (INC-01). `ClienteCreate` (L6–19) no incluye `frecuencia_pago`, `nullable=False` en el modelo (INC-02). `ClienteRead` (L22–35) no incluye `fecha_pago_programada` (INC-10). Pendiente §5 paso 5. |
-| `app/services/cliente_service.py` | Lógica Cliente | `estatus == "liquidado"` en `rehabilitar_cliente()` (L67, L73) — no existe en el enum nuevo (INC-07). `crear_cliente()` (L26–36) no asigna `frecuencia_pago` — el `INSERT` fallará en tiempo de ejecución (INC-02). No asigna `fecha_pago_programada`, pero esa columna sí es `nullable=True` — comportamiento correcto, queda `NULL` hasta el primer abono. Pendiente §5 paso 5. |
+| `app/schemas/cliente.py` | Schema Cliente | **Reescrito esta sesión, código real visto.** `telefono`/`ref_telefono` ya `int` con validador de 10 dígitos (INC-01 resuelto). `ClienteCreate` incluye `frecuencia_pago` obligatorio + `dia_pago_especifico`/`frecuencia_pago_detalle` con validación condicional vía `model_validator` (INC-02 resuelto en el schema). `ClienteRead` incluye `fecha_pago_programada` y `fecha_registro: date` (INC-10 resuelto). **Hallazgo nuevo (INC-18):** ninguno de los campos `String(N)` (`nombre`, `colonia`, `ref_nombre`, `ref_colonia`, `frecuencia_pago_detalle`) tenía `max_length` alineado a `models.py`/`module_clientes.md` — mismo tipo de brecha que se corrigió en Shein. Corregido en esta sesión con `Field(max_length=N)`. Pendiente: correr la verificación real (§5 punto 3). |
+| `app/services/cliente_service.py` | Lógica Cliente | **Código real visto.** `rehabilitar_cliente()` ya no compara contra `"liquidado"` — solo actúa si `estatus == "inactivo"` (INC-07 resuelto). `crear_cliente()` ya asigna `frecuencia_pago`, `dia_pago_especifico` y `frecuencia_pago_detalle` en la construcción del objeto (INC-02 resuelto). `generar_no_cliente()` (nueva, no documentada antes) confirma el consecutivo por colonia vía `COUNT` + `LIKE` — sin lock, riesgo de concurrencia de un solo usuario (ver §4.3, no bloqueante). Pendiente: correr la verificación real (§5 punto 3). |
 | `app/schemas/movimiento.py` | Schema Movimiento | `notas: Optional[str]` (L13, L43) debería ser `descripcion` (INC-03). Sin validación de `descripcion` obligatoria cuando `operacion = 'gasto'` (INC-04). Pendiente §5 paso 6. |
 | `app/services/movimiento_service.py` | Lógica Movimiento | Sobrescritura de saldo (L37, INC-05), estatus `"liquidado"` inexistente (L52, INC-07), `notas=data.notas` no mapea a columna real (L61, INC-03/INC-11), sin validación de mínimo $100 (L28–36, INC-06). `cancelar_movimiento()` tiene bug de diseño en la reversión, no solo de typo — ver §5 punto 4. Pendiente §5 paso 6. |
 | `app/db/database.py` | Conexión BD | SQLAlchemy síncrono. `get_db()` estándar. |
@@ -238,22 +246,26 @@ regla 8.
 ### 4.3 Riesgos activos confirmados (bugs con evidencia, no inferencias)
 
 > **Inventario definitivo, por `grep` sobre todo el documento, no por
-> memoria:** son **17 códigos en total** (`INC-01` a `INC-17`) — mi
-> respuesta original en esta sesión decía "14" (correcto), luego dije "5"
-> (incorrecto), luego "7" (incorrecto) — ambas correcciones intermedias
-> estaban mal. De los 14 originales:
-> - **Re-verificados esta sesión con código real** (`movimiento_service.py`,
->   `cliente_service.py`, subidos por el usuario): `INC-02, 03, 04, 05, 06,
->   07, 11` — los 7 de abajo. Todos **persisten**.
-> - **No re-verificables esta sesión** (archivos no compartidos —
->   `schemas/cliente.py`, `schemas/usuario.py`, `schemas/token.py`,
->   `schemas/movimiento.py`): `INC-01, 08, 09, 10`. Siguen documentados en
->   `§4.1` con su evidencia original, sin cambios.
-> - **Ya resueltos, sin tocar**: `INC-12, 13, 14, 15, 16, 17`. Los últimos 3
->   (módulo Shein) se encontraron y corrigieron esta misma sesión — detalle
->   de la corrección en el bloque al final de esta sección, no solo el
->   hallazgo original.
-> Si `TRAZABILIDAD.md` tiene códigos fuera de estos 17, son ajenos a este
+> memoria:** son **18 códigos en total** (`INC-01` a `INC-18`, el último
+> agregado en la sesión de cierre de Clientes) — mi respuesta original en
+> una sesión previa decía "14" (correcto), luego "5" (incorrecto), luego
+> "7" (incorrecto) — ambas correcciones intermedias estaban mal. Del grupo
+> original de 14:
+> - **Resueltos y verificados con código real esta sesión** (`cliente.py`,
+>   `cliente_service.py`, subidos por el usuario): `INC-01, 02, 07, 10`.
+>   Ver el bloque al final de esta sección para el antes/después.
+> - **Persisten, sin tocar esta sesión** (fuera de alcance — corresponden a
+>   Movimientos/Auth, no a Clientes): `INC-03, 04, 05, 06, 11` — ver puntos
+>   0, 1, 2, 3, 5 abajo. `INC-08, 09` (Auth) tampoco se tocaron.
+> - **Ya resueltos antes de esta sesión, sin tocar**: `INC-12, 13, 14, 15,
+>   16, 17`.
+> - **Nuevo esta sesión, encontrado y resuelto en el mismo cambio**:
+>   `INC-18` — `schemas/cliente.py` no tenía `max_length` alineado a
+>   `String(N)` de `models.py`/`module_clientes.md` en ningún campo de texto
+>   (`nombre`, `colonia`, `ref_nombre`, `ref_colonia`,
+>   `frecuencia_pago_detalle`). Mismo patrón que el fix de Shein
+>   (`pedido_shein.py`). Ver el bloque al final de esta sección.
+> Si `TRAZABILIDAD.md` tiene códigos fuera de estos 18, son ajenos a este
 > documento.
 
 0. **`Movimiento(..., notas=data.notas)` — columna inexistente, crash total
@@ -289,26 +301,26 @@ regla 8.
    confirmado por ausencia de código** (no es una línea con el bug, es la
    rama entera que falta) (INC-04). También inalcanzable hoy por el punto 0
    si `gasto` pasa por el mismo constructor roto.
-4. **Estados de cliente obsoletos (`"liquidado"`)** — tres sitios, los tres
-   confirmados en el código subido:
+4. **Estados de cliente obsoletos (`"liquidado"`)** — tres sitios:
    - `movimiento_service.py` L52 (`registrar_movimiento()`, rama `abono`):
-     asigna `cliente.estatus = "liquidado"` — también inalcanzable hoy por
-     el punto 0, si `abono` pasa por el mismo constructor roto.
+     asigna `cliente.estatus = "liquidado"` — **PERSISTE**, sigue
+     inalcanzable hoy por el punto 0, fuera de alcance de la sesión de
+     cierre de Clientes.
    - `movimiento_service.py` L124 (`cancelar_movimiento()`): revierte a
-     `"activo"` (válido, no crashea, pero perpetúa el concepto). Esta
-     función NO pasa por el `Movimiento(...)` roto del punto 0 — si se
-     llega a ejecutar, si crashea.
-   - `cliente_service.py` L73 (`rehabilitar_cliente()`): compara
-     `cliente.estatus == "liquidado"`.
+     `"activo"` — **PERSISTE**, sin cambios, fuera de alcance (es
+     Movimientos, no Clientes).
+   - `cliente_service.py` (`rehabilitar_cliente()`): comparaba
+     `cliente.estatus == "liquidado"`. **✅ RESUELTO esta sesión** — el
+     código real ya no menciona `"liquidado"` en ningún punto; la función
+     solo actúa si `cliente.estatus == "inactivo"`. Ver bloque de cierre de
+     Clientes al final de esta sección.
 
-   **PERSISTE, y escala de "estado obsoleto" a crash garantizado.** La
-   columna real (`models.py`) es `Column(Enum(EstatusCliente), ...)` con
-   `EstatusCliente` = solo `activo`/`inactivo` — un `Enum` real de
-   SQLAlchemy, no `String` libre. Asignar `"liquidado"` en L52 fallaría con
-   `LookupError` al hacer flush, mismo tipo de crash que el punto 0, si
-   algún día es alcanzable. Como consecuencia, la comparación en
-   `cliente_service.py` L73 es código muerto: ningún cliente puede llegar a
-   tener `estatus == "liquidado"` almacenado (INC-07).
+   El lado de `cliente_service.py` de INC-07 queda cerrado. El lado de
+   `movimiento_service.py` (los otros dos puntos) sigue abierto y se cierra
+   junto con Movimientos (§5 paso 6) — la columna real (`models.py`) sigue
+   siendo `Column(Enum(EstatusCliente), ...)` con solo `activo`/`inactivo`,
+   así que esas dos líneas seguirán crasheando con `LookupError` en cuanto
+   sean alcanzables.
 5. **`cancelar_movimiento()` — bug de diseño, no de línea** (L109–118). Al
    revertir, busca el `saldo_resultante` del movimiento anterior del
    cliente **sin filtrar por `operacion`** —
@@ -317,13 +329,14 @@ regla 8.
    por el bug del punto 1, el "saldo anterior" recuperado es incorrecto.
    Depende de que el punto 1 se corrija primero — no se arregla en
    paralelo.
-6. **`crear_cliente()` no asigna `frecuencia_pago`** (`cliente_service.py`
-   L23–37) — el `Cliente(...)` real, línea por línea, no tiene
-   `frecuencia_pago=` en ningún lado; la columna es `nullable=False` en el
-   modelo. **PERSISTE, con evidencia doble**: el código estático subido hoy
-   coincide exactamente con el `IntegrityError` reproducido en runtime en
-   sesión anterior (`sqlite3.IntegrityError: NOT NULL constraint failed:
-   clientes.frecuencia_pago`) — mismo bug, dos formas de evidencia (INC-02).
+6. **`crear_cliente()` no asignaba `frecuencia_pago`** (`cliente_service.py`)
+   — la columna es `nullable=False` en el modelo; el `IntegrityError`
+   reproducido en runtime en sesión anterior (`sqlite3.IntegrityError: NOT
+   NULL constraint failed: clientes.frecuencia_pago`) confirmaba el bug.
+   **✅ RESUELTO esta sesión** — `crear_cliente()` ya asigna
+   `frecuencia_pago`, `dia_pago_especifico` y `frecuencia_pago_detalle` al
+   construir el objeto `Cliente(...)`. Ver bloque de cierre de Clientes al
+   final de esta sección.
 7. **`app/schemas/__init__.py` importaba nombres inexistentes de Shein**
    (`PedidoSheinCreate`/`PedidoSheinRead` en vez de `SheinPedidoCreate`/
    `SheinPedidoRead`) — residuo del nombre viejo previo a la reestructura
@@ -397,6 +410,40 @@ conservada tal cual se encontró; el estado actual va al final de cada uno:**
     conjunto, no solo aislados). Confirmado también con `curl` real contra
     `pos.db` antes de escribir el test.
 
+**Módulo Clientes — cierre de código en esta sesión
+(`schemas/cliente.py`, `services/cliente_service.py`, migración
+`c3d4e5f6a7b8`), con un hallazgo nuevo encontrado al revisar el código real
+antes de escribir `test_clientes.py` — mismo patrón que Shein:**
+
+11. **(INC-01, INC-02, INC-07, INC-10) — resueltos, código real visto.**
+    `telefono`/`ref_telefono` ya `int` validado a 10 dígitos; `ClienteCreate`
+    exige `frecuencia_pago` y valida condicionalmente `dia_pago_especifico`
+    (`dia_especifico_mes`) y `frecuencia_pago_detalle` (`otro`) vía
+    `model_validator`; `crear_cliente()` persiste los tres campos nuevos;
+    `ClienteRead` expone `fecha_pago_programada` y `fecha_registro: date`;
+    `rehabilitar_cliente()` ya no referencia `"liquidado"`. Cubierto por
+    `test/casos_clientes.md` (§§1–3) y `test/test_clientes.py`.
+12. **(INC-18, nuevo) `ClienteCreate` sin `max_length` en sus campos de
+    texto.** `nombre`, `colonia`, `ref_nombre`, `ref_colonia` y
+    `frecuencia_pago_detalle` no tenían `Field(max_length=N)` alineado a
+    los `String(N)` de `models.py`/`module_clientes.md` (40/20/40/40/60
+    respectivamente). SQLite no lo habría rechazado en runtime (sin
+    enforcement real de longitud de `VARCHAR`), pero el contrato del schema
+    quedaba roto en silencio — el mismo tipo de brecha que ya se había
+    corregido en Shein (`pedido_shein.py`, `max_length` en
+    `nombre`/`colonia`/`producto`/`id_articulo`) no se replicó aquí en su
+    momento.
+    **✅ RESUELTO:** se agregó `Field(max_length=N)` a los 5 campos.
+    Cubierto por `test/casos_clientes.md` (caso 1.10) y
+    `test/test_clientes.py` (`test_longitud_maxima_excedida`).
+
+**Pendiente real, no completado en esta sesión (requiere acceso al servidor
+del usuario, fuera del alcance de lo que se puede ejecutar aquí):**
+verificación end-to-end con `curl`/`pytest` contra `pos.db` real — ver
+`test/verificar_clientes.sh` (nuevo) y §5 punto 3. Hasta que esos dos corran
+en verde, Clientes queda en **"código cerrado, verificación pendiente"**,
+no en `✅ CERRADO` como Pedidos/Inventario/Shein.
+
 ---
 
 ## 5. Ruta de trabajo (orden, no checklist de tareas individuales)
@@ -433,12 +480,35 @@ conservada tal cual se encontró; el estado actual va al final de cada uno:**
    contra `module_shein.md` (previa a escribir `test_shein.py`) encontró 3
    divergencias de negocio reales, ya corregidas — ver §4.3 puntos 8–10
    (INC-15/16/17). `test/casos_shein.md` agregado.
-3. Ajuste de `schemas/cliente.py` y `services/cliente_service.py`:
-   - Quitar `"liquidado"` de `rehabilitar_cliente()`.
-   - Ajustar tipo `telefono`/`ref_telefono` a `int` (INC-01).
-   - Agregar `frecuencia_pago` a `ClienteCreate` y a la construcción del
-     objeto en `crear_cliente()` — bloqueante de crash, no cosmético (INC-02).
-   - Agregar `fecha_pago_programada` a `ClienteRead` (INC-10).
+3. ~~Ajuste de `schemas/cliente.py` y `services/cliente_service.py`~~ —
+   **código cerrado esta sesión**, verificación real pendiente (ver §4.3,
+   bloque de cierre de Clientes, y el detalle abajo):
+   - ~~Quitar `"liquidado"` de `rehabilitar_cliente()`~~ ✅.
+   - ~~Ajustar tipo `telefono`/`ref_telefono` a `int`~~ ✅ (INC-01).
+   - ~~Agregar `frecuencia_pago` a `ClienteCreate` y a la construcción del
+     objeto en `crear_cliente()`~~ ✅ (INC-02).
+   - ~~Agregar `fecha_pago_programada` a `ClienteRead`~~ ✅ (INC-10).
+   - Agregado también, no en el alcance original: `dia_pago_especifico` y
+     `frecuencia_pago_detalle` (columnas nuevas, migración `c3d4e5f6a7b8`),
+     con validación condicional por `frecuencia_pago`.
+   - **Hallazgo nuevo, no en el alcance original:** `max_length` faltante
+     en los campos de texto de `ClienteCreate` — ✅ resuelto (INC-18, ver
+     §4.3).
+   - **Pendiente real, requiere que el usuario lo ejecute:**
+     - Correr `test/verificar_clientes.sh` (o los `curl` manuales del paso
+       3.3 original) contra un servidor real.
+     - Correr `pytest test/test_clientes.py -v` — requiere primero
+       actualizar el fixture `cliente_prueba` de `conftest.py` para usar el
+       endpoint real en vez del bypass SQLAlchemy (el bypass existía
+       específicamente por INC-02, ya resuelto — ver `test/README.md`,
+       sección "Por qué `cliente_prueba` no usa `POST /api/v1/clientes`").
+     - Confirmar las 3 rutas inferidas en `casos_clientes.md`/
+       `test_clientes.py` (`GET /clientes/{id}`, `GET /clientes?q=`,
+       `PATCH /clientes/{id}/rehabilitar`) contra
+       `app/api/v1/endpoints/clientes.py` real — no se tuvo ese archivo a
+       la vista esta sesión.
+     - Solo entonces mover Clientes a `✅ CERRADO` en §2, §4.1, §4.3 y en
+       `test/README.md`.
 4. Ajuste de `schemas/movimiento.py` y `services/movimiento_service.py`:
    - Renombrar `notas` → `descripcion` en schema y en la construcción del
      objeto `Movimiento` (INC-03, INC-11).
@@ -493,6 +563,16 @@ conceptual). No bloquea el trabajo de código porque
 `00_FULLSTACK_DEVELOPMENT.md` ya trae el detalle suficiente; es deuda de
 consistencia entre documentos, no un bloqueo técnico.
 
+**Hallazgo menor de numeración, encontrado al cerrar Clientes:** las
+referencias cruzadas a la lista de `§5. Ruta de trabajo` tienen un
+desfase consistente de +2 en varios puntos del documento — ej. `schemas/cliente.py`
+se refería como "§5 paso 5" cuando el punto real en la lista es el **3**;
+`auth.py`/`schemas/usuario.py`/`auth_service.py` se refieren como "§5 paso 7"
+cuando el punto real es el **5**. Ya corregido para las referencias de
+Clientes en esta sesión; las de Auth (§4.1, §4.2) quedan con el desfase
+original — no se tocaron por estar fuera de alcance de esta sesión, pero
+conviene corregirlas en la misma pasada en que se alinee la documentación.
+
 ---
 
 ## 7. Cómo usar este documento en una sesión nueva
@@ -522,10 +602,30 @@ con el usuario, no inferido):**
    (28/28), cubriendo los 5 flujos originales, el endpoint nuevo de agregar
    artículo, y los 3 hallazgos de esta sesión (INC-15/16/17, ver §4.3
    puntos 8–10 para el antes/después de cada uno). `test/casos_shein.md`
-   agregado. Siguiente pendiente real: construcción desde cero de Recargas
-   y Setting/Configuración (§5, punto 6) — ahí no hay código todavía, a
-   diferencia de Shein que solo tenía divergencias puntuales sobre una base
-   ya implementada.
+   agregado.
+4. **Clientes** — 🟡 **código cerrado, verificación pendiente** (no
+   `✅ CERRADO` todavía — a diferencia de Pedidos/Inventario/Shein, esta
+   vez el `pytest`/`curl` real no se corrió en esta sesión). Resueltos:
+   INC-01, INC-02, INC-07, INC-10 y el hallazgo nuevo INC-18 (`max_length`
+   faltante, ver §4.3). Entregado: `schemas/cliente.py` corregido,
+   `test/casos_clientes.md`, `test/test_clientes.py`,
+   `test/verificar_clientes.sh`. **Antes de marcarlo cerrado, el usuario
+   debe:**
+   - Correr `verificar_clientes.sh` (o los `curl` manuales) contra un
+     servidor real.
+   - Confirmar las 3 rutas inferidas (`GET /clientes/{id}`, `GET
+     /clientes?q=`, `PATCH /clientes/{id}/rehabilitar`) contra
+     `app/api/v1/endpoints/clientes.py` — no compartido esta sesión.
+   - Actualizar el fixture `cliente_prueba` de `conftest.py` (usar el
+     endpoint real, ya no el bypass de INC-02) y correr
+     `pytest test/test_clientes.py -v`.
+   - Confirmar la fixture `db_session` en `conftest.py` (usada en un caso
+     de `test_clientes.py` para forzar `estatus = "inactivo"`) o adaptarla.
+
+   Siguiente pendiente real una vez cerrado: construcción desde cero de
+   Recargas y Setting/Configuración (§5, punto 6) — ahí no hay código
+   todavía, a diferencia de Clientes/Shein que solo tenían divergencias
+   puntuales sobre una base ya implementada.
 
 **Reconciliación de incidencias — hecha esta sesión, con dos autocorrecciones
 en el camino.** La sesión pasó por tres conteos distintos antes de llegar al
@@ -541,3 +641,13 @@ sin re-verificar esta sesión (`INC-01,08,09,10`) requieren
 `schemas/cliente.py`, `schemas/usuario.py`, `schemas/token.py`,
 `schemas/movimiento.py` — no compartidos hoy. Ver `§4.3` para el detalle
 completo.
+
+**Actualización de esta sesión (cierre de Clientes):** de los 4 pendientes
+sin re-verificar del párrafo anterior, `schemas/cliente.py` sí se compartió
+esta vez — `INC-01` e `INC-10` quedaron confirmados y resueltos, junto con
+`INC-02` y `INC-07` (ya re-verificados como persistentes en la sesión
+anterior, ahora resueltos). Total de incidencias del documento: **18**
+(`INC-01` a `INC-18`, el 18 nuevo — ver §4.3). Quedan sin re-verificar
+`INC-08, 09` (Auth — `schemas/usuario.py`, `schemas/token.py`,
+`auth_service.py` no compartidos esta sesión) y siguen abiertos, fuera de
+alcance, `INC-03,04,05,06,11` (Movimientos).

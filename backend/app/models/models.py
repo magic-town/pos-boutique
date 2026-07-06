@@ -14,9 +14,18 @@ El resto de las tablas (clientes, pedidos, pedidos_articulos, inventario,
 movimientos, recargas, usuarios, configuracion) no cambia en esta revisión —
 siguen igual que el models.py vigente en el repo.
 
+ACTUALIZACIÓN (regla de negocio frecuencia_pago, ver docs/REGLAS_NEGOCIO.md §2):
+clientes agrega 2 columnas nuevas, pendientes de migración Alembic sobre el
+esquema ya migrado:
+- dia_pago_especifico:     Integer, nullable. Obligatorio solo si
+                           frecuencia_pago = dia_especifico_mes.
+- frecuencia_pago_detalle: String(60), nullable. Obligatorio solo si
+                           frecuencia_pago = otro.
+
 NOTA: este archivo se entrega para revisión. La migración Alembic correctiva
-(que agrega precios_catalogo y shein_pedidos_articulos, y reestructura
-shein_pedidos/shein_cortes sobre el esquema ya migrado) es el siguiente paso,
+(que agrega precios_catalogo y shein_pedidos_articulos, reestructura
+shein_pedidos/shein_cortes sobre el esquema ya migrado, y agrega
+dia_pago_especifico/frecuencia_pago_detalle a clientes) es el siguiente paso,
 una vez se apruebe este esquema.
 """
 
@@ -147,6 +156,8 @@ class Cliente(Base):
     colonia                 = Column(String(20), nullable=False)
     telefono                = Column(Integer, nullable=False)            # 10 dígitos
     frecuencia_pago         = Column(Enum(FrecuenciaPago), nullable=False)
+    dia_pago_especifico     = Column(Integer, nullable=True)   # 1-31; obligatorio solo si frecuencia_pago = dia_especifico_mes (validado en schema)
+    frecuencia_pago_detalle = Column(String(60), nullable=True)  # obligatorio solo si frecuencia_pago = otro (validado en schema)
     ref_nombre              = Column(String(40), nullable=False)
     ref_colonia             = Column(String(40), nullable=False)
     ref_telefono            = Column(Integer, nullable=True)             # 10 dígitos, opcional

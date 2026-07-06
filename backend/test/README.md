@@ -43,7 +43,7 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
 |---|---|---|---|
 | Pedidos | ✅ existe | ✅ `test_pedidos.py` (corrido, verde) | ✅ `casos_pedidos.md` |
 | Inventario | ✅ existe | ✅ `test_inventario.py` (corrido, verde) | ✅ `casos_inventario.md` |
-| Shein | ✅ existe | ❌ pendiente (código existente, sin test) | ❌ en diseño |
+| Shein | ✅ existe | ✅ `test_shein.py` (corrido, verde) | ✅ `casos_shein.md` |
 | Clientes | ✅ existe | ❌ pendiente (bloqueado por INC-02) | ❌ en diseño |
 | Movimientos | ✅ existe | ❌ pendiente (bloqueado por INC-05/06) | ❌ en diseño |
 | Recargas | ✅ existe | ❌ pendiente (sin código todavía) | ❌ en diseño |
@@ -53,7 +53,7 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
 Ver `docs/FULLSTACK/README.md` para el detalle de cada uno (es la fuente de
 verdad de esta tabla — actualízala ahí primero, luego refleja aquí).
 
-Detalle en lenguaje llano de cada caso, mapeado 1:1 a los tests de abajo: `casos_inventario.md`, `casos_pedidos.md`.
+Detalle en lenguaje llano de cada caso, mapeado 1:1 a los tests de abajo: `casos_inventario.md`, `casos_pedidos.md`, `casos_shein.md`.
 
 ## Cobertura conocida (revisado contra el spec, no solo "ya quedó")
 
@@ -94,6 +94,35 @@ rechazado, productos `vendido` no afectados por descuento masivo.
 
 Quedan pendientes de cerrar en una sesión aparte — son casos nuevos, no
 arreglos de lo ya escrito, y no bloquean nada de lo que ya está en verde.
+
+### `test_shein.py`
+
+Cubre los 5 flujos (Registrar Cliente, Registrar Pedido, Lista de Pedidos,
+Registrar Corte, Consulta de Cortes), el endpoint de agregar artículo a un
+pedido existente, y los 3 hallazgos corregidos esta sesión (`REPORT.md
+§4.3`, `INC-15/16/17`): agregar artículo pre-corte, `monto_pedido_vigente`
+en Lista de Pedidos, autoconfirmación de `vigente` al crear el corte.
+Escenario integral (`test_escenario_shein_ciclo_completo`) que ejercita los
+3 fixes en conjunto, no solo aislados.
+
+**Huecos:**
+- Límite exacto de teléfono (`1000000000` y `9999999999`, los bordes del
+  rango válido) — solo se probaron valores claramente inválidos (9 y 11
+  dígitos), no los bordes exactos.
+- `id_articulo` (referencia libre a la app Shein, `max_length=20`) — nunca
+  se ejercitó con un valor que exceda el límite.
+- `tipo_producto` con un valor fuera del enum (`Nacional`/`Importado`) — no
+  probado explícitamente.
+- Corte incluyendo pedidos de **distintos** clientes Shein a la vez — todos
+  los casos de corte usan pedidos de un mismo cliente.
+- `SheinArticuloEstatusUpdate.estatus_articulo` acepta técnicamente
+  `"vigente"` como valor (no está restringido a `confirmado`/`cancelado`,
+  que son las únicas dos resoluciones que describe el spec) — no es un
+  `INC` numerado porque no rompe nada hoy, pero no está probado que el
+  sistema rechace revertir un artículo ya resuelto de vuelta a `vigente`.
+
+Igual que Inventario: son casos nuevos o de borde, no arreglos de lo ya
+escrito, y no bloquean el estado en verde actual.
 
 ## Al agregar un módulo nuevo
 

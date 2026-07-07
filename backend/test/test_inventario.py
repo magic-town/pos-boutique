@@ -2,6 +2,8 @@
 Tests del módulo Inventario. Mapeado a docs/FULLSTACK/module_inventario.md.
 """
 
+import uuid
+
 import pytest
 
 
@@ -30,6 +32,8 @@ class TestAgregarProducto:
 class TestCambiarEstatus:
     def test_transicion_a_en_ruta_requiere_descripcion(self, client, auth_headers):
         producto = _crear_producto(client, auth_headers)
+        assert producto["changed_status"] is None  # nace sin cambios de estatus
+
         resp = client.patch(
             f"/api/v1/inventario/{producto['id_producto']}/estatus",
             headers=auth_headers,
@@ -44,6 +48,9 @@ class TestCambiarEstatus:
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["descripcion_ruta"] == "Exhibición en feria"
+        # REGLAS_NEGOCIO.md §4.3 / invariante §11: todo cambio de estatus
+        # debe dejar rastro en changed_status.
+        assert resp.json()["changed_status"] is not None
 
     def test_transicion_invalida_rechazada(self, client, auth_headers):
         producto = _crear_producto(client, auth_headers)
@@ -68,7 +75,12 @@ class TestCambiarEstatus:
 
 class TestDescuentoMasivo:
     def test_aplicar_por_marca_y_retirar(self, client, auth_headers):
-        marca = "MarcaTestUnica"
+        # marca única por corrida: pos.db es persistente entre corridas de
+        # pytest (no hay rollback/reset por test, ver README.md), así que un
+        # literal fijo aquí acumula productos de corridas anteriores y las
+        # aserciones de conteo exacto (afectados == 2) se vuelven falsas con
+        # el tiempo aunque el filtro del servicio esté bien.
+        marca = f"MarcaUnica{uuid.uuid4().hex[:6]}"
         p1 = _crear_producto(client, auth_headers, marca=marca, precio_venta=1000)
         p2 = _crear_producto(client, auth_headers, marca=marca, precio_venta=2000)
         _crear_producto(client, auth_headers, marca="OtraMarca", precio_venta=500)  # no debe afectarse
@@ -95,7 +107,7 @@ class TestDescuentoMasivo:
         assert resp.json()["productos_afectados"] == 2
 
     def test_precio_fijo_mayor_a_venta_se_omite(self, client, auth_headers):
-        marca = "MarcaPrecioFijoTest"
+        marca = f"MarcaFijo{uuid.uuid4().hex[:6]}"
         barato = _crear_producto(client, auth_headers, marca=marca, precio_venta=50)
         caro = _crear_producto(client, auth_headers, marca=marca, precio_venta=500)
 
@@ -118,7 +130,7 @@ class TestDescuentoMasivo:
         assert resp.status_code == 422
 
     def test_no_afecta_productos_vendidos(self, client, auth_headers):
-        marca = "MarcaVendidoTest"
+        marca = f"MarcaVendido{uuid.uuid4().hex[:6]}"
         producto = _crear_producto(client, auth_headers, marca=marca, precio_venta=500)
         client.patch(f"/api/v1/inventario/{producto['id_producto']}/estatus", headers=auth_headers, json={"nuevo_estatus": "vendido"})
 

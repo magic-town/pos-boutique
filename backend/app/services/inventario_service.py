@@ -2,6 +2,8 @@
 Lógica de negocio del módulo Inventario (FULLSTACK/module_inventario.md).
 """
 
+from datetime import date
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -74,6 +76,9 @@ def cambiar_estatus(db: Session, id_producto: int, payload: CambiarEstatusReques
             producto.precio_descuento = None
         elif payload.nuevo_estatus == EstatusInventario.disponible_c_descuento:
             producto.precio_descuento = payload.precio_descuento
+        # REGLAS_NEGOCIO.md §4.3 / invariante §11: todo cambio de `estatus`
+        # debe actualizar `changed_status` en la misma transacción.
+        producto.changed_status = date.today()
         db.commit()
         db.refresh(producto)
         return producto
@@ -144,6 +149,7 @@ def aplicar_descuento_masivo(
                 continue
             producto.precio_descuento = nuevo_precio
             producto.estatus = EstatusInventario.disponible_c_descuento
+            producto.changed_status = date.today()
             afectados += 1
         db.commit()
         return afectados, omitidos
@@ -164,6 +170,7 @@ def retirar_descuento_masivo(db: Session, segmento: SegmentoDescuento) -> int:
         for producto in productos:
             producto.precio_descuento = None
             producto.estatus = EstatusInventario.disponible
+            producto.changed_status = date.today()
         db.commit()
         return len(productos)
     except Exception:

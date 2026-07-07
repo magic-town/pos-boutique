@@ -4,25 +4,24 @@
 > `FULLSTACK/module_clientes.md`. No reemplaza ese archivo — aquí solo se
 > listan los casos que el test ejercita y su resultado esperado.
 
-**⚠️ Supuesto de rutas, pendiente de confirmar contra el archivo real:**
-este documento y `test_clientes.py` asumen las siguientes rutas, inferidas
-de la convención del resto del proyecto y de la única ruta que el propio
-usuario confirmó por escrito (`docs/REPORT.md`, paso 3.3: *"correr los curl
-contra /api/v1/auth/login y /api/v1/clientes"*):
+**Rutas confirmadas** contra `app/api/v1/endpoints/clientes.py` real:
 
-| Acción | Método + ruta asumida | Confirmado por el usuario |
-|---|---|---|
-| Registrar cliente | `POST /api/v1/clientes` | ✅ Sí |
-| Obtener cliente por id | `GET /api/v1/clientes/{id_cliente}` | ❌ Inferido |
-| Buscar clientes | `GET /api/v1/clientes?q=` | ❌ Inferido |
-| Rehabilitar cliente | `PATCH /api/v1/clientes/{id_cliente}/rehabilitar` | ❌ Inferido |
+| Acción | Método + ruta |
+|---|---|
+| Registrar cliente | `POST /api/v1/clientes` |
+| Obtener cliente por id | `GET /api/v1/clientes/{id_cliente}` |
+| Buscar clientes | `GET /api/v1/clientes?q=` |
 
-No se tuvo a la vista `app/api/v1/endpoints/clientes.py`. Si alguna ruta
-real difiere, es un ajuste de una línea en `test_clientes.py` — no invalida
-el resto del archivo. **Fuera de alcance de este documento:** "Editar
-Cliente" (Opción 2 de `module_clientes.md`) — no tiene `service` ni
-`endpoint` todavía (`cliente_service.py` no define `editar_cliente`), así
-que no se inventa un caso para algo que no existe en código.
+Las 3 protegidas con `Depends(get_current_user)` — requieren `auth_headers`.
+`GET /api/v1/clientes?q=` responde con `response_model=list[ClienteResumen]`,
+no `ClienteRead`; ya confirmado en corrida real que expone `nombre` y
+`no_cliente` (los campos que leen los casos 2.3/2.4 de abajo).
+
+**Fuera de alcance de este documento:** "Editar Cliente" (Opción 2 de
+`module_clientes.md`) — no tiene `service` ni `endpoint` todavía
+(`cliente_service.py` no define `editar_cliente`), así que no se inventa un
+caso para algo que no existe en código. "Rehabilitar Cliente" tampoco
+existe — ver sección 3.
 
 ---
 
@@ -34,15 +33,16 @@ que no se inventa un caso para algo que no existe en código.
 | 1.2 | Alta válida, `frecuencia_pago = quincenal` | Sin campos condicionales | `201`, mismos defaults que 1.1 |
 | 1.3 | Alta válida, `frecuencia_pago = dia_especifico_mes` con `dia_pago_especifico = 15` | — | `201`, `dia_pago_especifico` persistido y visible en la respuesta |
 | 1.4 | Alta inválida, `dia_especifico_mes` **sin** `dia_pago_especifico` | — | `422` (INC-02, validación condicional de `cliente.py`) |
-| 1.5 | Alta inválida, `dia_pago_especifico` fuera de rango (`0` y `32`) | — | `422` en ambos bordes |
-| 1.6 | Alta válida, `frecuencia_pago = otro` con `frecuencia_pago_detalle` no vacío | — | `201`, `frecuencia_pago_detalle` persistido |
-| 1.7 | Alta inválida, `otro` **sin** `frecuencia_pago_detalle` (ausente y como cadena vacía `""`/solo espacios) | — | `422` en los tres casos |
-| 1.8 | Alta inválida, `telefono` con 9 y con 11 dígitos | — | `422` en ambos (regresión de INC-01, ya resuelto — no se debe romper de nuevo) |
-| 1.9 | Alta inválida, `nombre`/`colonia`/`ref_nombre`/`ref_colonia` vacíos o solo espacios | — | `422` |
-| 1.10 | Alta inválida, `nombre` (41), `colonia` (21), `ref_nombre`/`ref_colonia` (41), `frecuencia_pago_detalle` (61) — cada uno 1 carácter sobre su límite | — | `422` en cada uno (INC-18, ver nota de `cliente.py`) |
-| 1.11 | `ref_telefono` ausente (`None`) | — | `201` — es opcional |
-| 1.12 | `no_cliente` — consecutivo correcto por colonia | Dos altas seguidas con la misma `colonia` | El segundo `no_cliente` continúa el consecutivo del primero (`Colonia-001`, `Colonia-002`) |
-| 1.13 | `no_cliente` — normalización de mayúsculas | `colonia = "carrillos"` | `no_cliente` se genera como `Carrillos-00N` (`.title()`), consistente con el ejemplo de `module_clientes.md` |
+| 1.5 | `estatus` no es capturable al registrar | Payload con `estatus = "activo"` enviado explícitamente | Si `201`, la respuesta ignora el valor enviado y devuelve `estatus = "inactivo"`; si el schema lo rechaza, `422` — nunca puede quedar en `"activo"` al registrar |
+| 1.6 | Alta inválida, `dia_pago_especifico` fuera de rango (`0` y `32`) | — | `422` en ambos bordes |
+| 1.7 | Alta válida, `frecuencia_pago = otro` con `frecuencia_pago_detalle` no vacío | — | `201`, `frecuencia_pago_detalle` persistido |
+| 1.8 | Alta inválida, `otro` **sin** `frecuencia_pago_detalle` (ausente y como cadena vacía `""`/solo espacios) | — | `422` en los tres casos |
+| 1.9 | Alta inválida, `telefono` con 9 y con 11 dígitos | — | `422` en ambos (regresión de INC-01, ya resuelto — no se debe romper de nuevo) |
+| 1.10 | Alta inválida, `nombre`/`colonia`/`ref_nombre`/`ref_colonia` vacíos o solo espacios | — | `422` |
+| 1.11 | Alta inválida, `nombre` (41), `colonia` (21), `ref_nombre`/`ref_colonia` (41), `frecuencia_pago_detalle` (61) — cada uno 1 carácter sobre su límite | — | `422` en cada uno (INC-18, ver nota de `cliente.py`) |
+| 1.12 | `ref_telefono` ausente (`None`) | — | `201` — es opcional |
+| 1.13 | `no_cliente` — consecutivo correcto por colonia | Dos altas seguidas con la misma `colonia` | El segundo `no_cliente` continúa el consecutivo del primero (`Colonia-001`, `Colonia-002`) |
+| 1.14 | `no_cliente` — normalización de mayúsculas | `colonia = "colonia..."` (minúsculas) | `no_cliente` se genera con la colonia en `.title()`, consistente con el ejemplo de `module_clientes.md` |
 
 ---
 
@@ -50,27 +50,29 @@ que no se inventa un caso para algo que no existe en código.
 
 | # | Caso | Resultado esperado |
 |---|---|---|
-| 2.1 | `GET` por `id_cliente` existente | `200`, incluye `frecuencia_pago`, `dia_pago_especifico`, `frecuencia_pago_detalle`, `fecha_pago_programada = null`, `fecha_registro` como `date` |
-| 2.2 | `GET` por `id_cliente` inexistente | `404` (a confirmar contra el endpoint real — `cliente_service.obtener_cliente` devuelve `None`, el manejo del `404` vive en el endpoint, no revisado) |
-| 2.3 | Búsqueda por `nombre` parcial | Devuelve solo los clientes que hacen match (`ilike`) |
-| 2.4 | Búsqueda por `no_cliente` parcial | Igual que 2.3, por el otro campo indexado en el `or_` |
-| 2.5 | Búsqueda con `q` vacío | Devuelve todos los clientes, ordenados por `nombre` |
+| 2.1 | `GET` por `id_cliente` existente | `200`, incluye `dia_pago_especifico`, `fecha_pago_programada = null`, `fecha_registro` presente en la respuesta |
+| 2.2 | `GET` por `id_cliente` inexistente | `404` |
+| 2.3 | Búsqueda por `nombre` parcial | `200`, la lista de resultados incluye al cliente cuyo `nombre` hace match |
+| 2.4 | Búsqueda por `no_cliente` parcial | `200`, la lista de resultados incluye al cliente cuyo `no_cliente` hace match |
+| 2.5 | Búsqueda con `q` vacío | `200`, devuelve una lista (todos los clientes) |
 
 ---
 
-## 3. `estatus` — campo derivado, sin endpoint propio
+## 3. Rehabilitar Cliente — eliminado, no de negocio
 
-No existe "Rehabilitar Cliente" ni ningún otro mecanismo para editar
-`estatus` a mano — nace `inactivo` (caso 1.1/1.2) y se sincroniza en
-automático (`cliente_service.sincronizar_estatus`) en cada punto de
-Pedidos o Movimientos que modifique `saldo`. El ciclo completo
-(`inactivo -> activo` al surtir, `activo -> inactivo` al devolver/cancelar/
-abonar hasta `saldo = 0`) se prueba en `test_pedidos.py` y, cuando exista,
-`test_movimientos.py` — no en este archivo, que solo cubre alta y consulta.
+`estatus` es un campo derivado de `saldo`, nunca editable por la operadora
+— ni por un endpoint de rehabilitación aparte, ni desde "Editar Cliente"
+cuando se construya. Es derivado y se sincroniza en automático
+(`cliente_service.sincronizar_estatus`) en cada punto de Pedidos o
+Movimientos que toque el saldo. El ciclo `inactivo -> activo -> inactivo`
+se prueba en `test_pedidos.py` (vía surtir/devolución/cancelación), no
+aquí — este archivo solo cubre el alta y la consulta.
 
-Regresión de INC-07: ningún cliente puede llegar a `estatus = "liquidado"`
-— el enum real (`EstatusCliente`) solo admite `activo`/`inactivo`, y
-`sincronizar_estatus()` es la única función que escribe en esta columna.
+`PATCH /clientes/{id}/rehabilitar`, `rehabilitar_cliente()` y los 3 tests
+que los cubrían se quitaron del código real por no corresponder a ningún
+caso de negocio del spec real. Cuando se construya "Editar Cliente"
+(`UPDATE` genérico), su schema NO debe exponer `estatus` como campo
+capturable — si lo hace, es un bug, no una funcionalidad.
 
 ---
 

@@ -50,6 +50,24 @@ cualquier campo. Se usa como punto de partida en casi todos los casos de abajo.
 
 ## Opción 4 / 5 — Descuento Masivo (aplicar / retirar)
 
+> **Nota — "descuento individual" no es una función aparte.** No existe (ni
+> hace falta) un endpoint separado para descontar un solo producto por
+> porcentaje. `SegmentoDescuento.ids_producto` acepta una lista; pasar una
+> lista de un solo elemento (`ids_producto: [111111]`) usa el mismo endpoint
+> de descuento masivo (`POST /inventario/descuento-masivo`) para afectar
+> exactamente ese producto — mismo cálculo, mismo código. "Individual" es
+> "masivo con `n = 1`", no un caso aparte que necesite su propia lógica. La
+> única vía realmente distinta para tocar `precio_descuento` de un producto
+> es la Opción 2 (`cambiar_estatus` → `disponible_c/descuento`), pero ahí se
+> captura el precio final ya calculado a mano, no un porcentaje.
+>
+> **`pct` y `precio_fijo` nunca se combinan ni se apilan.**
+> `AplicarDescuentoMasivoRequest` exige exactamente uno de los dos
+> (`schemas/inventario.py`, `_exactamente_una_forma_de_descuento`) — son dos
+> formas alternas de llegar al mismo campo `precio_descuento`, nunca
+> simultáneas. Enviar ambos o ninguno debe rechazarse con `422`; sin test
+> que lo cubra todavía.
+
 ### `test_aplicar_por_marca_y_retirar`
 **Qué prueba:** aplicar un descuento por porcentaje a todos los productos de una marca, y luego poder quitarlo, sin afectar otras marcas.
 **Pasos:**

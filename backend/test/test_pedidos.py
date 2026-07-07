@@ -211,9 +211,11 @@ class TestSurtidoDevolucionCancelacion:
         from app.db.database import SessionLocal
         from app.models.models import Cliente
         db = SessionLocal()
-        saldo = db.query(Cliente).filter(Cliente.no_cliente == cliente_prueba.no_cliente).first().saldo
+        cliente = db.query(Cliente).filter(Cliente.no_cliente == cliente_prueba.no_cliente).first()
+        saldo, estatus = cliente.saldo, cliente.estatus
         db.close()
         assert saldo == 200.0
+        assert estatus.value == "activo"  # surtir activa al cliente en automático
 
     def test_devolucion_revierte_saldo(self, client, auth_headers, cliente_prueba):
         id_articulo = _crear_pedido_informal(client, auth_headers, cliente_prueba.no_cliente, "Producto devolver", 150)
@@ -230,9 +232,11 @@ class TestSurtidoDevolucionCancelacion:
         from app.db.database import SessionLocal
         from app.models.models import Cliente
         db = SessionLocal()
-        saldo = db.query(Cliente).filter(Cliente.no_cliente == cliente_prueba.no_cliente).first().saldo
+        cliente = db.query(Cliente).filter(Cliente.no_cliente == cliente_prueba.no_cliente).first()
+        saldo, estatus = cliente.saldo, cliente.estatus
         db.close()
         assert saldo == 0.0
+        assert estatus.value == "inactivo"  # liquidó por devolución -- regresa a inactivo
 
     def test_cancelar_vigente_no_afecta_saldo(self, client, auth_headers, cliente_prueba):
         id_articulo = _crear_pedido_informal(client, auth_headers, cliente_prueba.no_cliente, "Producto cancelar vigente", 300)
@@ -247,9 +251,11 @@ class TestSurtidoDevolucionCancelacion:
         from app.db.database import SessionLocal
         from app.models.models import Cliente
         db = SessionLocal()
-        saldo = db.query(Cliente).filter(Cliente.no_cliente == cliente_prueba.no_cliente).first().saldo
+        cliente = db.query(Cliente).filter(Cliente.no_cliente == cliente_prueba.no_cliente).first()
+        saldo, estatus = cliente.saldo, cliente.estatus
         db.close()
         assert saldo == 0.0
+        assert estatus.value == "inactivo"  # nunca llegó a impactar saldo -- sigue/ya está inactivo
 
     def test_cancelar_en_almacen_revierte_saldo(self, client, auth_headers, cliente_prueba):
         id_articulo = _crear_pedido_informal(client, auth_headers, cliente_prueba.no_cliente, "Producto cancelar surtido", 400)
@@ -265,9 +271,11 @@ class TestSurtidoDevolucionCancelacion:
         from app.db.database import SessionLocal
         from app.models.models import Cliente
         db = SessionLocal()
-        saldo = db.query(Cliente).filter(Cliente.no_cliente == cliente_prueba.no_cliente).first().saldo
+        cliente = db.query(Cliente).filter(Cliente.no_cliente == cliente_prueba.no_cliente).first()
+        saldo, estatus = cliente.saldo, cliente.estatus
         db.close()
         assert saldo == 0.0
+        assert estatus.value == "inactivo"  # cancelar un en_almacen revierte el saldo a 0 -- desactiva
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -326,6 +334,17 @@ def test_escenario_pedido_de_tres_articulos_mixto(client, auth_headers, cliente_
 
     assert saldo_actual() == 550.0  # 300 (A) + 250 (B)
 
+    def estatus_actual():
+        from app.db.database import SessionLocal
+        from app.models.models import Cliente
+        db = SessionLocal()
+        try:
+            return db.query(Cliente).filter(Cliente.no_cliente == no_cliente).first().estatus
+        finally:
+            db.close()
+
+    assert estatus_actual().value == "activo"  # ya llegó producto -- se activó en automático
+
     # El cliente acepta A (no se hace nada más -- en_almacen es estado final
     # para un artículo aceptado) y devuelve B.
     resp = client.post(
@@ -337,6 +356,7 @@ def test_escenario_pedido_de_tres_articulos_mixto(client, auth_headers, cliente_
     assert resp.json()["id_articulo_sustituye"] == id_b
 
     assert saldo_actual() == 300.0  # solo queda A, aceptado
+    assert estatus_actual().value == "activo"  # sigue con saldo pendiente -- sigue activo
 
     # Estados finales esperados: A en_almacen, B devuelto, C cancelado.
     from app.db.database import SessionLocal

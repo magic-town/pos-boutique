@@ -163,7 +163,7 @@ class Cliente(Base):
     ref_telefono            = Column(Integer, nullable=True)             # 10 dígitos, opcional
     saldo                   = Column(Float, nullable=False, default=0.0)
     estatus                 = Column(Enum(EstatusCliente), nullable=False,
-                                      default=EstatusCliente.activo)
+                                      default=EstatusCliente.inactivo)
     fecha_registro          = Column(Date, server_default=func.current_date(), nullable=False)
     fecha_pago_programada   = Column(Date, nullable=True)   # NULL hasta el primer abono
 

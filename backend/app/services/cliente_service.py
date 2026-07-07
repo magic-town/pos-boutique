@@ -20,6 +20,17 @@ def generar_no_cliente(db: Session, colonia: str) -> str:
     return f"{prefijo}-{consecutivo:03d}"
 
 
+def sincronizar_estatus(cliente: Cliente) -> None:
+    """
+    Deriva `estatus` a partir de `saldo` (REGLAS_NEGOCIO.md regla 1;
+    module_clientes.md, enum `estatus`). NO es una decisión operativa: nunca
+    se asigna a mano. `activo` si `saldo > 0`, `inactivo` si `saldo == 0`.
+    Debe llamarse, en la misma transacción, en cualquier punto del sistema
+    que modifique `cliente.saldo` -- Clientes, Pedidos o Movimientos.
+    """
+    cliente.estatus = "activo" if cliente.saldo > 0 else "inactivo"
+
+
 def crear_cliente(db: Session, data: ClienteCreate) -> Cliente:
     no_cliente = generar_no_cliente(db, data.colonia)
 
@@ -35,8 +46,8 @@ def crear_cliente(db: Session, data: ClienteCreate) -> Cliente:
         dia_pago_especifico=data.dia_pago_especifico,
         frecuencia_pago_detalle=data.frecuencia_pago_detalle,
         saldo=0.0,
-        estatus="activo",
     )
+    sincronizar_estatus(cliente)  # nace inactivo (saldo = 0)
     db.add(cliente)
     db.commit()
     db.refresh(cliente)

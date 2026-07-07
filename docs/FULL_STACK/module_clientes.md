@@ -21,7 +21,7 @@ CREATE TABLE clientes (
     ref_colonia            TEXT    NOT NULL,
     ref_telefono           INTEGER,                   -- 10 dígitos, nullable
     saldo                  REAL    NOT NULL DEFAULT 0,
-    estatus                TEXT    NOT NULL DEFAULT 'activo'
+    estatus                TEXT    NOT NULL DEFAULT 'inactivo'
                                CHECK (estatus IN ('activo', 'inactivo')),
     fecha_registro         TEXT    NOT NULL,          -- ISO 8601: YYYY-MM-DD
     fecha_pago_programada  TEXT                       -- ISO 8601: YYYY-MM-DD. NULL hasta el primer abono.
@@ -40,8 +40,8 @@ CREATE TABLE clientes (
 | `dia_pago_especifico`   | Entero 1-31. Obligatorio solo si `frecuencia_pago = dia_especifico_mes`. Se captura una sola vez al registrar y persiste mientras la cuenta esté activa (se edita solo desde **Editar Cliente**). |
 | `frecuencia_pago_detalle` | Texto libre, hasta 60 caracteres. Obligatorio solo si `frecuencia_pago = otro`. Documenta el acuerdo especial de pago.                               |
 | `ref_telefono`          | Nullable. El teléfono del garante es opcional.                                                                                                         |
-| `saldo`                 | Deuda acumulada del cliente. `saldo > 0` = deuda activa. `saldo = 0` = cuenta al corriente o liquidada.                                                |
-| `estatus`               | Enum `activo` \| `inactivo`. Se cambia manualmente por la operadora. `saldo = 0` no implica baja automática — el cliente puede estar activo sin deuda. |
+| `saldo`                 | Deuda acumulada del cliente. `saldo >= 0` siempre. `saldo > 0` = deuda activa. `saldo = 0` = cuenta liquidada.                                          |
+| `estatus`               | Enum `activo` \| `inactivo`. **Derivado automáticamente del `saldo`, nunca editable por la operadora.** Nace `inactivo`. Cambia a `activo` en cuanto un producto impacta el `saldo` del cliente. Cambia a `inactivo` en cuanto el `saldo` regresa a `0`. No bloquea ninguna operación. |
 | `fecha_registro`        | Se guarda en `YYYY-MM-DD` (ISO 8601). Se muestra en UI como `DD-MM-YYYY`.                                                                              |
 | `fecha_pago_programada` | `NULL` al registrar. Campo calculado internamente: se instancia y recalcula en cada abono en `movimientos`. Nunca se captura ni importa manualmente.   |
 
@@ -62,14 +62,17 @@ CREATE TABLE clientes (
 
 | Valor      | Descripción                                                                                 |
 | ---------- | ------------------------------------------------------------------------------------------- |
-| `activo`   | Cliente en operación. Puede tener saldo o estar al corriente. Default al registrar.         |
-| `inactivo` | Cuenta cerrada o dada de baja. La operadora lo asigna manualmente desde **Editar Cliente**. Reactivar (volver a `activo`) usa el mismo mecanismo — no existe una acción o endpoint de "rehabilitar" aparte. |
+| `activo`   | El cliente tiene producto(s) recibido(s) pendiente(s) de liquidar. Se asigna en automático en cuanto un movimiento impacta su `saldo` al alza. |
+| `inactivo` | Default al registrar (`saldo = 0`). También el estado al que el sistema regresa en automático en cuanto el cliente liquida su `saldo` a `0`. No implica baja ni bloqueo — la cuenta sigue operando con normalidad. |
 
-> `saldo = 0` no provoca baja automática. Un cliente puede tener `saldo = 0` y estar
-> `activo` porque acaba de liquidar y se espera un pedido nuevo, o porque aún no tiene
-> pedidos. El cambio de `estatus`, en cualquier dirección (`activo` → `inactivo` o
-> `inactivo` → `activo`), es siempre una decisión operativa explícita ejecutada desde
-> Editar Cliente — no una acción automática ni un flujo aparte.
+> `estatus` es un campo **derivado, nunca editable directamente** — no existe ninguna
+> acción, endpoint o pantalla para cambiarlo a mano, ni siquiera desde Editar Cliente.
+> Nace `inactivo` con `saldo = 0`. Cambia a `activo` automáticamente en el momento en
+> que un producto impacta su `saldo` (lo recibe y acepta). Cambia de vuelta a
+> `inactivo` automáticamente en el momento en que su `saldo` regresa a `0` por
+> liquidación, sin importar cuántas compras haya tenido antes — el siguiente producto
+> que reciba lo regresa a `activo` de nuevo. La operadora únicamente registra al
+> cliente y sus movimientos; el sistema mantiene `estatus` sincronizado con `saldo`.
 
 ---
 
@@ -369,7 +372,7 @@ y abonos en una sola vista cronológica.
             ],
             "valores_default": [
               { "columna": "saldo",                 "valor": 0        },
-              { "columna": "estatus",               "valor": "activo" },
+              { "columna": "estatus",               "valor": "inactivo" },
               { "columna": "fecha_pago_programada", "valor": null     }
             ],
             "en_exito": { "mensaje": "Cliente registrado correctamente.", "limpiar_formulario": true },

@@ -52,13 +52,13 @@
 | `ref_colonia` | String(40) | Obligatorio |
 | `ref_telefono` | Integer, nullable | 10 dígitos, opcional |
 | `saldo` | Float | Default `0`. Deuda acumulada del cliente |
-| `estatus` | Enum: `activo`, `inactivo` | Default `activo`. Cambio manual, nunca automático |
+| `estatus` | Enum: `activo`, `inactivo` | Default `inactivo`. Derivado del `saldo`, siempre automático, nunca editable manualmente |
 | `fecha_registro` | Date | Autogenerado al crear |
 | `fecha_pago_programada` | Date, nullable | `NULL` hasta el primer abono. Ver regla de ciclo abajo |
 
 ### Reglas de negocio
 
-1. **`saldo = 0` no implica baja automática.** El cambio a `inactivo` siempre es una decisión operativa explícita de la operadora.
+1. **`estatus` es un campo derivado del `saldo`, nunca una decisión operativa.** El cliente nace `inactivo` con `saldo = 0`. Pasa a `activo` en automático en cuanto recibe y acepta un producto que impacta su `saldo`. Regresa a `inactivo` en automático en cuanto liquida su `saldo` a `0` — sin bloquear ninguna operación ni requerir acción de la operadora.
 2. **Ciclo de `fecha_pago_programada` — cálculo diferenciado por `frecuencia_pago`:**
    Se instancia en el primer abono y se recalcula en cada abono subsiguiente
    (nunca al registrar al cliente). La **fórmula** de cálculo depende del tipo
@@ -146,7 +146,7 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
    - `informal`: captura libre, opcional.
 5. **`estatus_articulo` y su efecto en saldo:**
    - `vigente` → sin efecto en saldo.
-   - `vigente` → `en_almacen`: `saldo += monto` (el artículo llegó al piso).
+   - `vigente` → `en_almacen`: `saldo += monto` (el artículo llegó al piso). Si el `estatus` del cliente era `inactivo`, cambia a `activo` en la misma transacción.
    - `en_almacen` → `devuelto`: `saldo -= monto` (cliente devuelve). Se abre pedido sustituto pre-cargado. El sustituto nace `vigente` e impactará saldo cuando llegue a `en_almacen`.
    - `vigente` → `cancelado`: sin efecto en saldo (nunca se había cargado).
    - `en_almacen` → `cancelado`: `saldo -= monto` si `monto IS NOT NULL` (se revierte lo que se había cargado). El artículo pasa a inventario físico.
@@ -210,10 +210,10 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 - **Apartado:**
   1. Cliente obligatorio. Producto debe existir en `inventario` con estatus `disponible` o `disponible_c/descuento`.
   2. **Primer pago mínimo: $100.00.** El backend rechaza montos menores.
-  3. `saldo_resultante = precio_producto - primer_pago`, se **suma** al saldo existente del cliente (`saldo += saldo_resultante`). Nunca se sobrescribe.
+  3. `saldo_resultante = precio_producto - primer_pago`, se **suma** al saldo existente del cliente (`saldo += saldo_resultante`). Nunca se sobrescribe. Si el `estatus` del cliente era `inactivo`, cambia a `activo` en la misma transacción.
   4. `inventario.estatus` cambia a `apartado` en la misma transacción.
   5. Cancelación del apartado: `inventario.estatus` vuelve a `disponible`; el saldo pendiente se resta (el primer pago no se devuelve salvo decisión de la operadora).
-- **Abono:** `saldo_resultante = saldo_actual - monto`. Rechazado si `monto > saldo_actual`. Recalcula `fecha_pago_programada` del cliente. Si el saldo llega a 0, el cliente **no** cambia de estatus automáticamente.
+- **Abono:** `saldo_resultante = saldo_actual - monto`. Rechazado si `monto > saldo_actual`. Recalcula `fecha_pago_programada` del cliente. Si `saldo_resultante` llega a `0`, el `estatus` del cliente cambia a `inactivo` en la misma transacción.
 - **Gasto:** sin cliente ni producto. `descripcion` obligatoria. `saldo_resultante = NULL`. Representa salida de caja.
 
 > El saldo agregado del negocio no es un campo en base de datos — se deriva por consulta agregada sobre `movimientos`.

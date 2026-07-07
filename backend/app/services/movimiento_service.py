@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.models import Movimiento, Cliente, Operacion
 from app.schemas.movimiento import MovimientoCreate
+from app.services.cliente_service import sincronizar_estatus
 
 
 def registrar_movimiento(db: Session, data: MovimientoCreate) -> Movimiento:
@@ -10,7 +11,8 @@ def registrar_movimiento(db: Session, data: MovimientoCreate) -> Movimiento:
     - Valida que el cliente exista cuando es requerido.
     - Calcula saldo_resultante según la operación.
     - Actualiza clientes.saldo en la misma transacción.
-    - Evalúa si el cliente queda liquidado tras un abono.
+    - Sincroniza clientes.estatus (derivado de saldo, nunca manual) en la
+      misma transacción -- ver cliente_service.sincronizar_estatus().
     """
     cliente = None
     saldo_resultante = None
@@ -34,7 +36,8 @@ def registrar_movimiento(db: Session, data: MovimientoCreate) -> Movimiento:
                 detail="El saldo pendiente del apartado no puede ser negativo"
             )
         saldo_resultante = round(data.monto, 2)
-        cliente.saldo = saldo_resultante
+        cliente.saldo = saldo_resultante  # INC-05 pendiente (Movimientos): debería sumarse, no sobrescribirse
+        sincronizar_estatus(cliente)
 
     elif data.operacion == Operacion.abono:
         nuevo_saldo = round(cliente.saldo - data.monto, 2)
@@ -48,8 +51,7 @@ def registrar_movimiento(db: Session, data: MovimientoCreate) -> Movimiento:
             )
         saldo_resultante = nuevo_saldo
         cliente.saldo = nuevo_saldo
-        if cliente.saldo == 0:
-            cliente.estatus = "liquidado"
+        sincronizar_estatus(cliente)
 
     movimiento = Movimiento(
         operacion=data.operacion,
@@ -121,7 +123,7 @@ def cancelar_movimiento(db: Session, id_movimiento: int) -> dict:
                 Cliente.id_cliente == movimiento.id_cliente
             ).first()
             cliente.saldo = anterior.saldo_resultante if anterior else 0.0
-            cliente.estatus = "activo"
+            sincronizar_estatus(cliente)
 
     db.delete(movimiento)
     db.commit()

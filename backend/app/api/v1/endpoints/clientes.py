@@ -38,13 +38,9 @@ def detalle_cliente(
     return cliente
 
 # NOTA (revisión de negocio, ver conversación con el usuario): se quitó el
-# endpoint PATCH /{id_cliente}/rehabilitar. module_clientes.md no define
-# ninguna opción de "Rehabilitar Cliente" -- el menú de Clientes solo tiene
-# 4 botones (Registrar, Editar, Consulta Cliente, Consulta Historial), y el
-# spec de `estatus` es explícito: el cambio, en cualquier dirección
-# (activo <-> inactivo), lo hace la operadora manualmente desde "Editar
-# Cliente" (UPDATE genérico, Opción 2 -- todavía sin construir). No hay
-# regla de negocio que dependa de un endpoint de rehabilitación aparte;
-# `saldo = 0` tampoco dispara nada automático. Si `cliente_service.py`
-# todavía tiene la función `rehabilitar_cliente()`, también se puede
-# eliminar de ahí -- no queda ningún caller.
+# endpoint PATCH /{id_cliente}/rehabilitar y no se repone. `estatus` no es
+# un campo editable por la operadora bajo ninguna forma -- ni aquí ni desde
+# "Editar Cliente" -- es un campo derivado de `saldo`, sincronizado en
+# automático por cliente_service.sincronizar_estatus() en cada punto del
+# sistema que modifica el saldo del cliente (Pedidos, Movimientos). No debe
+# volver a aparecer como campo capturable en ningún formulario ni endpoint.

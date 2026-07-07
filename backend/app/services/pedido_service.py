@@ -26,6 +26,7 @@ from app.models.models import (
     TipoProducto,
 )
 from app.schemas.pedido import ArticuloCreate, PedidoCreate
+from app.services.cliente_service import sincronizar_estatus
 
 # Proveedores que tienen catálogo digitalizado con lookup automático de precio.
 # 'otro' se excluye a propósito: es captura manual (REGLAS_NEGOCIO.md §3 regla 4).
@@ -197,6 +198,7 @@ def registrar_devolucion(db: Session, no_cliente: str, id_articulo: int) -> Pedi
         articulo.estatus_articulo = EstatusArticulo.devuelto
         if articulo.monto is not None:
             cliente.saldo -= articulo.monto  # invariante: nunca se sobrescribe
+            sincronizar_estatus(cliente)
         db.commit()
         db.refresh(articulo)
         return articulo
@@ -253,6 +255,7 @@ def cancelar_articulo(db: Session, no_cliente: str, id_articulo: int) -> PedidoA
         articulo.estatus_articulo = EstatusArticulo.cancelado
         if estatus_previo == EstatusArticulo.en_almacen and articulo.monto is not None:
             cliente.saldo -= articulo.monto
+            sincronizar_estatus(cliente)
         db.commit()
         db.refresh(articulo)
         return articulo
@@ -311,6 +314,7 @@ def surtir_articulo(db: Session, id_articulo: int) -> PedidoArticulo:
         articulo.estatus_articulo = EstatusArticulo.en_almacen
         if articulo.monto is not None:
             cliente.saldo += articulo.monto
+            sincronizar_estatus(cliente)
         db.commit()
         db.refresh(articulo)
         return articulo

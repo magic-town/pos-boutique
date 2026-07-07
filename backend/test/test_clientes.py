@@ -14,10 +14,13 @@ en corrida real que expone `nombre` y `no_cliente` (los campos que leen
 de abajo), así que este punto queda cerrado.
 
 **"Rehabilitar Cliente" se quitó** (endpoint, servicio y los 3 tests que lo
-cubrían) tras revisar `module_clientes.md`: el spec no define esa opción,
-el menú de Clientes solo tiene 4 botones, y el cambio de `estatus` en
-cualquier dirección es manual desde "Editar Cliente" (UPDATE genérico).
-Ver la nota al final de la sección 2 de este archivo.
+cubrían): revisión de negocio confirmó que `estatus` no es un campo que la
+operadora edite nunca, ni siquiera desde "Editar Cliente" -- es derivado
+de `saldo` y se sincroniza en automático (`cliente_service.sincronizar_estatus`)
+en cada punto de Pedidos o Movimientos que toque el saldo. Ver la nota al
+final de la sección 2 de este archivo. El ciclo `inactivo -> activo ->
+inactivo` se prueba en `test_pedidos.py` (via surtir/devolución/cancelación),
+no aquí -- este archivo solo cubre el alta y la consulta.
 
 - Fixtures usadas de conftest.py: `client` (TestClient) y `auth_headers`
   (headers con JWT real) — session-scoped, compartidas con el resto de la
@@ -64,7 +67,7 @@ class TestRegistrarCliente:
         data = resp.json()
         assert data["no_cliente"]
         assert data["saldo"] == 0
-        assert data["estatus"] == "activo"
+        assert data["estatus"] == "inactivo"  # nace inactivo -- se activa al recibir el primer producto (ver test_pedidos.py)
         assert data["fecha_pago_programada"] is None
 
     def test_alta_valida_dia_especifico_mes(self, client, auth_headers):
@@ -79,6 +82,17 @@ class TestRegistrarCliente:
         payload = _payload_base(frecuencia_pago="dia_especifico_mes", dia_pago_especifico=None)
         resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
         assert resp.status_code == 422
+
+    def test_estatus_no_es_capturable_al_registrar(self, client, auth_headers):
+        # `estatus` es derivado -- aunque se envíe en el payload, se ignora
+        # o el schema lo rechaza; nunca debe quedar en "activo" al registrar.
+        payload = _payload_base()
+        payload["estatus"] = "activo"
+        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
+        if resp.status_code == 201:
+            assert resp.json()["estatus"] == "inactivo"
+        else:
+            assert resp.status_code == 422
 
     @pytest.mark.parametrize("dia", [0, 32])
     def test_dia_especifico_fuera_de_rango(self, client, auth_headers, dia):
@@ -204,14 +218,12 @@ class TestConsultaCliente:
 # 3. Rehabilitar Cliente -- ELIMINADO, no de negocio
 # ---------------------------------------------------------------------------
 #
-# module_clientes.md no define ninguna opción de "Rehabilitar Cliente": el
-# menú de Clientes solo tiene 4 botones (Registrar, Editar, Consulta
-# Cliente, Consulta Historial), y el enum `estatus` es explícito en que el
-# cambio activo<->inactivo lo hace la operadora manualmente desde "Editar
-# Cliente" (UPDATE genérico, todavía sin construir) -- no desde un endpoint
-# de rehabilitación aparte. `PATCH /clientes/{id}/rehabilitar` y
-# `rehabilitar_cliente()` se quitaron del código real por no corresponder
-# a ningún caso de negocio del spec; estos 3 tests se quitan junto con
+# `estatus` es un campo derivado de `saldo`, nunca editable por la
+# operadora -- ni por un endpoint de rehabilitación aparte, ni desde
+# "Editar Cliente" cuando se construya. `PATCH /clientes/{id}/rehabilitar`
+# y `rehabilitar_cliente()` se quitaron del código real por no corresponder
+# a ningún caso de negocio del spec real; estos 3 tests se quitan junto con
 # ellos, no se dejan como "huecos deliberados" porque no hay nada que
-# cubrir. Cuando se construya "Editar Cliente", el cambio de estatus se
-# prueba ahí, como un caso más del `UPDATE` genérico.
+# cubrir. Cuando se construya "Editar Cliente" (UPDATE genérico), su schema
+# NO debe exponer `estatus` como campo capturable -- si lo hace, es un bug,
+# no una funcionalidad.

@@ -30,7 +30,7 @@ que no se inventa un caso para algo que no existe en código.
 
 | # | Caso | Entrada relevante | Resultado esperado |
 |---|---|---|---|
-| 1.1 | Alta válida, `frecuencia_pago = semanal` | Sin campos condicionales | `201`, `no_cliente` autogenerado, `saldo = 0`, `estatus = "activo"`, `fecha_pago_programada = null` |
+| 1.1 | Alta válida, `frecuencia_pago = semanal` | Sin campos condicionales | `201`, `no_cliente` autogenerado, `saldo = 0`, `estatus = "inactivo"` (nace inactivo, se activa en automático al recibir el primer producto -- ver `test_pedidos.py`), `fecha_pago_programada = null` |
 | 1.2 | Alta válida, `frecuencia_pago = quincenal` | Sin campos condicionales | `201`, mismos defaults que 1.1 |
 | 1.3 | Alta válida, `frecuencia_pago = dia_especifico_mes` con `dia_pago_especifico = 15` | — | `201`, `dia_pago_especifico` persistido y visible en la respuesta |
 | 1.4 | Alta inválida, `dia_especifico_mes` **sin** `dia_pago_especifico` | — | `422` (INC-02, validación condicional de `cliente.py`) |
@@ -58,14 +58,19 @@ que no se inventa un caso para algo que no existe en código.
 
 ---
 
-## 3. Rehabilitar Cliente
+## 3. `estatus` — campo derivado, sin endpoint propio
 
-| # | Caso | Resultado esperado |
-|---|---|---|
-| 3.1 | Cliente en `estatus = inactivo` | Pasa a `activo`, `200` |
-| 3.2 | Cliente ya `activo` | Sin cambios, `200` (idempotente — el código solo actúa si `estatus == "inactivo"`) |
-| 3.3 | Cliente inexistente | `obtener_cliente` devuelve `None` → el servicio devuelve `None` (comportamiento del endpoint ante esto no confirmado — a verificar con `curl` real) |
-| 3.4 | Regresión de INC-07 | Ningún cliente puede llegar a `estatus = "liquidado"` — no hay caso que lo produzca, se confirma por ausencia: el enum real (`EstatusCliente`) solo admite `activo`/`inactivo` |
+No existe "Rehabilitar Cliente" ni ningún otro mecanismo para editar
+`estatus` a mano — nace `inactivo` (caso 1.1/1.2) y se sincroniza en
+automático (`cliente_service.sincronizar_estatus`) en cada punto de
+Pedidos o Movimientos que modifique `saldo`. El ciclo completo
+(`inactivo -> activo` al surtir, `activo -> inactivo` al devolver/cancelar/
+abonar hasta `saldo = 0`) se prueba en `test_pedidos.py` y, cuando exista,
+`test_movimientos.py` — no en este archivo, que solo cubre alta y consulta.
+
+Regresión de INC-07: ningún cliente puede llegar a `estatus = "liquidado"`
+— el enum real (`EstatusCliente`) solo admite `activo`/`inactivo`, y
+`sincronizar_estatus()` es la única función que escribe en esta columna.
 
 ---
 

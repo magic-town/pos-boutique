@@ -1,12 +1,6 @@
 # Tests automatizados — convención
 
-Reemplaza el propósito de verificación (no el de aprendizaje) de las guías
-`aux_*.md`: en vez de descifrar tokens y pegar `curl` a mano cada vez que se
-toca un módulo, esta suite reconstruye el escenario completo en segundos.
-
-Las guías `aux_*.md` **no desaparecen** — le siguen sirviendo a una persona
-nueva para *entender* el flujo paso a paso. Esta carpeta es para *verificar*
-que el flujo sigue funcionando, sin explicar nada.
+Este documento parte desde cero y está pensado para una persona que necesita verificar el funcionamiento de los siguientes módulos. Su objetivo es reconstruir el escenario completo en pocos pasos para comprobar que el flujo sigue funcionando correctamente, evitando configuraciones o validaciones manuales repetitivas. Se enfoca exclusivamente en la verificación del flujo, no en explicar su funcionamiento o servir como material de aprendizaje.
 
 ## Cómo correr
 

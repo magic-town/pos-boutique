@@ -109,10 +109,12 @@ def cliente_prueba(client, auth_headers):
 
 @pytest.fixture
 def db_session():
-    """Sesión de BD directa, para los tests que necesitan forzar un estado
-    que hoy no es alcanzable vía la API pública (ej. estatus = "inactivo"
-    en TestRehabilitarCliente, ya que el spec no define un endpoint de
-    "dar de baja" -- ver test_clientes.py).
+    """Sesión de BD directa, para los tests que necesitan leer o preparar
+    estado que no se arma cómodamente vía la API pública (ej. dejar un
+    cliente con un `saldo`/`estatus` de partida específico para probar la
+    sincronización automática -- ver test_clientes.py / test_movimientos.py).
+    Ya no aplica el caso original de TestRehabilitarCliente (retirado);
+    se conserva porque sigue siendo útil para otros módulos.
 
     Function-scoped a propósito: cada test recibe su propia sesión y la
     cierra al terminar, sin compartir estado con otros tests ni con

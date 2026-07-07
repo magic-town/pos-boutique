@@ -63,20 +63,3 @@ def buscar_clientes(db: Session, q: str = "") -> list[Cliente]:
         .order_by(Cliente.nombre)
         .all()
     )
-
-
-def rehabilitar_cliente(db: Session, id_cliente: int) -> Cliente | None:
-    """
-    Cambia estatus de 'inactivo' a 'activo'.
-    Solo opera si el cliente existe y está en estatus 'inactivo'.
-    'liquidado' no es un valor válido del enum EstatusCliente (INC-07);
-    era código muerto porque ningún cliente podía llegar a tenerlo.
-    """
-    cliente = obtener_cliente(db, id_cliente)
-    if not cliente:
-        return None
-    if cliente.estatus == "inactivo":
-        cliente.estatus = "activo"
-        db.commit()
-        db.refresh(cliente)
-    return cliente

@@ -63,11 +63,13 @@ CREATE TABLE clientes (
 | Valor      | Descripción                                                                                 |
 | ---------- | ------------------------------------------------------------------------------------------- |
 | `activo`   | Cliente en operación. Puede tener saldo o estar al corriente. Default al registrar.         |
-| `inactivo` | Cuenta cerrada o dada de baja. La operadora lo asigna manualmente desde **Editar Cliente**. |
+| `inactivo` | Cuenta cerrada o dada de baja. La operadora lo asigna manualmente desde **Editar Cliente**. Reactivar (volver a `activo`) usa el mismo mecanismo — no existe una acción o endpoint de "rehabilitar" aparte. |
 
 > `saldo = 0` no provoca baja automática. Un cliente puede tener `saldo = 0` y estar
 > `activo` porque acaba de liquidar y se espera un pedido nuevo, o porque aún no tiene
-> pedidos. El cambio a `inactivo` es siempre una decisión operativa explícita.
+> pedidos. El cambio de `estatus`, en cualquier dirección (`activo` → `inactivo` o
+> `inactivo` → `activo`), es siempre una decisión operativa explícita ejecutada desde
+> Editar Cliente — no una acción automática ni un flujo aparte.
 
 ---
 

@@ -44,7 +44,7 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
 | Pedidos | ✅ existe | ✅ `test_pedidos.py` (corrido, verde) | ✅ `casos_pedidos.md` |
 | Inventario | ✅ existe | ✅ `test_inventario.py` (corrido, verde) | ✅ `casos_inventario.md` |
 | Shein | ✅ existe | ✅ `test_shein.py` (corrido, verde) | ✅ `casos_shein.md` |
-| Clientes | ✅ existe | 🟡 `test_clientes.py` escrito, no corrido en verde todavía (INC-02 ya resuelto, ver `docs/REPORT.md §4.3`) | ✅ `casos_clientes.md` |
+| Clientes | ✅ existe | 🟡 `test_clientes.py` escrito (29 tests), rutas y fixtures confirmadas, `rehabilitar_cliente` retirado por no ser negocio real — falta correr `pytest test/ -v` y ver el resultado real | ✅ `casos_clientes.md` (pendiente de actualizar §3, ver nota abajo) |
 | Movimientos | ✅ existe | ❌ pendiente (bloqueado por INC-05/06) | ❌ en diseño |
 | Recargas | ✅ existe | ❌ pendiente (sin código todavía) | ❌ en diseño |
 | Consulta | ✅ existe | ❌ pendiente (sin código todavía) | ❌ en diseño |
@@ -127,30 +127,53 @@ escrito, y no bloquean el estado en verde actual.
 ### `test_clientes.py`
 
 **🟡 Escrito, no corrido en verde todavía** — a diferencia de las tres
-secciones anteriores. Antes de correrlo hace falta (ver `docs/REPORT.md`,
-§5 punto 3 / §4.3):
+secciones anteriores. De los 3 pendientes originales (ver `docs/REPORT.md`
+§5 punto 3 / §4.3), los 3 ya están resueltos en este `conftest.py`:
 
-1. Actualizar el fixture `cliente_prueba` de este `conftest.py` (ver nota
-   abajo, ya desactualizada).
-2. Confirmar las rutas asumidas contra `app/api/v1/endpoints/clientes.py`
-   real (`GET /clientes/{id}`, `GET /clientes?q=`, `PATCH
-   /clientes/{id}/rehabilitar` — solo `POST /clientes` fue confirmada por
-   el usuario).
-3. Confirmar o exponer una fixture `db_session` (usada en un solo test para
-   forzar `estatus = "inactivo"` sin depender de un endpoint de baja que no
-   existe en el spec).
+1. ~~Actualizar el fixture `cliente_prueba`~~ ✅ — ya crea el cliente vía
+   `POST /api/v1/clientes` real (ver sección de abajo).
+2. ~~Confirmar las rutas asumidas contra `app/api/v1/endpoints/clientes.py`
+   real~~ ✅ — confirmadas: `POST /clientes`, `GET /clientes/{id_cliente}`,
+   `GET /clientes?q=`, las 3 protegidas con `Depends(get_current_user)`.
+   `GET /clientes` responde `list[ClienteResumen]` — ya confirmado en
+   corrida real que expone `nombre`/`no_cliente` (los dos tests de
+   búsqueda parcial lo asumían).
+3. ~~Confirmar o exponer una fixture `db_session`~~ ✅ — expuesta en este
+   `conftest.py` (function-scoped, sesión directa vía `SessionLocal()`).
+   Ya sin uso en `test_clientes.py` tras el punto siguiente; se deja en
+   `conftest.py` por si otro módulo la necesita (ej. Movimientos).
+
+**Retirado tras revisión de negocio (no era un pendiente, fue una
+corrección):** `rehabilitar_cliente()`, el endpoint `PATCH
+/clientes/{id}/rehabilitar` y los 3 tests que lo cubrían se quitaron.
+`module_clientes.md` no define ninguna opción de "Rehabilitar Cliente" —
+el menú de Clientes solo tiene 4 botones (Registrar, Editar, Consulta
+Cliente, Consulta Historial), y el enum `estatus` documenta que el cambio
+`activo`↔`inactivo` es siempre manual desde **Editar Cliente** (`UPDATE`
+genérico, todavía sin construir), no desde un endpoint aparte. `saldo = 0`
+tampoco dispara nada automático (confirmado en el spec). La suite pasó de
+32 a 29 tests por este retiro — no es una regresión de cobertura, es
+cobertura que no correspondía a ningún caso de negocio real.
+
+Con esto, `test_clientes.py` ya no tiene pendientes de fixtures/rutas.
+**Lo único que falta es correr `pytest test/ -v` de verdad** contra un
+`pos.db` migrado y ver si pasa — ya se corrió una vez y encontró (y se
+corrigió) un bug real en `rehabilitar_cliente()` antes de decidir
+retirarla; falta la corrida final con la función ya fuera.
 
 Cubre (una vez en verde): alta con las 4 variantes de `frecuencia_pago` y
 sus campos condicionales, rango de `dia_pago_especifico` (1-31, bordes
 inválidos 0/32), longitud máxima de los campos de texto (`nombre`,
 `colonia`, `ref_nombre`, `ref_colonia`, `frecuencia_pago_detalle` — INC-18,
 hallazgo de esta sesión), consecutivo de `no_cliente` por colonia,
-normalización de mayúsculas en `no_cliente`, consulta por id/búsqueda
-parcial, y rehabilitar (activo idempotente / inactivo→activo / inexistente).
+normalización de mayúsculas en `no_cliente`, y consulta por id/búsqueda
+parcial.
 
 **Huecos deliberados, no cubiertos:**
 - "Editar Cliente" — sin `service`/`endpoint` todavía, no se inventa el
-  caso.
+  caso. Cuando se construya, el cambio de `estatus` (incluida la
+  reactivación) se prueba ahí, como un caso más del `UPDATE` genérico —
+  no como una función aparte.
 - Enviar `dia_pago_especifico`/`frecuencia_pago_detalle` cuando la
   `frecuencia_pago` no los requiere — el validador hoy lo acepta sin
   rechazar (decisión de diseño abierta, ver `casos_clientes.md` §5).
@@ -158,6 +181,14 @@ parcial, y rehabilitar (activo idempotente / inactivo→activo / inexistente).
   arquitectura anotado, no bloqueante para un solo usuario concurrente.
 - La fórmula real de `fecha_pago_programada` — vive en Movimientos, se
   prueba en `test_movimientos.py`, no aquí.
+
+**Pendiente de actualizar por tu lado, no de código:** `casos_clientes.md`
+§3 (Rehabilitar Cliente) queda obsoleto y `docs/FULLSTACK/module_clientes.md`
+no necesita cambios (nunca definió esta opción) — pero si algún otro
+documento (`REPORT.md`, `TRAZABILIDAD.md`) todavía menciona
+`rehabilitar_cliente` como parte del alcance de Clientes, conviene
+limpiarlo en la misma pasada para que no reaparezca como pendiente fantasma
+en una sesión futura.
 
 ## Al agregar un módulo nuevo
 
@@ -170,21 +201,66 @@ parcial, y rehabilitar (activo idempotente / inactivo→activo / inexistente).
    reproducirlo en Python.
 4. Actualizar la tabla de arriba.
 
-## Por qué `cliente_prueba` todavía no usa `POST /api/v1/clientes`
+## Por qué `cliente_prueba` ya usa `POST /api/v1/clientes`
 
-**🟡 Esta sección describe el estado previo a esta sesión — ya no es
-válida, pendiente de que el usuario aplique el cambio.** INC-02 (ver
-`REPORT.md §4.3`) hacía que ese endpoint fallara con `IntegrityError` — el
-fixture creaba el cliente directo en SQLAlchemy como workaround, en un solo
-lugar. **INC-02 ya está resuelto en `schemas/cliente.py` /
-`services/cliente_service.py`** (ver `REPORT.md`), así que el workaround ya
-no es necesario, pero el cambio de fixture en sí **no se aplicó todavía**
-— no se compartió `conftest.py` real esta sesión, así que no se editó a
-ciegas. Falta:
+INC-02 (ver `REPORT.md §4.3` punto 11) hacía que ese endpoint fallara con
+`IntegrityError` (`frecuencia_pago` NOT NULL no expuesto en
+`ClienteCreate`) — el fixture creaba el cliente directo en SQLAlchemy como
+workaround, en un solo lugar, para que Pedidos y Shein no dependieran de un
+endpoint roto. **INC-02 ya está resuelto** en `schemas/cliente.py` /
+`services/cliente_service.py`, así que el workaround **ya se quitó**:
+`cliente_prueba` ahora llama `POST /api/v1/clientes` con un payload válido,
+igual que cualquier cliente real, y luego lee el objeto vía SQLAlchemy para
+devolver el mismo tipo de valor que antes (para no romper los tests de
+Pedidos/Shein que ya dependían de sus atributos).
 
-1. Reemplazar el bypass SQLAlchemy de `cliente_prueba` por una llamada real
-   a `POST /api/v1/clientes` con un payload válido (ver `casos_clientes.md`
-   §1, caso 1.1, para un payload mínimo de referencia).
-2. Correr toda la suite (`pytest test/ -v`) después del cambio — otros
-   módulos (Pedidos, Shein) dependen de `cliente_prueba` y podrían verse
-   afectados si el fixture cambia de forma.
+Pendiente antes de dar esto por cerrado del todo:
+
+1. **Correr toda la suite (`pytest test/ -v`)** con el `conftest.py`
+   actualizado — Pedidos y Shein dependen de `cliente_prueba` y hay que
+   confirmar que nada se rompió al cambiar de bypass a POST real (ahora el
+   fixture pasa por autenticación y por las validaciones reales del
+   schema, que antes se saltaba).
+2. Si `POST /api/v1/clientes` de verdad rechaza el payload del fixture por
+   algo no documentado aquí, el fixture fallará con un `assert` explícito
+   (no en silencio) — señal de que hay que ajustar el payload o de que hay
+   otro bug no visto todavía.
+
+## Autenticación — dos rutas, cada una para un contexto distinto
+
+Ya se revisaron `backend/scripts/set_admin_password.py` y
+`test/verificar_clientes.sh`. **Conclusión: ninguno de los dos sobra.**
+No son rutas de autenticación en competencia, son dos entradas al mismo
+mecanismo (fijar la contraseña del admin en `pos.db` de forma conocida),
+necesarias porque resuelven problemas en momentos distintos:
+
+| Contexto | Cómo se fija la contraseña | Cómo se loguea |
+|---|---|---|
+| **`pytest test/ -v`** (esta suite) | Fixture `_fijar_password_admin` de `conftest.py`, autouse, corre sola al iniciar la sesión de pytest | `admin_token`/`auth_headers`, login real vía `TestClient` contra `POST /api/v1/auth/login`, en el mismo proceso |
+| **Verificación manual con `curl`** (`verificar_clientes.sh`) contra un servidor real (`uvicorn app.main:app --reload`) | `python3 scripts/set_admin_password.py --usuario admin --password '...'`, corrido a mano ANTES del script — pytest no toca ese proceso de `uvicorn`, así que su fixture no le sirve | El script hace su propio `curl -X POST .../auth/login` y extrae el token con `python3 -c "...json..."` |
+
+La confusión de esta sesión (¿cuál es "la" ruta confirmada?) no era un
+problema de rutas duplicadas — era que **no estaba escrito en ningún lado
+cuál usar según el contexto**. Regla simple para no repetir la confusión:
+
+- ¿Vas a correr `pytest`? No toques contraseñas a mano, la fixture ya lo
+  hace por ti.
+- ¿Vas a probar con `curl` contra un servidor real (`uvicorn` corriendo)?
+  Corre primero `set_admin_password.py`, luego `verificar_clientes.sh`
+  (o tus propios `curl`).
+- Nunca seas la tercera ruta: no escribas un login/usuario de prueba nuevo
+  dentro de un archivo de test — usa `auth_headers`.
+
+Ambos scripts comparten la misma lógica (mismo `CryptContext`, mismo
+query/create sobre `Usuario`) porque uno se derivó del otro — es
+duplicación de código consciente, no un descuido, ya que viven en procesos
+que no se pueden importar entre sí (uno corre dentro de pytest, el otro es
+standalone). Si en algún momento molesta mantener las dos copias en
+sincronía, se puede extraer a un `app/scripts/_auth_test_utils.py` común
+que ambos importen — no es urgente, es una mejora de mantenimiento, no una
+corrección de un bug.
+
+**Recordatorio de seguridad que ya trae `verificar_clientes.sh` (no lo
+quites):** rotar la contraseña real de admin después de correr el script,
+para no dejar `admin123-test` (o la que hayas puesto) como contraseña
+vigente de un usuario real.

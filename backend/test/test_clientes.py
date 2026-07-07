@@ -2,25 +2,30 @@
 test_clientes.py — mapeado 1:1 a test/casos_clientes.md y a
 FULLSTACK/module_clientes.md.
 
-⚠️ SUPUESTOS A VERIFICAR ANTES DE CORRER (ver casos_clientes.md, cabecera):
-- Rutas asumidas: POST /api/v1/clientes (confirmada por el usuario),
-  GET /api/v1/clientes/{id}, GET /api/v1/clientes?q=,
-  PATCH /api/v1/clientes/{id}/rehabilitar (estas 3 últimas INFERIDAS,
-  no vistas en app/api/v1/endpoints/clientes.py).
-- Fixtures asumidas de conftest.py: `client` (TestClient) y `auth_headers`
-  (headers con JWT real), según se describen en test/README.md. Si los
-  nombres reales difieren, es un ajuste de los parámetros de cada función.
-- `db_session` (usada solo en TestRehabilitarCliente.test_rehabilita_cliente_inactivo
-  para forzar `estatus = "inactivo"` sin depender de un endpoint de baja que
-  no existe en el spec): NO confirmada en conftest.py — si no existe, hay
-  que exponer la sesión de BD de prueba con ese nombre o adaptar el test a
-  la que sí exista.
+✅ RUTAS CONFIRMADAS contra `app/api/v1/endpoints/clientes.py` real:
+`POST /api/v1/clientes`, `GET /api/v1/clientes/{id_cliente}`,
+`GET /api/v1/clientes?q=`. Las 3 protegidas con `Depends(get_current_user)`
+— requieren `auth_headers`.
+
+⚠️ Un detalle sin confirmar todavía: `GET /clientes` responde con
+`response_model=list[ClienteResumen]`, no `ClienteRead` — ya se confirmó
+en corrida real que expone `nombre` y `no_cliente` (los campos que leen
+`test_busqueda_por_nombre_parcial` / `test_busqueda_por_no_cliente_parcial`
+de abajo), así que este punto queda cerrado.
+
+**"Rehabilitar Cliente" se quitó** (endpoint, servicio y los 3 tests que lo
+cubrían) tras revisar `module_clientes.md`: el spec no define esa opción,
+el menú de Clientes solo tiene 4 botones, y el cambio de `estatus` en
+cualquier dirección es manual desde "Editar Cliente" (UPDATE genérico).
+Ver la nota al final de la sección 2 de este archivo.
+
+- Fixtures usadas de conftest.py: `client` (TestClient) y `auth_headers`
+  (headers con JWT real) — session-scoped, compartidas con el resto de la
+  suite. `db_session` (function-scoped) ya no se usa en este archivo tras
+  quitar "Rehabilitar Cliente" — se deja en conftest.py por si otro módulo
+  la necesita (ej. Movimientos).
 - "Editar Cliente" no se prueba: no existe `editar_cliente` en
   cliente_service.py todavía.
-
-Si algún supuesto no aplica, este archivo falla rápido y explícito (404 en
-vez de un assert silencioso) — no está diseñado para "pasar en verde a
-ciegas".
 """
 import uuid
 
@@ -196,33 +201,17 @@ class TestConsultaCliente:
 
 
 # ---------------------------------------------------------------------------
-# 3. Rehabilitar Cliente
+# 3. Rehabilitar Cliente -- ELIMINADO, no de negocio
 # ---------------------------------------------------------------------------
-
-class TestRehabilitarCliente:
-
-    def test_rehabilita_cliente_inactivo(self, client, auth_headers, db_session):
-        # Caso 3.1 — no hay endpoint de "dar de baja" documentado; se fuerza
-        # el estado inactivo directo en BD para aislar el caso, igual que
-        # hace conftest.cliente_prueba con el bypass ya conocido.
-        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
-        from app.models.models import Cliente
-        cliente_db = db_session.query(Cliente).get(creado["id_cliente"])
-        cliente_db.estatus = "inactivo"
-        db_session.commit()
-
-        resp = client.patch(f"/api/v1/clientes/{creado['id_cliente']}/rehabilitar", headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.json()["estatus"] == "activo"
-
-    def test_rehabilitar_cliente_ya_activo_es_idempotente(self, client, auth_headers):
-        # Caso 3.2
-        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
-        resp = client.patch(f"/api/v1/clientes/{creado['id_cliente']}/rehabilitar", headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.json()["estatus"] == "activo"
-
-    def test_rehabilitar_cliente_inexistente(self, client, auth_headers):
-        # Caso 3.3 — comportamiento ante None no confirmado contra el endpoint real
-        resp = client.patch("/api/v1/clientes/999999/rehabilitar", headers=auth_headers)
-        assert resp.status_code == 404
+#
+# module_clientes.md no define ninguna opción de "Rehabilitar Cliente": el
+# menú de Clientes solo tiene 4 botones (Registrar, Editar, Consulta
+# Cliente, Consulta Historial), y el enum `estatus` es explícito en que el
+# cambio activo<->inactivo lo hace la operadora manualmente desde "Editar
+# Cliente" (UPDATE genérico, todavía sin construir) -- no desde un endpoint
+# de rehabilitación aparte. `PATCH /clientes/{id}/rehabilitar` y
+# `rehabilitar_cliente()` se quitaron del código real por no corresponder
+# a ningún caso de negocio del spec; estos 3 tests se quitan junto con
+# ellos, no se dejan como "huecos deliberados" porque no hay nada que
+# cubrir. Cuando se construya "Editar Cliente", el cambio de estatus se
+# prueba ahí, como un caso más del `UPDATE` genérico.

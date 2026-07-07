@@ -15,7 +15,7 @@ from passlib.context import CryptContext
 
 from app.db.database import SessionLocal
 from app.main import app
-from app.models.models import Cliente, FrecuenciaPago, Usuario
+from app.models.models import Cliente, Usuario
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -67,32 +67,60 @@ def auth_headers(admin_token):
 
 
 @pytest.fixture
-def cliente_prueba():
-    """Crea un cliente directo en SQLAlchemy, sin pasar por POST /clientes.
+def cliente_prueba(client, auth_headers):
+    """Crea un cliente vía POST /api/v1/clientes (endpoint real).
 
-    Bypass intencional de INC-02 (frecuencia_pago NOT NULL no expuesto en
-    ClienteCreate, ver REPORT.md §4.3 punto 5). Cuando ese bug se corrija,
-    este fixture puede cambiarse a un POST real sin tocar los tests que lo
-    usan -- por eso vive aquí y no repetido en cada archivo de test.
+    Ya NO es el bypass SQLAlchemy anterior. Ese bypass existía únicamente
+    por INC-02 (frecuencia_pago NOT NULL no expuesto en ClienteCreate, ver
+    REPORT.md §4.3 punto 11) -- INC-02 está resuelto en schemas/cliente.py
+    y services/cliente_service.py, así que el workaround ya no aplica (ver
+    test/README.md, sección "Por qué cliente_prueba usa POST
+    /api/v1/clientes").
 
-    no_cliente único por corrida (uuid) para que los tests puedan repetirse
-    sin chocar entre sí ni con datos manuales que ya tengas en pos.db.
+    no_cliente único por corrida (uuid en la colonia) para que los tests
+    puedan repetirse sin chocar entre sí ni con datos manuales que ya
+    tengas en pos.db, y para no interferir con el consecutivo por colonia
+    que prueba test_clientes.py (test_no_cliente_consecutivo_por_colonia).
     """
-    db = SessionLocal()
-    no_cliente = f"TEST-{uuid.uuid4().hex[:8].upper()}"
-    cliente = Cliente(
-        no_cliente=no_cliente,
-        nombre=f"Cliente Test {no_cliente}",
-        colonia="Centro",
-        telefono="4440000000",
-        frecuencia_pago=FrecuenciaPago.semanal,
-        ref_nombre="Ref Test",
-        ref_colonia="Centro",
-        saldo=0.0,
-        estatus="activo",
+    sufijo = uuid.uuid4().hex[:8].upper()
+    payload = {
+        "nombre": f"Cliente Test {sufijo}",
+        "colonia": f"FixtureTest{sufijo}",
+        "telefono": 4440000000,
+        "ref_nombre": "Ref Test",
+        "ref_colonia": "Centro",
+        "ref_telefono": None,
+        "frecuencia_pago": "semanal",
+        "dia_pago_especifico": None,
+        "frecuencia_pago_detalle": None,
+    }
+    resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
+    assert resp.status_code == 201, (
+        f"cliente_prueba: POST /api/v1/clientes falló "
+        f"({resp.status_code}): {resp.text}"
     )
-    db.add(cliente)
-    db.commit()
-    db.refresh(cliente)
+    creado = resp.json()
+
+    db = SessionLocal()
+    cliente = db.query(Cliente).get(creado["id_cliente"])
     yield cliente
     db.close()  # no se borra el cliente -- REPORT.md §1: no se conserva data real, se limpia regenerando pos.db
+
+
+@pytest.fixture
+def db_session():
+    """Sesión de BD directa, para los tests que necesitan forzar un estado
+    que hoy no es alcanzable vía la API pública (ej. estatus = "inactivo"
+    en TestRehabilitarCliente, ya que el spec no define un endpoint de
+    "dar de baja" -- ver test_clientes.py).
+
+    Function-scoped a propósito: cada test recibe su propia sesión y la
+    cierra al terminar, sin compartir estado con otros tests ni con
+    `client`/`admin_token` (esos sí son session-scoped porque login y
+    TestClient son costosos de recrear; esto no lo es).
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

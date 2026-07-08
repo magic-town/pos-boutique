@@ -18,11 +18,11 @@ implementar su módulo. Si un módulo necesita algo de otro (ej. Pedidos lee
 
 | Archivo | Módulo | Extraído | Código | Test |
 |---|---|---|---|---|
-| `module_clientes.md` | Clientes | ✅ | ⚠️ existente, INC-02 pendiente | ❌ |
-| `module_pedidos.md` | Pedidos | ✅ (+ ajustes de esta sesión) | ✅ | ✅ |
-| `module_inventario.md` | Inventario | ✅ (+ descuento masivo, nuevo) | ✅ | ✅ escrito, no corrido |
+| `module_clientes.md` | Clientes | ✅ | ✅ | ✅ |
+| `module_pedidos.md` | Pedidos | ✅ | ✅ | ✅ |
+| `module_inventario.md` | Inventario | ✅ | ✅ | ✅ |
 | `module_movimientos.md` | Movimientos (Panel Principal) | ✅ | ⚠️ existente, INC-05/06 pendientes | ❌ |
-| `module_shein.md` | Shein | ✅ | ✅ existente | ❌ |
+| `module_shein.md` | Shein | ✅ | ✅ | ✅ |
 | `module_recargas.md` | Recargas Telefónicas | ✅ | ❌ | ❌ |
 | `module_consulta.md` | Consulta Global | ✅ | ❌ | ❌ |
 | `module_setting.md` | Autenticación y Configuración | ✅ | ⚠️ solo Auth existe, Setting no | ❌ |
@@ -38,9 +38,3 @@ cambie de columna — es el mismo principio que ya rige `REPORT.md §5`.
 para saber si tocar una tabla en un módulo tiene efecto lateral en otro
 (ej. `inventario` la lee `movimientos`). No es spec de ningún módulo
 individual, por eso vive aparte y no dentro de ninguno de los `module_*.md`.
-
-## Nota de seguridad
-
-`module_setting.md` tenía contraseñas de seed en texto plano en el
-documento original (`00_FULLSTACK_DEVELOPMENT.md`) — se redactaron al
-extraer. Ver la nota dentro de ese archivo.

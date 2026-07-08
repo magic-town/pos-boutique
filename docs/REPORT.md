@@ -2,7 +2,7 @@
 
 > **Qué es este documento:** una fotografía del estado actual — decisiones
 > tomadas, evidencia confirmada, huecos de visibilidad y ruta de trabajo. No es
-> spec de negocio (eso es `REGLAS_NEGOCIO.md` / `00_FULLSTACK_DEVELOPMENT.md`).
+> spec de negocio (eso es `REGLAS_NEGOCIO.md` / `FULLSTACK/README.md`).
 > Es el documento que permite retomar el trabajo en cualquier sesión nueva sin
 > recargar todo el repo. Si solo compartes este archivo, Claude debe poder
 > saber qué hacer a continuación; solo pide otro archivo cuando algo no se
@@ -12,7 +12,7 @@
 
 ## 1. Jerarquía de fuentes
 
-1. **`docs/00_FULLSTACK_DEVELOPMENT.md`** — spec de UI/UX, autoridad máxima si
+1. **`docs/FULLSTACK/README.md`** — spec de UI/UX, autoridad máxima si
    hay contradicción. **INC-13 corregido por el usuario directamente en el
    documento** (longitud de `producto` ya consistente). **Segmentado en
    `docs/FULLSTACK/`**

@@ -38,7 +38,7 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
 | Pedidos | ✅ existe | ✅ `test_pedidos.py` (corrido, verde) | ✅ `casos_pedidos.md` |
 | Inventario | ✅ existe | ✅ `test_inventario.py` (corrido, verde) | ✅ `casos_inventario.md` |
 | Shein | ✅ existe | ✅ `test_shein.py` (corrido, verde) | ✅ `casos_shein.md` |
-| Clientes | ✅ existe | 🟡 `test_clientes.py` escrito (29 tests), rutas y fixtures confirmadas, `rehabilitar_cliente` retirado por no ser negocio real — falta correr `pytest test/ -v` y ver el resultado real | ✅ `casos_clientes.md` (pendiente de actualizar §3, ver nota abajo) |
+| Clientes | ✅ existe | ✅ `test_cliente.py` (corrido, verde) | ✅ `casos_cliente.md` |
 | Movimientos | ✅ existe | ❌ pendiente (bloqueado por INC-05/06) | ❌ en diseño |
 | Recargas | ✅ existe | ❌ pendiente (sin código todavía) | ❌ en diseño |
 | Consulta | ✅ existe | ❌ pendiente (sin código todavía) | ❌ en diseño |
@@ -120,7 +120,7 @@ escrito, y no bloquean el estado en verde actual.
 
 ### `test_clientes.py`
 
-**🟡 Escrito, no corrido en verde todavía** — a diferencia de las tres
+Cubre los 2 casos (Registrar Cliente, Consulata cliente)  — a diferencia de las tres
 secciones anteriores. De los 3 pendientes originales (ver `docs/REPORT.md`
 §5 punto 3 / §4.3), los 3 ya están resueltos en este `conftest.py`:
 

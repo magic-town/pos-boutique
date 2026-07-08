@@ -197,7 +197,7 @@ Formulario de alta de nuevo cliente. Escribe en tabla `clientes`.
 | `no_cliente`            | `{colonia}-{consecutivo:03d}`. El backend consulta `COUNT` de clientes con esa colonia y asigna el siguiente. |
 | `fecha_registro`        | Fecha actual. Almacenada en `YYYY-MM-DD`, mostrada en UI como `DD-MM-YYYY`.                                   |
 | `saldo`                 | Default `0`.                                                                                                  |
-| `estatus`               | Default `activo`.                                                                                             |
+| `estatus`               | Default `inactivo`.                                                                                             |
 | `fecha_pago_programada` | `NULL`. Se asigna al primer abono.                                                                            |
 
 **Botón Guardar:**

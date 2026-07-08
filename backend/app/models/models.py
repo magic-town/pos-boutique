@@ -1,38 +1,19 @@
 """
-Modelo de datos alineado a docs/00_FULLSTACK_DEVELOPMENT.md (fuente de verdad única).
+Modelo de datos alineado a docs/FULL_STACK/*.md + docs/REGLAS_NEGOCIO.md
+(fuentes de verdad — ver docs/REPORT.md §1 para la jerarquía completa).
 
-Revisión 2 (ver docs/REPORT.md §0, §2a, §2b). Respecto al models.py ya migrado
-(11 tablas, esquema vigente en pos.db), esta revisión agrega/reestructura:
-- precios_catalogo:    tabla NUEVA (catálogo importado de tabla_precios.ods, §2a).
-- shein_pedidos:        CAMBIA de tabla plana a SOLO cabecera; agrega estatus_pago.
-- shein_pedidos_articulos: tabla NUEVA (detalle, 1 a 4 artículos por pedido Shein,
-                       sin concepto de alternativa).
-- shein_cortes:         CAMBIA columnas: suma_montos -> suma_pedidos; se elimina
-                       porcentaje_bono; bono_monto -> cupon; agrega total_ticket.
+13 tablas migradas y verificadas contra pos.db (alembic_version = c3d4e5f6a7b8):
+clientes, pedidos, pedidos_articulos, precios_catalogo, inventario, movimientos,
+shein_clientes, shein_pedidos, shein_pedidos_articulos, shein_cortes, recargas,
+usuarios, configuracion. clientes incluye dia_pago_especifico y
+frecuencia_pago_detalle como columnas reales (REGLAS_NEGOCIO.md §2).
 
-El resto de las tablas (clientes, pedidos, pedidos_articulos, inventario,
-movimientos, recargas, usuarios, configuracion) no cambia en esta revisión —
-siguen igual que el models.py vigente en el repo, a excepción de Movimientos
-que recibe la FK `id_apartado`.
-
-ACTUALIZACIÓN (Apartados y Bandera Naranja, ver docs/REPORT.md):
-- apartados:             tabla NUEVA (cabecera de lotes de apartado).
-- apartados_articulos:   tabla NUEVA (detalle de artículos en un apartado).
-- movimientos:           se agrega FK `id_apartado`.
-
-ACTUALIZACIÓN (regla de negocio frecuencia_pago, ver docs/REGLAS_NEGOCIO.md §2):
-clientes agrega 2 columnas nuevas, pendientes de migración Alembic sobre el
-esquema ya migrado:
-- dia_pago_especifico:     Integer, nullable. Obligatorio solo si
-                           frecuencia_pago = dia_especifico_mes.
-- frecuencia_pago_detalle: String(60), nullable. Obligatorio solo si
-                           frecuencia_pago = otro.
-
-NOTA: este archivo se entrega para revisión. La migración Alembic correctiva
-(que agrega precios_catalogo, shein_pedidos_articulos, apartados, y
-apartados_articulos, reestructura shein_pedidos/shein_cortes, agrega FK
-id_apartado a movimientos y agrega dia_pago_especifico/frecuencia_pago_detalle a
-clientes) es el siguiente paso, una vez se apruebe este esquema.
+Apartado (cabecera-detalle, ver docs/REPORT.md §3.3): las clases Apartado y
+ApartadoArticulo, y la FK id_apartado en Movimiento, ya están escritas en este
+archivo y verificadas columna por columna contra el diseño cerrado — pero
+apartados y apartados_articulos todavía NO existen en pos.db (no aparecen en
+.tables). Migración Alembic pendiente: agregar ambas tablas y la FK
+id_apartado a movimientos.
 """
 
 from sqlalchemy import (

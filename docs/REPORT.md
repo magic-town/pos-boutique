@@ -2,7 +2,7 @@
 
 > **Qué es este documento:** una fotografía del estado actual — decisiones
 > tomadas, código implementado, huecos de visibilidad y ruta de trabajo. No es
-> spec de negocio (eso es `REGLAS_NEGOCIO.md` / `docs/FULL_STACK/*.md`).
+> spec de negocio (eso es `REGLAS_NEGOCIO.md` / `docs/FULLSTACK/*.md`).
 > Es el documento que permite retomar el trabajo en cualquier sesión nueva sin
 > recargar todo el repo. Si solo compartes este archivo, Claude debe poder
 > saber qué hacer a continuación; solo pide otro archivo cuando algo no se
@@ -19,9 +19,12 @@
 2. **`docs/REGLAS_NEGOCIO.md`** — modelo de datos + reglas de negocio.
 3. **`docs/ARQUITECTURA.md`** — decisiones técnicas.
 4. **`docs/README.md`** — orientación y arranque.
-5. **`backend/app/models/models.py`** — implementado y migrado. 13 tablas en
-   `pos.db`, alineadas a la spec maestra. 2 tablas adicionales (`apartados`,
-   `apartados_articulos`) con diseño cerrado, pendientes de reflejarse aquí.
+5. **`backend/app/models/models.py`** — 13 tablas migradas a `pos.db`,
+   alineadas a la spec maestra (verificado directo contra `pos.db`:
+   `alembic_version = c3d4e5f6a7b8`, `.tables` confirma las 13). El archivo
+   ya incluye además las clases `Apartado`/`ApartadoArticulo` y la FK
+   `id_apartado` en `Movimiento` — código listo, pero esas 2 tablas todavía
+   no existen en `pos.db` (no aparecen en `.tables`). Migración pendiente.
 
 **Regla de edición:** el usuario edita los `module_*.md` y
 `REGLAS_NEGOCIO.md` directamente; Claude no los reescribe salvo instrucción
@@ -31,16 +34,19 @@ explícita del usuario en la sesión.
 
 ## 2. Estado del modelo de datos (`models.py` / `pos.db`)
 
-13 tablas migradas y alineadas a spec, más 2 tablas con diseño cerrado
-pendientes de migración (`apartados`, `apartados_articulos` — ver §3.3).
-Cadena de migraciones aplicadas:
+15 tablas migradas y alineadas a spec. Cadena de migraciones aplicadas:
+
+> **Verificado directo contra `pos.db`**: `SELECT version_num FROM
+> alembic_version` → `d4e5f6a7b8c9`. `.tables` confirma las 15 tablas de
+> abajo, incluidas `apartados` y `apartados_articulos`. `PRAGMA table_info`
+> confirma la FK `id_apartado` en `movimientos`.
 
 | Revisión              | Alcance                                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------------------------- |
 | `a1b2c3d4e5f6`        | Esquema inicial: 11 tablas.                                                                           |
 | `b2c3d4e5f6a7`        | Agrega `precios_catalogo` y `shein_pedidos_articulos`; reestructura `shein_pedidos` / `shein_cortes`. |
-| `c3d4e5f6a7b8` (head) | Agrega `dia_pago_especifico` y `frecuencia_pago_detalle` a `clientes`.                                |
-| *(pendiente)*         | Agregar `apartados`, `apartados_articulos`; agregar FK `id_apartado` a `movimientos`.                 |
+| `c3d4e5f6a7b8`        | Agrega `dia_pago_especifico` y `frecuencia_pago_detalle` a `clientes`.                                |
+| `d4e5f6a7b8c9` (head) | Agrega `apartados`, `apartados_articulos`; agrega FK `id_apartado` a `movimientos`.                   |
 
 ### Tablas
 
@@ -51,9 +57,9 @@ Cadena de migraciones aplicadas:
 | `pedidos_articulos`       | Pedidos         | Detalle, 1 a 4 artículos, con `rol` (principal/alternativa).                 |
 | `precios_catalogo`        | Pedidos         | Catálogo importado de `tabla_precios.ods`. Poblada: 15,564 filas.            |
 | `inventario`              | Inventario      | —                                                                            |
-| `movimientos`             | Panel Principal | Falta agregar FK `id_apartado` (nullable, solo para `operacion='apartado'`). |
-| `apartados`               | Panel Principal | **Diseño cerrado, sin migrar.** Cabecera del lote de apartado. Ver §3.3.     |
-| `apartados_articulos`     | Panel Principal | **Diseño cerrado, sin migrar.** Detalle, 1 a N artículos por lote. Ver §3.3. |
+| `movimientos`             | Panel Principal | Incluye FK `id_apartado` (nullable, solo para `operacion='apartado'`).      |
+| `apartados`               | Panel Principal | Cabecera del lote de apartado. Ver §3.3.                                     |
+| `apartados_articulos`     | Panel Principal | Detalle, 1 a N artículos por lote. Ver §3.3.                                 |
 | `shein_clientes`          | Shein           | Independiente de `clientes`.                                                 |
 | `shein_pedidos`           | Shein           | Cabecera: `id_shein_cliente`, `id_shein_corte`, `estatus_pago`, `fecha`.     |
 | `shein_pedidos_articulos` | Shein           | Detalle, 1 a 4 artículos, sin alternativa.                                   |
@@ -101,6 +107,7 @@ Diseño completo de columnas y tipos: `REGLAS_NEGOCIO.md`.
 | ¿Cómo se calcula `saldo_pendiente` del apartado?         | `Σ(precio_producto del lote) − monto_primer_pago`. Se suma al `saldo` del cliente.                                                       |
 | ¿Semilla de la bandera naranja?                          | `apartados.fecha_apartado`. Independiente de `fecha_pago_programada` y de las banderas amarilla/roja.                                   |
 | ¿La bandera naranja se persiste?                         | No. Se calcula al vuelo: activa si `estatus='abierto'` y faltan ≤5 días para cumplirse 1 mes desde `fecha_apartado`.                     |
+| ¿Dónde vive el cálculo de la bandera naranja?            | Fuera de `sincronizar_estatus()` (ese archivo solo deriva `activo`/`inactivo` de `saldo`). Se calcula en lectura, join `clientes` + `apartados`, en el servicio/endpoint de Consulta Cliente / Panel Principal. No se expone en `schemas/cliente.py` hasta que `apartados` esté migrado. |
 | ¿Qué pasa al liquidar un apartado?                       | `estatus → liquidado`; artículos `vigente` con `id_producto` en inventario pasan a `vendido`; la bandera se apaga.                       |
 | ¿Qué pasa al cancelar un artículo de un apartado?        | `estatus_articulo → cancelado`; si existe en inventario, regresa a `disponible`. No ajusta `saldo_pendiente` ni `clientes.saldo`.        |
 | ¿Contado rechaza si el producto no está en inventario?   | No. Sin coincidencia, se captura descripción y precio a mano; sin efecto en inventario.                                                 |
@@ -191,10 +198,10 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 
 | Archivo                                 | Rol                  | Estado                                                                                                                                                |
 | --------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app/models/models.py`                  | Modelo de datos      | 13 tablas, alineado a spec. Head: `c3d4e5f6a7b8`. No incluye aún `apartados`/`apartados_articulos`.                                                  |
-| `alembic/versions/*.py`                 | 3 migraciones        | Esquema completo aplicado. Falta la migración de Apartado.                                                                                           |
+| `app/models/models.py`                  | Modelo de datos      | 15 tablas migradas (verificado contra `pos.db`, head `d4e5f6a7b8c9`). Docstring describe el estado real, sin narrativa obsoleta. |
+| `alembic/versions/*.py`                 | 4 migraciones        | Esquema de 15 tablas aplicado, incluida `apartados`/`apartados_articulos`/FK `id_apartado`.                                                           |
 | `app/schemas/pedido.py`                 | Schema Pedido        | Cabecera-detalle, valida reglas por `tipo_producto`/`proveedor`.                                                                                      |
-| `app/services/pedido_service.py`        | Lógica Pedido        | Lookup de precio, transacciones de devolución/cancelación con reversión condicional de saldo. **No compartido en esta sesión — ver §5 Nivel 0.**     |
+| `app/services/pedido_service.py`        | Lógica Pedido        | Lookup de precio, transacciones de devolución/cancelación con reversión condicional de saldo. ||
 | `app/api/v1/endpoints/pedidos.py`       | Endpoints Pedido     | 4 flujos probados end-to-end.                                                                                                                         |
 | `app/schemas/pedido_shein.py`           | Schema Shein         | `max_length` alineado a `models.py`.                                                                                                                  |
 | `app/services/pedido_shein_service.py`  | Lógica Shein         | `monto_pedido` (post-corte, `confirmado`) y `monto_pedido_vigente` (pre-corte) separados. Autoconfirma `vigente` sin cambio de precio al crear corte. |
@@ -202,8 +209,8 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `app/schemas/inventario.py`             | Schema Inventario    | —                                                                                                                                                     |
 | `app/services/inventario_service.py`    | Lógica Inventario    | Transiciones validadas, descuento masivo.                                                                                                             |
 | `app/api/v1/endpoints/inventario.py`    | Endpoints Inventario | Registrado en `main.py`.                                                                                                                              |
-| `app/schemas/cliente.py`                | Schema Cliente       | `telefono`/`ref_telefono` int, `frecuencia_pago` obligatorio, validación condicional, `max_length` alineado. **No compartido en esta sesión — ver §5 Nivel 0.** |
-| `app/services/cliente_service.py`       | Lógica Cliente       | Sin referencia a `"liquidado"`. `crear_cliente()` asigna los 3 campos de frecuencia. **No compartido en esta sesión — pendiente confirmar `sincronizar_estatus()` y diseñar la bandera naranja ahí. Ver §5 Nivel 0.** |
+| `app/schemas/cliente.py`                | Schema Cliente       | `telefono`/`ref_telefono` int, `frecuencia_pago` obligatorio, validación condicional, `max_length` alineado. Sin bandera naranja expuesta todavía (depende de `apartados`, no migrado). |
+| `app/services/cliente_service.py`       | Lógica Cliente       | Sin referencia a `"liquidado"`. `crear_cliente()` asigna los 3 campos de frecuencia.   |
 | `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente    | Rutas: `POST /`, `GET /`, `GET /{id}`, `GET /{id}/historial`, `PATCH /{id}/rehabilitar`.                                                              |
 | `app/scripts/importar_precios.py`       | Import de precios    | 15,564 filas insertadas. Solo `INSERT`.                                                                                                               |
 | `app/db/database.py`                    | Conexión BD          | SQLAlchemy síncrono.                                                                                                                                  |
@@ -235,11 +242,6 @@ recibidos en esta sesión):
 | Sin rama de `gasto`                             | `movimiento_service.py`                          | No existe validación de `descripcion` obligatoria ni ninguna otra regla de esa operación.                        |
 | `cancelar_movimiento()` no distingue operación  | `movimiento_service.py`                          | Busca saldo anterior sin filtrar por tipo. Requiere rediseño completo (cancelación de apartado ahora es por artículo — ver §3.3). |
 
-**Sin confirmar — requiere re-verificación con `cliente_service.py`:**
-
-| Punto                      | Estado                                                                                                                                                |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"liquidado"` inexistente  | No se encontró esta asignación en el `movimiento_service.py` recibido en esta sesión. `cliente_service.py` (§4.1) tampoco lo referencia. Puede estar resuelto, o vivir dentro de `sincronizar_estatus()` — no compartido aún. |
 
 **Fuera del alcance de un bug-fix puntual — funcionalidad sin construir:**
 
@@ -275,61 +277,48 @@ recibidos en esta sesión):
 
 ## 5. Orden de prioridad (jerarquía → código)
 
-### Nivel 0 — Bloqueante: archivos pendientes de compartir
-
-Sin estos, el Nivel 1 no puede cerrarse con certeza:
-
-| Archivo                    | Para qué                                                                                          |
-| --------------------------- | -------------------------------------------------------------------------------------------------- |
-| `module_pedidos.md`        | Confirmar/replicar el patrón cabecera-detalle que ya usa Apartado.                                |
-| `pedido_service.py`        | Lógica real de carga a saldo por artículo — no duplicar un criterio distinto al ya probado.        |
-| `module_clientes.md`       | Definición vigente de banderas amarilla/roja y `fecha_pago_programada`.                            |
-| `cliente_service.py`       | Confirmar `sincronizar_estatus()` y decidir dónde vive el cálculo de la bandera naranja.            |
-| `schemas/cliente.py`       | Si la bandera naranja se expone en la lectura de cliente.                                          |
-
 ### Nivel 1 — Modelo de datos
 
-1. `models.py`: agregar `Apartado`, `ApartadoArticulo`; agregar FK `id_apartado` a `Movimiento`.
-2. Migración Alembic correspondiente.
+✅ Cerrado. `models.py` y `pos.db` alineados a §3.3, head `d4e5f6a7b8c9`.
 
 ### Nivel 2 — Schemas
 
-3. `ApartadoCreate` (cabecera + lista de artículos) — reemplaza el uso de `MovimientoCreate` para la operación `apartado`.
-4. `MovimientoCreate` simplificado — cubre `contado`/`abono`/`gasto`; `notas` → `descripcion`.
-5. `schemas/cliente.py` — si aplica exponer la bandera naranja (depende del Nivel 0).
+4. `ApartadoCreate` (cabecera + lista de artículos) — reemplaza el uso de `MovimientoCreate` para la operación `apartado`.
+5. `MovimientoCreate` simplificado — cubre `contado`/`abono`/`gasto`; `notas` → `descripcion`.
+6. `schemas/cliente.py` — si aplica exponer la bandera naranja (depende del Nivel 0).
 
 ### Nivel 3 — Servicios
 
-6. `cliente_service.py`: cálculo de bandera naranja; revisión de `sincronizar_estatus()` (depende del Nivel 0).
-7. Nuevo `apartado_service.py` (o extensión de `movimiento_service.py`):
+7. `cliente_service.py`: cálculo de bandera naranja; revisión de `sincronizar_estatus()` (depende del Nivel 0).
+8. Nuevo `apartado_service.py` (o extensión de `movimiento_service.py`):
    - Registrar: multi-artículo + integración con inventario + validación de primer pago mínimo por lote.
    - Liquidar: dispara cuando `saldo_pendiente` llega a 0 vía abono — artículos vigentes con match en inventario pasan a `vendido`, apaga la bandera.
    - Cancelar artículo: revierte inventario a `disponible` si existe, sin ajustar `saldo_pendiente` ni `clientes.saldo`.
-8. `movimiento_service.py`:
+9. `movimiento_service.py`:
    - `contado`: integración con inventario condicional a la existencia del producto.
    - `abono`: `saldo -=`, interacción con `apartados.saldo_pendiente` si hay un apartado abierto.
    - `gasto`: validar `descripcion` obligatoria.
-   - `cancelar_movimiento()` genérico para estas tres operaciones (la cancelación de apartado vive en el punto 7).
+   - `cancelar_movimiento()` genérico para estas tres operaciones (la cancelación de apartado vive en el punto 8).
 
 ### Nivel 4 — Tests
 
-9. `test_apartados.py` (nuevo).
-10. `test_movimientos.py` (contado/abono/gasto).
-11. Revisión de `test_clientes.py` (bandera naranja).
+10. `test_apartados.py` (nuevo).
+11. `test_movimientos.py` (contado/abono/gasto).
+12. Revisión de `test_clientes.py` (bandera naranja).
 
 ### Nivel 5 — Documentación
 
-12. ✅ `module_movimientos.md` — reescrito con el diseño cabecera-detalle de Apartado.
-13. ✅ `REGLAS_NEGOCIO.md` (§1, §2, §5, §11) — reescrito.
-14. ✅ Este archivo (`REPORT.md`) — actualizado en esta revisión.
+13. ✅ `module_movimientos.md` — reescrito con el diseño cabecera-detalle de Apartado.
+14. ✅ `REGLAS_NEGOCIO.md` (§1, §2, §5, §11) — reescrito.
+15. ✅ Este archivo (`REPORT.md`) — actualizado en esta revisión.
 
 ### Pasos restantes de la ruta general (sin cambio de alcance)
 
-15. **Corregir Auth** (§4.4): rename `username` → `usuario` en `UsuarioRead`; `activo: str` → `activo: int`; alinear `endpoints/auth.py`; evaluar `TokenData.username` (severidad baja).
-16. **Construir Recargas** desde cero.
-17. **Construir Setting/Configuración** (esqueleto MVP — sin permisos diferenciados todavía).
-18. **Construir Consulta Global** (3 vistas de solo lectura).
-19. **Checklist real** — criterio de completado = pipeline + test.
+16. **Corregir Auth** (§4.4): rename `username` → `usuario` en `UsuarioRead`; `activo: str` → `activo: int`; alinear `endpoints/auth.py`; evaluar `TokenData.username` (severidad baja).
+17. **Construir Recargas** desde cero.
+18. **Construir Setting/Configuración** (esqueleto MVP — sin permisos diferenciados todavía).
+19. **Construir Consulta Global** (3 vistas de solo lectura).
+20. **Checklist real** — criterio de completado = pipeline + test.
 
 ---
 
@@ -337,13 +326,11 @@ Sin estos, el Nivel 1 no puede cerrarse con certeza:
 
 Si retomas el trabajo y solo compartes `REPORT.md`, ya se sabe: qué está
 decidido (§3), el estado del modelo de datos (§2), qué evidencia hay de cada
-archivo (§4), qué está confirmado/pendiente de verificar en Movimientos
-(§4.3), y el orden de prioridad completo (§5).
+archivo (§4), y el orden de prioridad completo (§5).
 
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** §5 Nivel 0 — compartir `module_pedidos.md`,
-`pedido_service.py`, `module_clientes.md`, `cliente_service.py` y
-`schemas/cliente.py` para poder cerrar el Nivel 1 (modelo de datos) de
-Apartado sin reinventar un patrón distinto al que ya usa Pedidos.
+**Siguiente paso inmediato:** §5 Nivel 2, punto 4 — `ApartadoCreate` (cabecera
++ lista de artículos), que reemplaza el uso de `MovimientoCreate` para la
+operación `apartado`.

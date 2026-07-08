@@ -1,7 +1,7 @@
 # Reglas de Negocio y Modelo de Datos — pos-boutique
 
 > Este documento responde **qué hace el sistema y bajo qué reglas**, independientemente
-> de cómo se ve la UI (eso vive en `00_FULLSTACK_DEVELOPMENT.md`) y de cómo está
+> de cómo se ve la UI (eso vive en `FULLSTACK/*.md`) y de cómo está
 > construido técnicamente (eso vive en `ARQUITECTURA.md`).
 >
 > **Estado:** el modelo de datos aquí descrito está implementado en

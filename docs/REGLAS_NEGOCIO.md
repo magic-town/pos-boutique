@@ -11,6 +11,8 @@
 > El §6 (Módulo Shein) fue rediseñado — `shein_pedidos` cambia de estructura y se
 > agrega `shein_pedidos_articulos`. Ambas están diseñadas y cerradas, pendientes de
 > reflejarse en `models.py` + migración Alembic (esquema anterior aún vive en `pos.db`).
+> El §5 (Panel Principal) incorpora las tablas `apartados` y `apartados_articulos`,
+> diseñadas y cerradas, pendientes de reflejarse en `models.py` + migración Alembic.
 
 ---
 
@@ -24,6 +26,8 @@
 | `precios_catalogo` | Pedidos | Catálogo de precios importado desde `tabla_precios.ods` |
 | `inventario` | Inventario | Existencias propias de la boutique (piso de venta) |
 | `movimientos` | Panel Principal | Registro de toda operación de caja (contado, apartado, abono, gasto) |
+| `apartados` | Panel Principal | Cabecera de un apartado: cliente, fecha semilla y saldo pendiente del lote |
+| `apartados_articulos` | Panel Principal | Artículos individuales de un apartado (1 a N por lote) |
 | `shein_clientes` | Shein | Clientes transaccionales de Shein, independientes de `clientes` |
 | `shein_pedidos` | Shein | Cabecera de un pedido Shein (1 a 4 artículos) |
 | `shein_pedidos_articulos` | Shein | Artículos individuales de un pedido Shein (1 a 4 por pedido) |
@@ -61,8 +65,8 @@
 1. **`estatus` es un campo derivado del `saldo`, nunca una decisión operativa.** El cliente nace `inactivo` con `saldo = 0`. Pasa a `activo` en automático en cuanto recibe y acepta un producto que impacta su `saldo`. Regresa a `inactivo` en automático en cuanto liquida su `saldo` a `0` — sin bloquear ninguna operación ni requerir acción de la operadora.
 2. **Ciclo de `fecha_pago_programada` — cálculo diferenciado por `frecuencia_pago`:**
    Se instancia en el primer abono y se recalcula en cada abono subsiguiente
-   (nunca al registrar al cliente). La **fórmula** de cálculo depende del tipo
-   de frecuencia:
+   (nunca al registrar al cliente ni al registrar un apartado). La **fórmula** de
+   cálculo depende del tipo de frecuencia:
    - **`semanal`:** rodante, sin cambios. `fecha_pago_programada = fecha_abono + 7 días`,
      recalculada desde la fecha real de cada abono (no desde la fecha programada anterior).
    - **`quincenal`:** deja de ser rodante. Se fija a **fechas de calendario**: el
@@ -77,14 +81,21 @@
    - **`otro`:** sin cambios — el sistema nunca calcula esta fecha;
      `fecha_pago_programada` permanece `NULL` siempre. El acuerdo se documenta
      en `frecuencia_pago_detalle`, capturado una sola vez al registrar.
-   > Implementación pendiente: la fórmula vive en `movimiento_service.py`
-   > (ver docs/REPORT.md, ajuste de Movimientos) — hoy solo se documenta la
+   > Implementación pendiente: la fórmula vive en `movimiento_service.py`;
+   > ver `docs/REPORT.md` para su estado actual — hoy solo se documenta la
    > regla y se captura el dato de origen (`dia_pago_especifico` /
    > `frecuencia_pago_detalle`) en el alta del cliente.
 3. **Sistema de banderas (visual, no bloqueante):**
    - 🟡 Amarilla: `fecha_pago_programada - hoy <= 2 días`
    - 🔴 Roja: `hoy > fecha_pago_programada`
-   - Sin bandera: cualquier otro caso, o `fecha_pago_programada = NULL`, o `saldo = 0`
+   - 🟠 Naranja: el cliente tiene un apartado abierto (`apartados.estatus = 'abierto'`)
+     y faltan 5 días o menos para cumplirse un mes desde `apartados.fecha_apartado`.
+     Se calcula al vuelo, no se persiste. Es **independiente** de `fecha_pago_programada`
+     y de las banderas amarilla/roja — puede coexistir con cualquiera de ellas, ya que
+     responde a un ciclo distinto (el plazo de un apartado, no el ciclo normal de abonos).
+     Se apaga en cuanto `apartados.estatus = 'liquidado'`. Ver §5 para el detalle de
+     `apartados`.
+   - Sin bandera amarilla/roja: cualquier otro caso, o `fecha_pago_programada = NULL`, o `saldo = 0`
 
 ---
 
@@ -181,7 +192,7 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
    - `disponible` → `en_ruta`, `disponible_c/descuento`, `apartado`, `vendido`
    - `disponible_c/descuento` → `disponible`, `en_ruta`, `apartado`, `vendido`
    - `en_ruta` → `disponible`, `vendido`
-   - `apartado` → `disponible` (cancelación), `vendido` (liquidación)
+   - `apartado` → `disponible` (cancelación del artículo), `vendido` (liquidación del apartado)
    - `vendido` → sin transición posible
 2. **`precio_descuento` no tiene columna de porcentaje** — se calcula al vuelo: `(1 - precio_descuento / precio_venta) * 100`.
 3. **Todo cambio de `estatus` debe actualizar `changed_status`** en la misma transacción — invariante global del sistema.
@@ -190,30 +201,60 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 
 ## 5. Panel Principal — Movimientos de caja
 
+> El Panel Principal es la pantalla de operación cotidiana: caja registradora, siempre
+> visible. Cubre cuatro operaciones — `contado`, `apartado`, `abono`, `gasto` — y escribe
+> en `movimientos`, y adicionalmente en `apartados` / `apartados_articulos` cuando la
+> operación es `apartado`.
+
 ### Modelo de datos
+
+**`movimientos`** (registro de todo evento de caja):
 
 | Campo | Tipo | Regla |
 |---|---|---|
 | `id_movimiento` | Integer, PK | — |
 | `operacion` | Enum: `contado`, `apartado`, `abono`, `gasto` | Obligatorio |
 | `id_cliente` | FK → `clientes`, nullable | Obligatorio en `apartado`/`abono`. `NULL` en `gasto` |
-| `id_producto` | FK → `inventario`, nullable | Solo cuando aplica (contado/apartado desde inventario) |
-| `monto` | Float | Obligatorio, > 0 |
+| `id_producto` | FK → `inventario`, nullable | Solo en `contado` con coincidencia en inventario |
+| `id_apartado` | FK → `apartados`, nullable | Solo en `apartado` — enlaza el evento de caja con su lote |
+| `monto` | Float | Obligatorio, > 0. En `apartado`, representa el primer pago del lote, no el saldo |
 | `forma_pago` | Enum: `efectivo`, `transferencia`, `tarjeta` | Depende de `configuracion` (métodos activos) |
 | `saldo_resultante` | Float, nullable | `NULL` en `contado`/`gasto`. Calculado en `apartado`/`abono` |
 | `descripcion` | String(60), nullable | **Obligatoria únicamente en `gasto`** |
 | `fecha` | DateTime | Autogenerado |
 
+**`apartados`** (cabecera de un lote de apartado):
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_apartado` | Integer, PK | — |
+| `id_cliente` | FK → `clientes` | Obligatorio |
+| `fecha_apartado` | DateTime | Autogenerado. Semilla de la bandera naranja (ver §2) |
+| `monto_primer_pago` | Float | Mínimo $100.00. Cubre todo el lote, no por artículo |
+| `saldo_pendiente` | Float | `Σ(precio_producto del lote) - monto_primer_pago`. Se reduce únicamente por abonos |
+| `estatus` | Enum: `abierto`, `liquidado` | Default `abierto` |
+
+**`apartados_articulos`** (detalle, 1 a N artículos por lote):
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id_apartado_articulo` | Integer, PK | Nunca aparece en UI |
+| `id_apartado` | FK → `apartados` | Obligatorio |
+| `id_producto` | FK → `inventario`, nullable | Opcional. `NULL` si no hubo coincidencia en inventario o no se capturó |
+| `precio_producto` | Float | Autollenado desde `inventario.precio_venta` si hay coincidencia; capturado a mano si no. Se persiste siempre |
+| `estatus_articulo` | Enum: `vigente`, `vendido`, `cancelado` | Default `vigente` |
+
 ### Reglas de negocio por operación
 
-- **Contado:** no impacta saldo de cliente. Si el producto viene de `inventario`, descuenta `stock` y marca `vendido` si llega a 0.
+- **Contado:** no impacta saldo de cliente. `id_producto` es opcional; si hay coincidencia en `inventario`, se autollenan descripción y precio, se descuenta `stock` y se marca `vendido` si llega a 0. Si no hay coincidencia — producto no registrado en el sistema, o no se capturó `id_producto` — la descripción y el precio se capturan a mano y no hay efecto en inventario.
 - **Apartado:**
-  1. Cliente obligatorio. Producto debe existir en `inventario` con estatus `disponible` o `disponible_c/descuento`.
-  2. **Primer pago mínimo: $100.00.** El backend rechaza montos menores.
-  3. `saldo_resultante = precio_producto - primer_pago`, se **suma** al saldo existente del cliente (`saldo += saldo_resultante`). Nunca se sobrescribe. Si el `estatus` del cliente era `inactivo`, cambia a `activo` en la misma transacción.
-  4. `inventario.estatus` cambia a `apartado` en la misma transacción.
-  5. Cancelación del apartado: `inventario.estatus` vuelve a `disponible`; el saldo pendiente se resta (el primer pago no se devuelve salvo decisión de la operadora).
-- **Abono:** `saldo_resultante = saldo_actual - monto`. Rechazado si `monto > saldo_actual`. Recalcula `fecha_pago_programada` del cliente. Si `saldo_resultante` llega a `0`, el `estatus` del cliente cambia a `inactivo` en la misma transacción.
+  1. Cliente obligatorio, registrado en `clientes`. Un cliente solo puede tener un apartado abierto (`estatus = 'abierto'`) a la vez; ese apartado agrupa de 1 a N artículos bajo la misma `fecha_apartado`.
+  2. Por artículo, `id_producto` es opcional. Con coincidencia en `inventario` (`estatus IN ('disponible', 'disponible_c/descuento')`), el sistema autollena `precio_producto` y, al confirmar, cambia `inventario.estatus` a `apartado`. Sin coincidencia, `precio_producto` se captura a mano y el artículo no genera movimiento de inventario, aunque sí forma parte del saldo del lote.
+  3. **Primer pago mínimo: $100.00, único para todo el lote** (no por artículo). El backend rechaza montos menores.
+  4. `saldo_pendiente = Σ(precio_producto de todos los artículos del lote) - monto_primer_pago`, se **suma** al saldo existente del cliente (`saldo += saldo_pendiente`). Nunca se sobrescribe. Si el `estatus` del cliente era `inactivo`, cambia a `activo` en la misma transacción.
+  5. Liquidación: cuando `apartados.saldo_pendiente` llega a `0` vía abonos, `apartados.estatus` pasa a `liquidado`; todo artículo `vigente` con `id_producto` existente en `inventario` cambia a `inventario.estatus = 'vendido'`. La bandera naranja del cliente se apaga.
+  6. Cancelación de un artículo del lote: `estatus_articulo` pasa a `cancelado`; si tiene `id_producto` existente en `inventario`, su estatus vuelve a `disponible`. La cancelación **no ajusta** `saldo_pendiente` ni `clientes.saldo` — la deuda generada por ese artículo permanece y se cobra igual que cualquier otro saldo pendiente del cliente.
+- **Abono:** `saldo_resultante = saldo_actual - monto`. Rechazado si `monto > saldo_actual`. Recalcula `fecha_pago_programada` del cliente según su `frecuencia_pago` (§2). Si el cliente tiene un apartado abierto, el mismo abono reduce también `apartados.saldo_pendiente`; si ese saldo llega a `0`, aplica la regla de liquidación anterior. Si `saldo_resultante` (saldo general del cliente) llega a `0`, el `estatus` del cliente cambia a `inactivo` en la misma transacción.
 - **Gasto:** sin cliente ni producto. `descripcion` obligatoria. `saldo_resultante = NULL`. Representa salida de caja.
 
 > El saldo agregado del negocio no es un campo en base de datos — se deriva por consulta agregada sobre `movimientos`.
@@ -224,11 +265,10 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 
 > La boutique actúa como intermediaria: compra en la app de Shein a nombre del cliente y cobra el mismo precio, siempre de contado, sin devoluciones.
 >
-> **Corrección de diseño:** `shein_pedidos` deja de ser una tabla plana de un artículo por
-> renglón. Adopta la misma estructura cabecera-detalle que `pedidos` / `pedidos_articulos`
-> (§3): un `shein_pedido` es una cabecera con 1 a 4 artículos en `shein_pedidos_articulos`.
-> A diferencia de Pedidos, **Shein no maneja el concepto de artículo alternativo** — no
-> aplica `rol` ni `id_articulo_principal`.
+> `shein_pedidos` adopta la misma estructura cabecera-detalle que `pedidos` /
+> `pedidos_articulos` (§3): un `shein_pedido` es una cabecera con 1 a 4 artículos en
+> `shein_pedidos_articulos`. A diferencia de Pedidos, **Shein no maneja el concepto de
+> artículo alternativo** — no aplica `rol` ni `id_articulo_principal`.
 
 ### Modelo de datos
 
@@ -275,16 +315,12 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 | `total_ticket` | Float | Lo efectivamente pagado en caja OXXO. Captura manual, dato de Shein |
 | `cupon` | Float | `suma_pedidos - total_ticket`. Calculado por backend al guardar |
 
-> `porcentaje_bono` / `bono_monto` del diseño anterior quedan obsoletos: el bono
-> (ahora `cupon`) no se estima con un porcentaje interno, lo determina Shein y se
-> obtiene junto con `total_ticket` al pagar en OXXO.
-
 ### Reglas de negocio
 
 1. **Por qué `shein_clientes` es independiente:** forzar estos clientes en `clientes` introduciría campos obligatorios que no aplican (garante, saldo, frecuencia de pago) y contaminaría la cartera de crédito real.
 2. **Un `shein_pedido` tiene de 1 a 4 artículos.** Solo el primero es obligatorio al crear; los demás se pueden agregar mientras el pedido siga editable (`id_shein_corte IS NULL`, con al menos un artículo en `vigente`).
 3. **Sin saldo, sin cartera de crédito.** A diferencia de Pedidos, ningún artículo Shein impacta el `saldo` de ningún cliente en ningún momento del ciclo — el cliente Shein siempre paga de contado en OXXO. `estatus_pago` en `shein_pedidos` es el único mecanismo de seguimiento de cobro.
-4. **Variación de precios (corregido):** ya sea que el precio **baje o suba** entre el momento del pedido y el momento del corte, se notifica al cliente y este debe confirmar el artículo con el precio actualizado. No existe el caso "la tienda absorbe la diferencia en silencio" del diseño anterior.
+4. **Variación de precios:** ya sea que el precio **baje o suba** entre el momento del pedido y el momento del corte, se notifica al cliente y este debe confirmar el artículo con el precio actualizado. La tienda nunca absorbe la diferencia en silencio.
 5. **Resolución de `estatus_articulo` en el corte:**
    - Si el precio no cambió: el artículo pasa automáticamente a `confirmado` (con `monto_vigente = NULL`, se usa `monto`).
    - Si el precio cambió y el cliente confirma: `estatus_articulo = 'confirmado'`, `monto_vigente` se llena con el nuevo precio.
@@ -295,7 +331,7 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 7. **Ciclo de `estatus_pago`:** al guardar un `shein_corte`, todos los `shein_pedidos` incluidos (con al menos un artículo `confirmado`) pasan de `NULL` a `pago_pendiente`. Conforme cada cliente paga en OXXO, su pedido pasa individualmente a `pagado`. `estatus_pago` vive en `shein_pedidos`, no en `shein_clientes` ni en `shein_cortes` — dos pedidos del mismo cliente en cortes distintos pueden tener estatus de pago diferentes.
 8. **Cálculo de montos:**
    - `monto_pedido` (por pedido): suma de `COALESCE(monto_vigente, monto)` de los artículos `confirmado` de ese pedido. No es una columna almacenada — se deriva por consulta.
-   - `suma_pedidos` (por corte): suma de `monto_pedido` de todos los pedidos incluidos en el corte. Sí se almacena en `shein_cortes`, igual que `bono_monto` en el diseño anterior.
+   - `suma_pedidos` (por corte): suma de `monto_pedido` de todos los pedidos incluidos en el corte. Sí se almacena en `shein_cortes`.
 9. **`cupon` no se calcula internamente.** Shein lo determina externamente y la tienda lo obtiene junto con `total_ticket` al momento de pagar en caja OXXO — ambos se capturan en la misma acción de guardar el corte. `cupon = suma_pedidos - total_ticket`.
 10. **El pago de la tienda al proveedor (OXXO) es informativo y no se registra en el sistema** — no existe un estatus "confirmado → pagado" a nivel `shein_corte`. Lo único que el sistema rastrea después de `fecha_corte` es el cobro al cliente (`estatus_pago` en `shein_pedidos`).
 
@@ -364,6 +400,7 @@ Tres consultas de solo lectura sobre datos agregados (no reemplazan la Consulta 
 Reglas que aplican transversalmente y que cualquier servicio nuevo debe respetar:
 
 - El saldo de un cliente **nunca se sobrescribe** — siempre `saldo += monto` o `saldo -= monto`. Nunca `saldo = monto`.
+- `apartados.saldo_pendiente` solo se reduce mediante abonos — nunca se ajusta por la cancelación de artículos individuales del lote.
 - Ninguna operación de caja se registra sin `forma_pago`.
 - Ningún cambio de `estatus` en `inventario` ocurre sin actualizar `changed_status` en la misma transacción.
 - Toda fecha de negocio se almacena en `YYYY-MM-DD` (o timestamp completo cuando la tabla lo requiere) y se muestra al usuario en `DD-MM-YYYY`.

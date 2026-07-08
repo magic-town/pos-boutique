@@ -144,13 +144,15 @@ determinar alertas visuales.
 | ----------- | ----------------------------------------------------------- | ---------------- |
 | 🟡 Amarilla  | `fecha_pago_programada - hoy <= 2 días`                     | Próximo a vencer |
 | 🔴 Roja      | `hoy > fecha_pago_programada`                               | Vencido          |
+| 🟠 Naranja   | Cliente tiene apartado abierto a ≤ 5 días de vencer su mes  | Apartado x vencer|
 | Sin bandera | Ninguna de las anteriores, o `fecha_pago_programada = NULL` | Normal           |
 
 **Notas de implementación:**
 
 - La evaluación se ejecuta al cargar el panel principal o el módulo Clientes.
-- Clientes con `frecuencia_pago = otro` y `fecha_pago_programada = NULL` no generan bandera.
-- Clientes con `saldo = 0` no generan bandera aunque tengan `fecha_pago_programada` definida.
+- Clientes con `frecuencia_pago = otro` y `fecha_pago_programada = NULL` no generan bandera amarilla ni roja.
+- Clientes con `saldo = 0` no generan bandera amarilla ni roja aunque tengan `fecha_pago_programada` definida.
+- La bandera naranja depende de `apartados.fecha_apartado`, es independiente del ciclo normal de abonos y puede coexistir con las otras banderas.
 - La bandera es visual — no bloquea operaciones.
 
 ---

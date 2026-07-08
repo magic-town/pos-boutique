@@ -12,7 +12,13 @@ Revisión 2 (ver docs/REPORT.md §0, §2a, §2b). Respecto al models.py ya migra
 
 El resto de las tablas (clientes, pedidos, pedidos_articulos, inventario,
 movimientos, recargas, usuarios, configuracion) no cambia en esta revisión —
-siguen igual que el models.py vigente en el repo.
+siguen igual que el models.py vigente en el repo, a excepción de Movimientos
+que recibe la FK `id_apartado`.
+
+ACTUALIZACIÓN (Apartados y Bandera Naranja, ver docs/REPORT.md):
+- apartados:             tabla NUEVA (cabecera de lotes de apartado).
+- apartados_articulos:   tabla NUEVA (detalle de artículos en un apartado).
+- movimientos:           se agrega FK `id_apartado`.
 
 ACTUALIZACIÓN (regla de negocio frecuencia_pago, ver docs/REGLAS_NEGOCIO.md §2):
 clientes agrega 2 columnas nuevas, pendientes de migración Alembic sobre el
@@ -23,10 +29,10 @@ esquema ya migrado:
                            frecuencia_pago = otro.
 
 NOTA: este archivo se entrega para revisión. La migración Alembic correctiva
-(que agrega precios_catalogo y shein_pedidos_articulos, reestructura
-shein_pedidos/shein_cortes sobre el esquema ya migrado, y agrega
-dia_pago_especifico/frecuencia_pago_detalle a clientes) es el siguiente paso,
-una vez se apruebe este esquema.
+(que agrega precios_catalogo, shein_pedidos_articulos, apartados, y
+apartados_articulos, reestructura shein_pedidos/shein_cortes, agrega FK
+id_apartado a movimientos y agrega dia_pago_especifico/frecuencia_pago_detalle a
+clientes) es el siguiente paso, una vez se apruebe este esquema.
 """
 
 from sqlalchemy import (
@@ -143,6 +149,17 @@ class EstatusPago(enum.Enum):
     pagado = "pagado"
 
 
+class EstatusApartado(enum.Enum):
+    abierto = "abierto"
+    liquidado = "liquidado"
+
+
+class EstatusApartadoArticulo(enum.Enum):
+    vigente = "vigente"
+    vendido = "vendido"
+    cancelado = "cancelado"
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # MÓDULO CLIENTES
 # ──────────────────────────────────────────────────────────────────────────
@@ -169,6 +186,7 @@ class Cliente(Base):
 
     movimientos   = relationship("Movimiento", back_populates="cliente")
     pedidos       = relationship("Pedido", back_populates="cliente")
+    apartados     = relationship("Apartado", back_populates="cliente")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -254,6 +272,7 @@ class Inventario(Base):
     changed_status    = Column(Date, nullable=True)      # autogenerado al cambiar estatus
 
     movimientos = relationship("Movimiento", back_populates="producto")
+    apartados_articulos = relationship("ApartadoArticulo", back_populates="producto")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -267,6 +286,7 @@ class Movimiento(Base):
     operacion        = Column(Enum(Operacion), nullable=False)
     id_cliente       = Column(Integer, ForeignKey("clientes.id_cliente"), nullable=True)
     id_producto      = Column(Integer, ForeignKey("inventario.id_producto"), nullable=True)
+    id_apartado      = Column(Integer, ForeignKey("apartados.id_apartado"), nullable=True)
     monto            = Column(Float, nullable=False)
     forma_pago       = Column(Enum(FormaPago), nullable=False)
     saldo_resultante = Column(Float, nullable=True)    # NULL en contado y gasto
@@ -275,6 +295,35 @@ class Movimiento(Base):
 
     cliente  = relationship("Cliente", back_populates="movimientos")
     producto = relationship("Inventario", back_populates="movimientos")
+    apartado = relationship("Apartado", back_populates="movimientos")
+
+
+class Apartado(Base):
+    __tablename__ = "apartados"
+
+    id_apartado       = Column(Integer, primary_key=True, index=True)
+    id_cliente        = Column(Integer, ForeignKey("clientes.id_cliente"), nullable=False)
+    fecha_apartado    = Column(DateTime, server_default=func.now(), nullable=False)
+    monto_primer_pago = Column(Float, nullable=False)
+    saldo_pendiente   = Column(Float, nullable=False)
+    estatus           = Column(Enum(EstatusApartado), nullable=False, default=EstatusApartado.abierto)
+
+    cliente     = relationship("Cliente", back_populates="apartados")
+    articulos   = relationship("ApartadoArticulo", back_populates="apartado")
+    movimientos = relationship("Movimiento", back_populates="apartado")
+
+
+class ApartadoArticulo(Base):
+    __tablename__ = "apartados_articulos"
+
+    id_apartado_articulo = Column(Integer, primary_key=True, index=True)
+    id_apartado          = Column(Integer, ForeignKey("apartados.id_apartado"), nullable=False)
+    id_producto          = Column(Integer, ForeignKey("inventario.id_producto"), nullable=True)
+    precio_producto      = Column(Float, nullable=False)
+    estatus_articulo     = Column(Enum(EstatusApartadoArticulo), nullable=False, default=EstatusApartadoArticulo.vigente)
+
+    apartado = relationship("Apartado", back_populates="articulos")
+    producto = relationship("Inventario", back_populates="apartados_articulos")
 
 
 # ──────────────────────────────────────────────────────────────────────────

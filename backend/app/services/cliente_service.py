@@ -1,5 +1,8 @@
+import calendar
+from datetime import date, datetime, timedelta
+
 from sqlalchemy.orm import Session
-from app.models.models import Cliente
+from app.models.models import Cliente, Apartado
 from app.schemas.cliente import ClienteCreate
 
 
@@ -29,6 +32,51 @@ def sincronizar_estatus(cliente: Cliente) -> None:
     que modifique `cliente.saldo` -- Clientes, Pedidos o Movimientos.
     """
     cliente.estatus = "activo" if cliente.saldo > 0 else "inactivo"
+
+
+def _sumar_un_mes(f: date) -> date:
+    """
+    Suma un mes calendario a `f`, ajustando al último día del mes destino si
+    este tiene menos días (p. ej. 31-ene -> 28/29-feb). Se evita
+    `timedelta(days=30)` porque desalinearía la fecha de vencimiento en
+    meses de 28, 29 o 31 días.
+    """
+    year = f.year + (1 if f.month == 12 else 0)
+    month = 1 if f.month == 12 else f.month + 1
+    ultimo_dia_mes = calendar.monthrange(year, month)[1]
+    return date(year, month, min(f.day, ultimo_dia_mes))
+
+
+def calcular_bandera_naranja(db: Session, cliente: Cliente) -> bool:
+    """
+    Bandera naranja — alerta de apartado por vencer (module_movimientos.md
+    §"Bandera naranja"; REPORT.md §5 Nivel 3, punto 7).
+
+    Independiente de las banderas amarilla/roja del ciclo normal de pagos
+    (`clientes.fecha_pago_programada`). Se calcula al vuelo, en lectura;
+    no se persiste como columna.
+
+    Semilla: `apartados.fecha_apartado` del apartado abierto del cliente
+    (a lo más uno, por regla de negocio — module_movimientos.md regla 2).
+    Activa cuando el apartado sigue `abierto` y faltan <=5 días para
+    cumplirse 1 mes desde `fecha_apartado`. Se apaga al liquidarse.
+    """
+    apartado = (
+        db.query(Apartado)
+        .filter(Apartado.id_cliente == cliente.id_cliente, Apartado.estatus == "abierto")
+        .order_by(Apartado.fecha_apartado.desc())
+        .first()
+    )
+    if apartado is None:
+        return False
+
+    fecha_apartado = apartado.fecha_apartado
+    if isinstance(fecha_apartado, datetime):
+        fecha_apartado = fecha_apartado.date()
+
+    vencimiento = _sumar_un_mes(fecha_apartado)
+    umbral_activacion = vencimiento - timedelta(days=5)
+    return date.today() >= umbral_activacion
 
 
 def crear_cliente(db: Session, data: ClienteCreate) -> Cliente:

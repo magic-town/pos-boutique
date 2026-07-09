@@ -2,7 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.cliente import ClienteCreate, ClienteRead, ClienteResumen
-from app.services.cliente_service import crear_cliente, buscar_clientes, obtener_cliente
+from app.services.cliente_service import (
+    crear_cliente,
+    buscar_clientes,
+    obtener_cliente,
+    calcular_bandera_naranja,
+)
 from app.services.auth_service import get_current_user
 
 router = APIRouter(prefix="/clientes", tags=["clientes"])
@@ -14,7 +19,9 @@ def registrar_cliente(
     db: Session = Depends(get_db),
     _: object = Depends(get_current_user),
 ):
-    return crear_cliente(db, data)
+    cliente = crear_cliente(db, data)
+    cliente.bandera_naranja = calcular_bandera_naranja(db, cliente)
+    return cliente
 
 
 @router.get("", response_model=list[ClienteResumen])
@@ -35,6 +42,7 @@ def detalle_cliente(
     cliente = obtener_cliente(db, id_cliente)
     if not cliente:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente no encontrado")
+    cliente.bandera_naranja = calcular_bandera_naranja(db, cliente)
     return cliente
 
 # NOTA (revisión de negocio, ver conversación con el usuario): se quitó el

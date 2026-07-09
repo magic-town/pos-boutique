@@ -77,6 +77,14 @@ class ClienteRead(BaseModel):
     frecuencia_pago_detalle: Optional[str]
     fecha_pago_programada: Optional[date]  # INC-10 — Column(Date) en models.py
     fecha_registro: date  # corregido: Column(Date) en models.py, no nullable ahí
+    bandera_naranja: bool
+    # No es columna de `clientes` — no hay atributo mapeado del mismo nombre
+    # en el modelo `Cliente`. Se calcula al vuelo (cliente_service.calcular_
+    # bandera_naranja(), module_movimientos.md §"Bandera naranja") y debe
+    # asignarse al objeto ANTES de construir este schema, p. ej.:
+    #   cliente.bandera_naranja = calcular_bandera_naranja(db, cliente)
+    #   ClienteRead.model_validate(cliente)
+    # De lo contrario `from_attributes` no encuentra el valor al serializar.
 
     model_config = {"from_attributes": True}
 

@@ -113,6 +113,7 @@ Diseño completo de columnas y tipos: `REGLAS_NEGOCIO.md`.
 | ¿Cómo se cancela un apartado si el cliente no termina de pagar? | No existe "cancelar el lote". Se cancela artículo por artículo (1, 2, o todos, vía `cancelar_articulo_apartado()`); `apartados` nunca se da de baja como unidad — sigue `abierto` hasta liquidarse por abono. |
 | ¿`estatus` del cliente cambia automático al liquidar por abono? | Sí, automático (`sincronizar_estatus()`), nunca manual. `module_movimientos.md` tenía una nota contraria a esto — corrección pendiente de aplicar ahí. |
 | ¿`ApartadoCreate` recibe `no_cliente` o `id_cliente`?     | `id_cliente` ya resuelto — consistente con `MovimientoCreate` (mismo campo "No. Cliente" del Panel Principal).                          |
+| ¿Se puede rehabilitar `estatus` manualmente?             | No. `estatus` no es campo capturable en ningún formulario/endpoint — se deriva solo de `saldo` vía `sincronizar_estatus()`. `PATCH /{id}/rehabilitar` fue removido y no se repone. |
 
 ### 3.1 Diseño de `precios_catalogo`
 
@@ -210,9 +211,9 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `app/schemas/inventario.py`             | Schema Inventario    | —                                                                                                                                                     |
 | `app/services/inventario_service.py`    | Lógica Inventario    | Transiciones validadas, descuento masivo.                                                                                                             |
 | `app/api/v1/endpoints/inventario.py`    | Endpoints Inventario | Registrado en `main.py`.                                                                                                                              |
-| `app/schemas/cliente.py`                | Schema Cliente       | `telefono`/`ref_telefono` int, `frecuencia_pago` obligatorio, validación condicional, `max_length` alineado. Sin bandera naranja expuesta todavía (depende de `apartados`, no migrado). |
-| `app/services/cliente_service.py`       | Lógica Cliente       | Sin referencia a `"liquidado"`. `crear_cliente()` asigna los 3 campos de frecuencia.   |
-| `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente    | Rutas: `POST /`, `GET /`, `GET /{id}`, `GET /{id}/historial`, `PATCH /{id}/rehabilitar`.                                                              |
+| `app/schemas/cliente.py`                | Schema Cliente       | `telefono`/`ref_telefono` int, `frecuencia_pago` obligatorio, validación condicional, `max_length` alineado. `ClienteRead.bandera_naranja: bool` agregado — no es columna mapeada, debe asignarse al objeto `Cliente` antes de `model_validate()` (lo hace el endpoint). No está en `ClienteResumen`. |
+| `app/services/cliente_service.py`       | Lógica Cliente       | Sin referencia a `"liquidado"`. `crear_cliente()` asigna los 3 campos de frecuencia. `calcular_bandera_naranja()` implementada — busca el apartado abierto del cliente y compara contra `fecha_apartado + 1 mes − 5 días`. |
+| `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente    | Rutas: `POST /` (asigna `bandera_naranja`), `GET /` (usa `ClienteResumen`, sin bandera), `GET /{id}` (asigna `bandera_naranja`). No existe `/{id}/historial` ni `/{id}/rehabilitar` (ver §3). |
 | `app/scripts/importar_precios.py`       | Import de precios    | 15,564 filas insertadas. Solo `INSERT`.                                                                                                               |
 | `app/schemas/movimiento.py`             | Schema Movimiento     | `descripcion` (no `notas`), alineado a `models.py`.                                                                                                    |
 | `app/schemas/apartado.py`               | Schema Apartado       | Cabecera + lista de artículos (`ApartadoCreate`), `id_cliente` resuelto, mínimo $100 validado.                                                         |
@@ -269,11 +270,11 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
    `MovimientoCreate` para la operación `apartado`. Implementado en
    `app/schemas/apartado.py`.
 5. ✅ `notas` → `descripcion` en `MovimientoCreate`/`MovimientoRead`. Pendiente: restringir `operacion` para que ya no acepte `apartado` como entrada válida (esa operación ahora entra por `ApartadoCreate`, no por `MovimientoCreate`).
-6. `schemas/cliente.py` — exponer la bandera naranja. Sigue pendiente: depende de que exista el cálculo (Nivel 3, punto 7).
+6. ✅ Cerrado — `bandera_naranja: bool` expuesta en `ClienteRead`, calculada en el endpoint antes de serializar.
 
 ### Nivel 3 — Servicios
 
-7. `cliente_service.py`: cálculo de bandera naranja; revisión de `sincronizar_estatus()`. Pendiente.
+7. ✅ Cerrado — `calcular_bandera_naranja()` en `cliente_service.py`. No requirió tocar `sincronizar_estatus()` (confirma lo ya documentado en §3: el cálculo vive fuera de esa función).
 8. ✅ Cerrado — implementado directo en `movimiento_service.py` (`crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`). No se separó en `apartado_service.py`.
 9. ✅ Cerrado — `contado`/`abono`/`gasto` completos en `movimiento_service.py`. Gaps reales que quedan, sin resolver:
    - `cancelar_movimiento()` no revierte `inventario` cuando se cancela un movimiento `contado` (el `stock` descontado no regresa).
@@ -310,7 +311,4 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** §5 Nivel 3, punto 7 — cálculo de bandera
-naranja en `cliente_service.py` (o el servicio/endpoint de Consulta Cliente),
-que ya no tiene dependencias pendientes: el modelo, `apartados`, y
-`movimiento_service.py` están cerrados.
+**Siguiente paso inmediato:** Código para `test/test_movimientos.py` con todos los casos: `abono`, `apartado (uno y varios articulos)`, `contado`, `gasto`, `forma_pago`, `saldo_resultante` necesitas ver `conftest.py`, la migración real ya tiene las 15 tablas (d4e5f6a7b8c9, head). El docstring de `models.py` está desactualizado respecto al repo real, código inexistente `app/api/v1/endpoints/apartados.py`. §5 Nivel 4, punto 12 — pruebas de `bandera_naranja` en `test_clientes.py` (ahora sin dependencias pendientes). En paralelo siguen abiertos: puntos 10–11 (tests de Apartado/Movimientos), los 2 gaps reales de `cancelar_movimiento()` (§5 punto 9), y el bug de Auth (§5 punto 16) — ninguno bloquea a los demás.

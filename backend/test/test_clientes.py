@@ -31,8 +31,14 @@ no aquí -- este archivo solo cubre el alta y la consulta.
   cliente_service.py todavía.
 """
 import uuid
+from datetime import date, datetime, timedelta
 
 import pytest
+
+from app.models.models import Apartado, Cliente, EstatusApartado, FormaPago
+from app.schemas.apartado import ApartadoArticuloCreate, ApartadoCreate
+from app.services.cliente_service import _sumar_un_mes, calcular_bandera_naranja
+from app.services.movimiento_service import crear_apartado
 
 
 def _payload_base(**overrides):
@@ -215,7 +221,151 @@ class TestConsultaCliente:
 
 
 # ---------------------------------------------------------------------------
-# 3. Rehabilitar Cliente -- ELIMINADO, no de negocio
+# 3. Bandera Naranja
+# (module_movimientos.md §"Bandera naranja"; REPORT.md §5 Nivel 3, punto 7.
+# calcular_bandera_naranja() vive en cliente_service.py, fuera de
+# sincronizar_estatus() -- no toca `clientes.estatus`, se calcula al vuelo
+# y se asigna al objeto Cliente antes de serializar ClienteRead.)
+# ---------------------------------------------------------------------------
+
+def _crear_apartado_para_cliente(db_session, id_cliente, precio=300.0, monto_primer_pago=100.0):
+    """Apartado de 1 artículo manual (sin id_producto) -- no depende de
+    Inventario, mismo criterio que test_movimientos.py."""
+    data = ApartadoCreate(
+        id_cliente=id_cliente,
+        articulos=[ApartadoArticuloCreate(id_producto=None, precio_producto=precio)],
+        monto_primer_pago=monto_primer_pago,
+        forma_pago=FormaPago.efectivo,
+    )
+    return crear_apartado(db_session, data)
+
+
+def _fijar_fecha_apartado(db_session, id_apartado, fecha):
+    apartado = db_session.query(Apartado).get(id_apartado)
+    apartado.fecha_apartado = datetime.combine(fecha, datetime.min.time())
+    db_session.commit()
+    return apartado
+
+
+def _fecha_apartado_para_vencimiento(vencimiento):
+    """Encuentra la fecha_apartado tal que _sumar_un_mes(fecha_apartado) ==
+    vencimiento -- por búsqueda directa contra la función real (no duplica
+    la lógica de calendario/clamp de fin de mes)."""
+    for dias in range(27, 32):
+        candidata = vencimiento - timedelta(days=dias)
+        if _sumar_un_mes(candidata) == vencimiento:
+            return candidata
+    raise AssertionError(f"No se encontró fecha_apartado para vencimiento {vencimiento}")
+
+
+class TestSumarUnMes:
+    """Unitario, sin DB -- el clamp de fin de mes es el detalle más frágil
+    de calcular_bandera_naranja() y merece su propio caso, independiente
+    de la fecha real del día en que se corra la suite."""
+
+    def test_dia_normal(self):
+        assert _sumar_un_mes(date(2024, 3, 10)) == date(2024, 4, 10)
+
+    def test_31_enero_a_febrero_bisiesto(self):
+        assert _sumar_un_mes(date(2024, 1, 31)) == date(2024, 2, 29)
+
+    def test_31_enero_a_febrero_no_bisiesto(self):
+        assert _sumar_un_mes(date(2023, 1, 31)) == date(2023, 2, 28)
+
+    def test_diciembre_cruza_anio(self):
+        assert _sumar_un_mes(date(2023, 12, 15)) == date(2024, 1, 15)
+
+
+class TestCalcularBanderaNaranja:
+    """Directo contra el service (calcular_bandera_naranja(db, cliente)),
+    sin pasar por el endpoint -- aísla la lógica de umbral de la mecánica
+    de asignación al schema (esa se prueba en TestBanderaNaranjaEndpoint)."""
+
+    def test_false_sin_apartado_abierto(self, client, auth_headers, db_session):
+        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
+        cliente = db_session.query(Cliente).get(creado["id_cliente"])
+        assert calcular_bandera_naranja(db_session, cliente) is False
+
+    def test_false_recien_creado_lejos_del_vencimiento(self, client, auth_headers, db_session):
+        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
+        _crear_apartado_para_cliente(db_session, creado["id_cliente"])
+        cliente = db_session.query(Cliente).get(creado["id_cliente"])
+        assert calcular_bandera_naranja(db_session, cliente) is False
+
+    def test_false_un_dia_antes_del_umbral(self, client, auth_headers, db_session):
+        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
+        apartado = _crear_apartado_para_cliente(db_session, creado["id_cliente"])
+
+        vencimiento = date.today() + timedelta(days=6)  # umbral quedaría mañana, no hoy
+        fecha_apartado = _fecha_apartado_para_vencimiento(vencimiento)
+        _fijar_fecha_apartado(db_session, apartado.id_apartado, fecha_apartado)
+
+        cliente = db_session.query(Cliente).get(creado["id_cliente"])
+        assert calcular_bandera_naranja(db_session, cliente) is False
+
+    def test_true_justo_en_el_umbral(self, client, auth_headers, db_session):
+        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
+        apartado = _crear_apartado_para_cliente(db_session, creado["id_cliente"])
+
+        vencimiento = date.today() + timedelta(days=5)  # umbral (vencimiento - 5) == hoy
+        fecha_apartado = _fecha_apartado_para_vencimiento(vencimiento)
+        _fijar_fecha_apartado(db_session, apartado.id_apartado, fecha_apartado)
+
+        cliente = db_session.query(Cliente).get(creado["id_cliente"])
+        assert calcular_bandera_naranja(db_session, cliente) is True
+
+    def test_true_apartado_ya_vencido(self, client, auth_headers, db_session):
+        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
+        apartado = _crear_apartado_para_cliente(db_session, creado["id_cliente"])
+        _fijar_fecha_apartado(db_session, apartado.id_apartado, date.today() - timedelta(days=60))
+
+        cliente = db_session.query(Cliente).get(creado["id_cliente"])
+        assert calcular_bandera_naranja(db_session, cliente) is True
+
+    def test_false_si_el_apartado_ya_no_esta_abierto(self, client, auth_headers, db_session):
+        """Aunque la fecha esté vencida, un apartado liquidado o cancelado
+        no debe encender la bandera -- solo cuenta el que sigue 'abierto'."""
+        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
+        apartado = _crear_apartado_para_cliente(db_session, creado["id_cliente"])
+        _fijar_fecha_apartado(db_session, apartado.id_apartado, date.today() - timedelta(days=60))
+
+        apartado_db = db_session.query(Apartado).get(apartado.id_apartado)
+        apartado_db.estatus = EstatusApartado.liquidado
+        db_session.commit()
+
+        cliente = db_session.query(Cliente).get(creado["id_cliente"])
+        assert calcular_bandera_naranja(db_session, cliente) is False
+
+
+class TestBanderaNaranjaEndpoint:
+    """A través de la API real -- confirma que POST y GET asignan
+    bandera_naranja al objeto antes de serializar ClienteRead (ver
+    schemas/cliente.py: no es columna mapeada, from_attributes no la
+    encuentra si no se asigna a mano antes)."""
+
+    def test_post_nace_con_bandera_naranja_falsa(self, client, auth_headers):
+        resp = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers)
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["bandera_naranja"] is False
+
+    def test_get_sin_apartado_bandera_naranja_falsa(self, client, auth_headers):
+        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
+        resp = client.get(f"/api/v1/clientes/{creado['id_cliente']}", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["bandera_naranja"] is False
+
+    def test_get_con_apartado_vencido_bandera_naranja_activa(self, client, auth_headers, db_session):
+        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
+        apartado = _crear_apartado_para_cliente(db_session, creado["id_cliente"])
+        _fijar_fecha_apartado(db_session, apartado.id_apartado, date.today() - timedelta(days=60))
+
+        resp = client.get(f"/api/v1/clientes/{creado['id_cliente']}", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["bandera_naranja"] is True
+
+
+# ---------------------------------------------------------------------------
+# 4. Rehabilitar Cliente -- ELIMINADO, no de negocio
 # ---------------------------------------------------------------------------
 #
 # `estatus` es un campo derivado de `saldo`, nunca editable por la

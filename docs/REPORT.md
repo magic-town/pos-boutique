@@ -83,7 +83,7 @@ Diseño completo de columnas y tipos: `REGLAS_NEGOCIO.md`.
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | ¿Se conserva data de `pos.db`?                           | No. Reset limpio; esquema nace de `models.py` vía Alembic.                                                                              |
 | ¿Async o sync en SQLAlchemy?                             | Síncrono.                                                                                                                               |
-| ¿Nombres de campo en `Usuario`?                          | `usuario` (no `username`) y `password_hash` (no `hashed_password`). **`schemas/usuario.py` sigue sin alinearse** — pendiente §5 paso 15. |
+| ¿Nombres de campo en `Usuario`?                          | `usuario` (no `username`) y `password_hash` (no `hashed_password`). **`schemas/usuario.py` sigue sin alinearse** — pendiente §5 punto 13. |
 | ¿`pedidos` plano o cabecera-detalle?                     | Cabecera-detalle.                                                                                                                       |
 | ¿Shein comparte tabla de clientes?                       | No. `shein_clientes` independiente.                                                                                                     |
 | ¿`shein_pedidos` plano o cabecera-detalle?               | Cabecera-detalle, sin alternativa.                                                                                                      |
@@ -121,7 +121,7 @@ Diseño completo de columnas y tipos: `REGLAS_NEGOCIO.md`.
 | ¿`estatus` del cliente cambia automático al liquidar por abono? | Sí, automático (`sincronizar_estatus()`), nunca manual. `module_movimientos.md` tenía una nota contraria a esto — corrección pendiente de aplicar ahí. |
 | ¿`ApartadoCreate` recibe `no_cliente` o `id_cliente`?     | `id_cliente` ya resuelto — consistente con `MovimientoCreate` (mismo campo "No. Cliente" del Panel Principal).                          |
 | ¿Se puede rehabilitar `estatus` manualmente?             | No. `estatus` no es campo capturable en ningún formulario/endpoint — se deriva solo de `saldo` vía `sincronizar_estatus()`. `PATCH /{id}/rehabilitar` fue removido y no se repone. |
-| ¿Semántica de `saldo_resultante` en movimientos con cliente? | Siempre el saldo TOTAL del cliente tras la operación, nunca un delta — misma regla para `abono` y `apartado`. La cadena de reversión de `cancelar_movimiento()` depende de este invariante. |
+| ¿Semántica de `saldo_resultante` en movimientos con cliente? | Siempre el saldo TOTAL del cliente tras la operación, nunca un delta — misma regla para `abono` y `apartado`. Es informativo (historial); `cancelar_movimiento()` revierte por delta (`+=`/`-=` según la operación), no depende de este campo. |
 | ¿Qué pasa al cancelar un movimiento `apartado` (deshacer el registro recién hecho)? | Se cancela el lote completo: cada artículo `vigente` → `cancelado`, cada producto regresa a inventario, `apartados.estatus → cancelado`. Solo aplica si es la última operación del cliente (nadie ha abonado desde entonces). Distinto del flujo de "no le alcanzó para pagar" (cancelación parcial en cualquier momento vía `cancelar_articulo_apartado()`, sin tocar saldo). |
 | ¿A qué estatus regresa un producto al cancelarse (contado o lote de apartado)? | `disponible_c/descuento` si `precio_descuento` no es nulo, si no `disponible` — no siempre `disponible` a secas. |
 
@@ -227,7 +227,7 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `app/scripts/importar_precios.py`       | Import de precios    | 15,564 filas insertadas. Solo `INSERT`.                                                                                                               |
 | `app/schemas/movimiento.py`             | Schema Movimiento     | `descripcion` (no `notas`), alineado a `models.py`. Verificado contra archivo real.                                                                    |
 | `app/schemas/apartado.py`               | Schema Apartado       | Cabecera + lista de artículos (`ApartadoCreate`), `id_cliente` resuelto, mínimo $100 validado. Verificado contra archivo real, sin cambios pendientes.  |
-| `app/services/movimiento_service.py`    | Lógica Movimientos/Apartado | `contado`/`abono`/`gasto` completos. `crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`. `cancelar_movimiento()` revierte inventario en `contado` y cancela el lote completo en `apartado` (ver §3). `saldo_resultante` siempre guarda el saldo total del cliente (ver §3). Verificado contra archivo real. |
+| `app/services/movimiento_service.py`    | Lógica Movimientos/Apartado | `contado`/`abono`/`gasto` completos. `crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`. `cancelar_movimiento()` revierte inventario en `contado`, revierte saldo por delta (`+=`/`-=`, no depende de `saldo_resultante`) en `abono`/`apartado`, y cancela el lote completo en `apartado` (ver §3). Verificado contra archivo real y contra `test_movimientos.py` (28/28 en verde). |
 | `app/api/v1/endpoints/movimientos.py`   | Endpoint Movimientos | `POST /movimientos`, `GET /movimientos?id_cliente=`, `DELETE /movimientos/{id}/cancelar` — los 3 con `Depends(get_current_user)`. Verificado contra archivo real. **No expone `crear_apartado()`** — no hay endpoint para registrar un apartado todavía, solo capa de servicio (`app/api/v1/endpoints/apartados.py` sigue sin existir). |
 | `app/db/database.py`                    | Conexión BD          | SQLAlchemy síncrono.                                                                                                                                  |
 | `app/core/config.py`                    | Configuración        | Solo `DATABASE_URL`. Sin `AUTH_ENABLED`.                                                                                                              |
@@ -243,8 +243,9 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `test/test_pedidos.py`    | Pedidos    | ✅ en verde       |
 | `test/test_inventario.py` | Inventario | ✅ 19/19 en verde |
 | `test/test_shein.py`      | Shein      | ✅ 28/28 en verde |
-| `test/test_clientes.py`   | Clientes   | ✅ en verde       |
+| `test/test_clientes.py`   | Clientes   | ✅ 43/43 en verde |
 | `test/test_movimientos.py`| Movimientos| ✅ 28/28 en verde |
+| `test/test_apartados.py`  | Apartado   | ✅ 12/12 en verde |
 
 
 ### 4.3 Módulos con bugs activos — Auth
@@ -288,27 +289,23 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 
 7. ✅ Cerrado — `calcular_bandera_naranja()` en `cliente_service.py`. No requirió tocar `sincronizar_estatus()` (confirma lo ya documentado en §3: el cálculo vive fuera de esa función).
 8. ✅ Cerrado — implementado directo en `movimiento_service.py` (`crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`). No se separó en `apartado_service.py`.
-9. ✅ Cerrado — `contado`/`abono`/`gasto` completos en `movimiento_service.py`. `cancelar_movimiento()` revierte inventario en `contado` y cancela el lote completo en `apartado` (ver §3 para el detalle de comportamiento y el invariante de `saldo_resultante`).
+9. ✅ Cerrado — `contado`/`abono`/`gasto` completos en `movimiento_service.py`. `cancelar_movimiento()` revierte inventario en `contado`, revierte saldo por delta en `abono`/`apartado`, y cancela el lote completo en `apartado` (ver §3 para el detalle de comportamiento).
 
 ### Nivel 4 — Tests
 
-10. `test_apartados.py` (nuevo).
+✅ Cerrado.
+
+10. ✅ Cerrado — `test_apartados.py` — creado (ver §4.2).
 11. ✅ Cerrado — `test_movimientos.py` (`contado`/`abono`/`gasto`/`apartado`, 28 casos, corrida completa en verde).
-12. Revisión de `test_clientes.py` (bandera naranja).
-
-### Nivel 5 — Documentación
-
-13. ✅ `module_movimientos.md` — reescrito con el diseño cabecera-detalle de Apartado.
-14. ✅ `REGLAS_NEGOCIO.md` (§1, §2, §5, §11) — reescrito.
-15. ✅ Este archivo (`REPORT.md`) — actualizado en esta revisión.
+12. ✅ Cerrado — revisión de `test_clientes.py` (bandera naranja): agregada la sección 3 (`TestSumarUnMes`, `TestCalcularBanderaNaranja`, `TestBanderaNaranjaEndpoint`) — umbral de 5 días, clamp de fin de mes, y que un apartado no-`abierto` apague la bandera aunque la fecha esté vencida. Corrida completa en verde (ver §4.2).
 
 ### Pasos restantes de la ruta general (sin cambio de alcance)
 
-16. **Corregir Auth** (§4.4): rename `username` → `usuario` en `UsuarioRead`; `activo: str` → `activo: int`; alinear `endpoints/auth.py`; evaluar `TokenData.username` (severidad baja).
-17. **Construir Recargas** desde cero.
-18. **Construir Setting/Configuración** (esqueleto MVP — sin permisos diferenciados todavía).
-19. **Construir Consulta Global** (3 vistas de solo lectura).
-20. **Checklist real** — criterio de completado = pipeline + test.
+13. **Corregir Auth** (§4.4): rename `username` → `usuario` en `UsuarioRead`; `activo: str` → `activo: int`; alinear `endpoints/auth.py`; evaluar `TokenData.username` (severidad baja).
+14. **Construir Recargas** desde cero.
+15. **Construir Setting/Configuración** (esqueleto MVP — sin permisos diferenciados todavía).
+16. **Construir Consulta Global** (3 vistas de solo lectura).
+17. **Checklist real** — criterio de completado = pipeline + test.
 
 ---
 
@@ -321,9 +318,6 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** §5 Nivel 4 tiene 3 puntos, 1 cerrado (punto 11). Estado real de los otros 2:
+**Siguiente paso inmediato:** §5 Nivel 4 quedó cerrado por completo (puntos 10, 11 y 12 ✅ — `test_clientes.py` corrió completo en verde, incluida la nueva sección de bandera naranja). El siguiente punto de la ruta general es el **punto 13 — corregir Auth** (§4.3): rename `username` → `usuario` en `UsuarioRead`, `activo: str` → `activo: int`, alinear `endpoints/auth.py`, evaluar `TokenData.username` (severidad baja).
 
-- **Punto 10 — `test_apartados.py`** (`ApartadoCreate`, mínimo $100, resolución de precio con/sin `id_producto`): código fuente verificado (`apartado.py`, `movimiento_service.py`, `conftest.py`) — listo para escribirse.
-- **Punto 12 — revisión de `test_clientes.py`** (bandera naranja): sin bloqueo de dependencias de diseño, pero código fuente sin verificar todavía — falta `cliente_service.py` (`calcular_bandera_naranja()`) y `app/schemas/cliente.py` (`ClienteRead.bandera_naranja`).
-
-En paralelo, sin bloquear a los anteriores: el bug de Auth (§5 punto 16) y la corrección pendiente del docstring de `models.py` (ver §4.1).
+En paralelo, sin bloquear: la corrección pendiente del docstring de `models.py` (ver §4.1).

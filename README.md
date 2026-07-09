@@ -16,7 +16,7 @@ un panel único de operación diaria.
 
 | Orden | Documento | Para qué sirve |
 |---|---|---|
-| 1 | [`docs/00_FULLSTACK_DEVELOPMENT.md`](docs/00_FULLSTACK_DEVELOPMENT.md) | **Fuente de verdad.** Especificación de pantallas, formularios y flujos de UI/UX. Tiene precedencia sobre cualquier otro documento si hay contradicción. |
+| 1 | [`docs/FULLSTACK/*.md`](docs/FULLSTACK/README.md) | **Fuente de verdad.** Especificación de pantallas, formularios y flujos de UI/UX. Tiene precedencia sobre cualquier otro documento si hay contradicción. |
 | 2 | [`docs/REGLAS_NEGOCIO.md`](docs/REGLAS_NEGOCIO.md) | Modelo de datos completo (tablas, enums, relaciones) y reglas de negocio puras, sin UI. |
 | 3 | [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) | Stack técnico, estructura de carpetas, decisiones de arquitectura (auth, base de datos, despliegue). |
 

@@ -223,6 +223,19 @@ def registrar_movimiento(db: Session, data: MovimientoCreate) -> Movimiento:
         raise
 
 
+def _reactivar_producto(producto: Inventario) -> None:
+    """Regresa un producto a disponible al revertir la operación que lo
+    reservó/vendió (cancelar contado o cancelar lote de apartado). Preserva
+    'disponible_c/descuento' si el producto tenía un descuento activo
+    (precio_descuento no nulo) en vez de asumir siempre 'disponible'."""
+    producto.estatus = (
+        EstatusInventario.disponible_c_descuento
+        if producto.precio_descuento is not None
+        else EstatusInventario.disponible
+    )
+    producto.changed_status = date.today()
+
+
 def cancelar_movimiento(db: Session, id_movimiento: int) -> dict:
     """Cancela el último movimiento registrado para el cliente asociado.
     Correcciones de registros históricos se hacen con abono compensatorio
@@ -236,40 +249,92 @@ def cancelar_movimiento(db: Session, id_movimiento: int) -> dict:
             status.HTTP_404_NOT_FOUND, f"Movimiento {id_movimiento} no encontrado"
         )
 
-    if movimiento.id_cliente is not None:
-        ultimo = (
-            db.query(Movimiento)
-            .filter(Movimiento.id_cliente == movimiento.id_cliente)
-            .order_by(Movimiento.fecha.desc(), Movimiento.id_movimiento.desc())
-            .first()
-        )
-        if ultimo.id_movimiento != id_movimiento:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "Solo se puede cancelar el último movimiento del cliente. "
-                "Para corregir registros anteriores, registra un abono compensatorio.",
-            )
-
-        if movimiento.saldo_resultante is not None:
-            anterior = (
+    try:
+        if movimiento.id_cliente is not None:
+            ultimo = (
                 db.query(Movimiento)
-                .filter(
-                    Movimiento.id_cliente == movimiento.id_cliente,
-                    Movimiento.id_movimiento != id_movimiento,
-                    Movimiento.saldo_resultante.isnot(None),
-                )
+                .filter(Movimiento.id_cliente == movimiento.id_cliente)
                 .order_by(Movimiento.fecha.desc(), Movimiento.id_movimiento.desc())
                 .first()
             )
-            cliente = db.query(Cliente).filter(
-                Cliente.id_cliente == movimiento.id_cliente
-            ).first()
-            cliente.saldo = anterior.saldo_resultante if anterior else 0.0
-            sincronizar_estatus(cliente)
+            if ultimo.id_movimiento != id_movimiento:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Solo se puede cancelar el último movimiento del cliente. "
+                    "Para corregir registros anteriores, registra un abono compensatorio.",
+                )
 
-    db.delete(movimiento)
-    db.commit()
-    return {"detail": f"Movimiento {id_movimiento} cancelado correctamente"}
+            if movimiento.saldo_resultante is not None:
+                anterior = (
+                    db.query(Movimiento)
+                    .filter(
+                        Movimiento.id_cliente == movimiento.id_cliente,
+                        Movimiento.id_movimiento != id_movimiento,
+                        Movimiento.saldo_resultante.isnot(None),
+                    )
+                    .order_by(Movimiento.fecha.desc(), Movimiento.id_movimiento.desc())
+                    .first()
+                )
+                cliente = db.query(Cliente).filter(
+                    Cliente.id_cliente == movimiento.id_cliente
+                ).first()
+                cliente.saldo = anterior.saldo_resultante if anterior else 0.0
+                sincronizar_estatus(cliente)
+
+        if movimiento.operacion == Operacion.contado and movimiento.id_producto is not None:
+            # Regresa el stock descontado en registrar_movimiento(). Si el
+            # producto había pasado a 'vendido' por llegar a stock 0, se
+            # reactiva -- de lo contrario un stock>0 quedaría atrapado en
+            # estatus 'vendido' y no aparecería disponible para la venta.
+            producto = (
+                db.query(Inventario)
+                .filter(Inventario.id_producto == movimiento.id_producto)
+                .first()
+            )
+            if producto is not None:
+                producto.stock += 1
+                if producto.estatus == EstatusInventario.vendido:
+                    _reactivar_producto(producto)
+
+        elif movimiento.operacion == Operacion.apartado and movimiento.id_apartado is not None:
+            # Deshace el registro de apartado completo (el movimiento cancelado
+            # es, por la validación de arriba, la última operación del cliente
+            # -- ningún abono lo tocó todavía). Cancela el lote entero (1 a N
+            # artículos, según el caso), regresa cada producto a inventario y
+            # cierra la cabecera como 'cancelado'. El saldo ya quedó revertido
+            # arriba vía la cadena de saldo_resultante.
+            apartado = (
+                db.query(Apartado)
+                .filter(Apartado.id_apartado == movimiento.id_apartado)
+                .first()
+            )
+            if apartado is not None:
+                articulos_vigentes = (
+                    db.query(ApartadoArticulo)
+                    .filter(
+                        ApartadoArticulo.id_apartado == apartado.id_apartado,
+                        ApartadoArticulo.estatus_articulo == EstatusApartadoArticulo.vigente,
+                    )
+                    .all()
+                )
+                for articulo in articulos_vigentes:
+                    articulo.estatus_articulo = EstatusApartadoArticulo.cancelado
+                    if articulo.id_producto is not None:
+                        producto = (
+                            db.query(Inventario)
+                            .filter(Inventario.id_producto == articulo.id_producto)
+                            .first()
+                        )
+                        if producto is not None:
+                            _reactivar_producto(producto)
+                apartado.estatus = EstatusApartado.cancelado
+
+        db.delete(movimiento)
+        db.commit()
+        return {"detail": f"Movimiento {id_movimiento} cancelado correctamente"}
+    except Exception:
+        db.rollback()
+        raise
 
 
 def obtener_movimientos_cliente(db: Session, id_cliente: int) -> list[Movimiento]:
@@ -372,7 +437,11 @@ def crear_apartado(db: Session, data: ApartadoCreate) -> Apartado:
                 id_apartado=apartado.id_apartado,
                 monto=data.monto_primer_pago,
                 forma_pago=data.forma_pago,
-                saldo_resultante=saldo_pendiente,
+                # saldo_resultante = saldo TOTAL del cliente tras la operación,
+                # igual semántica que en abono -- no el delta del lote. La
+                # cadena de reversión en cancelar_movimiento() depende de que
+                # este campo sea siempre el saldo total, nunca un delta.
+                saldo_resultante=round(cliente.saldo, 2),
             )
         )
 

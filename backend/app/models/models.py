@@ -2,18 +2,16 @@
 Modelo de datos alineado a docs/FULL_STACK/*.md + docs/REGLAS_NEGOCIO.md
 (fuentes de verdad — ver docs/REPORT.md §1 para la jerarquía completa).
 
-13 tablas migradas y verificadas contra pos.db (alembic_version = c3d4e5f6a7b8):
-clientes, pedidos, pedidos_articulos, precios_catalogo, inventario, movimientos,
-shein_clientes, shein_pedidos, shein_pedidos_articulos, shein_cortes, recargas,
-usuarios, configuracion. clientes incluye dia_pago_especifico y
-frecuencia_pago_detalle como columnas reales (REGLAS_NEGOCIO.md §2).
+15 tablas migradas y verificadas contra pos.db (alembic_version = d4e5f6a7b8c9,
+head): clientes, pedidos, pedidos_articulos, precios_catalogo, inventario,
+movimientos, apartados, apartados_articulos, shein_clientes, shein_pedidos,
+shein_pedidos_articulos, shein_cortes, recargas, usuarios, configuracion.
+clientes incluye dia_pago_especifico y frecuencia_pago_detalle como columnas
+reales (REGLAS_NEGOCIO.md §2).
 
 Apartado (cabecera-detalle, ver docs/REPORT.md §3.3): las clases Apartado y
-ApartadoArticulo, y la FK id_apartado en Movimiento, ya están escritas en este
-archivo y verificadas columna por columna contra el diseño cerrado — pero
-apartados y apartados_articulos todavía NO existen en pos.db (no aparecen en
-.tables). Migración Alembic pendiente: agregar ambas tablas y la FK
-id_apartado a movimientos.
+ApartadoArticulo, y la FK id_apartado en Movimiento, ya están migradas y
+verificadas columna por columna contra el diseño cerrado.
 """
 
 from sqlalchemy import (

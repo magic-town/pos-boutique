@@ -201,9 +201,9 @@ WHERE id_producto IN (
 
 Si `saldo_resultante = 0`: el sistema muestra `"¡Cuenta liquidada!"` en el mismo toast de
 éxito. Si ese abono liquidó además un apartado abierto, el toast indica que los
-artículos vigentes pasaron a `vendido`. El `estatus` de `clientes` no cambia
-automáticamente — el cliente permanece `activo`. La operadora puede cambiarlo
-manualmente desde **Editar Cliente** si lo considera.
+artículos vigentes pasaron a `vendido`. `clientes.estatus` cambia a `inactivo`
+automáticamente en la misma transacción (derivado de `saldo`, nunca editable
+manualmente — ver Módulo Clientes).
 
 #### Comportamiento — Cancelar artículo de un Apartado
 

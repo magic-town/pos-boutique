@@ -10,7 +10,7 @@ class MovimientoCreate(BaseModel):
     id_producto: Optional[int] = None
     monto:       float
     forma_pago:  FormaPago
-    notas:       Optional[str] = None
+    descripcion: Optional[str] = None
 
     @field_validator("monto")
     @classmethod
@@ -40,7 +40,7 @@ class MovimientoRead(BaseModel):
     monto:            float
     forma_pago:       FormaPago
     saldo_resultante: Optional[float]
-    notas:            Optional[str]
+    descripcion:      Optional[str]
     fecha:            Optional[datetime]
 
     model_config = {"from_attributes": True}

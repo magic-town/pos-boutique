@@ -133,6 +133,7 @@ class EstatusPago(enum.Enum):
 class EstatusApartado(enum.Enum):
     abierto = "abierto"
     liquidado = "liquidado"
+    cancelado = "cancelado"
 
 
 class EstatusApartadoArticulo(enum.Enum):

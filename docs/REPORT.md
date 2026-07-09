@@ -19,12 +19,10 @@
 2. **`docs/REGLAS_NEGOCIO.md`** — modelo de datos + reglas de negocio.
 3. **`docs/ARQUITECTURA.md`** — decisiones técnicas.
 4. **`docs/README.md`** — orientación y arranque.
-5. **`backend/app/models/models.py`** — 13 tablas migradas a `pos.db`,
+5. **`backend/app/models/models.py`** — 15 tablas migradas a `pos.db`,
    alineadas a la spec maestra (verificado directo contra `pos.db`:
-   `alembic_version = c3d4e5f6a7b8`, `.tables` confirma las 13). El archivo
-   ya incluye además las clases `Apartado`/`ApartadoArticulo` y la FK
-   `id_apartado` en `Movimiento` — código listo, pero esas 2 tablas todavía
-   no existen en `pos.db` (no aparecen en `.tables`). Migración pendiente.
+   `alembic_version = d4e5f6a7b8c9`, `.tables` confirma las 15, incluidas
+   `apartados`/`apartados_articulos`).
 
 **Regla de edición:** el usuario edita los `module_*.md` y
 `REGLAS_NEGOCIO.md` directamente; Claude no los reescribe salvo instrucción
@@ -112,6 +110,9 @@ Diseño completo de columnas y tipos: `REGLAS_NEGOCIO.md`.
 | ¿Qué pasa al cancelar un artículo de un apartado?        | `estatus_articulo → cancelado`; si existe en inventario, regresa a `disponible`. No ajusta `saldo_pendiente` ni `clientes.saldo`.        |
 | ¿Contado rechaza si el producto no está en inventario?   | No. Sin coincidencia, se captura descripción y precio a mano; sin efecto en inventario.                                                 |
 | ¿`precio_producto` capturado a mano se persiste?         | Sí, siempre, en `apartados_articulos.precio_producto`.                                                                                  |
+| ¿Cómo se cancela un apartado si el cliente no termina de pagar? | No existe "cancelar el lote". Se cancela artículo por artículo (1, 2, o todos, vía `cancelar_articulo_apartado()`); `apartados` nunca se da de baja como unidad — sigue `abierto` hasta liquidarse por abono. |
+| ¿`estatus` del cliente cambia automático al liquidar por abono? | Sí, automático (`sincronizar_estatus()`), nunca manual. `module_movimientos.md` tenía una nota contraria a esto — corrección pendiente de aplicar ahí. |
+| ¿`ApartadoCreate` recibe `no_cliente` o `id_cliente`?     | `id_cliente` ya resuelto — consistente con `MovimientoCreate` (mismo campo "No. Cliente" del Panel Principal).                          |
 
 ### 3.1 Diseño de `precios_catalogo`
 
@@ -213,6 +214,9 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `app/services/cliente_service.py`       | Lógica Cliente       | Sin referencia a `"liquidado"`. `crear_cliente()` asigna los 3 campos de frecuencia.   |
 | `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente    | Rutas: `POST /`, `GET /`, `GET /{id}`, `GET /{id}/historial`, `PATCH /{id}/rehabilitar`.                                                              |
 | `app/scripts/importar_precios.py`       | Import de precios    | 15,564 filas insertadas. Solo `INSERT`.                                                                                                               |
+| `app/schemas/movimiento.py`             | Schema Movimiento     | `descripcion` (no `notas`), alineado a `models.py`.                                                                                                    |
+| `app/schemas/apartado.py`               | Schema Apartado       | Cabecera + lista de artículos (`ApartadoCreate`), `id_cliente` resuelto, mínimo $100 validado.                                                         |
+| `app/services/movimiento_service.py`    | Lógica Movimientos/Apartado | `contado`/`abono`/`gasto` completos, integrados a `inventario` y `apartados.saldo_pendiente`. `crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`. |
 | `app/db/database.py`                    | Conexión BD          | SQLAlchemy síncrono.                                                                                                                                  |
 | `app/core/config.py`                    | Configuración        | Solo `DATABASE_URL`. Sin `AUTH_ENABLED`.                                                                                                              |
 | `app/main.py`                           | Bootstrap FastAPI    | Sin `init_db()`. 5 routers. CORS `localhost:5173`.                                                                                                    |
@@ -229,30 +233,8 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `test/test_shein.py`      | Shein      | ✅ 28/28 en verde |
 | `test/test_clientes.py`   | Clientes   | ✅ en verde       |
 
-### 4.3 Movimientos — estado de código y alcance
 
-**Confirmado en el código actual** (`movimiento_service.py`, `schemas/movimiento.py`
-recibidos en esta sesión):
-
-| Punto                                          | Ubicación                                       | Descripción                                                                                                    |
-| ----------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `notas` → `descripcion`                        | `movimiento_service.py`, `schemas/movimiento.py` | Columna inexistente en `models.py` (la real es `descripcion`). Crash en el 100% de las llamadas.                |
-| Sobrescritura de saldo en apartado              | `movimiento_service.py`, rama `apartado`         | `cliente.saldo = saldo_resultante` en vez de `+=`. Con el diseño cerrado (§3.3), además debe cargar `Σ precio_producto` del lote, no solo el `monto` capturado. |
-| Sin mínimo $100 en apartado                     | `movimiento_service.py`, rama `apartado`         | Solo valida `monto < 0`. El mínimo aplica por lote (`monto_primer_pago`), no por artículo.                       |
-| Sin rama de `gasto`                             | `movimiento_service.py`                          | No existe validación de `descripcion` obligatoria ni ninguna otra regla de esa operación.                        |
-| `cancelar_movimiento()` no distingue operación  | `movimiento_service.py`                          | Busca saldo anterior sin filtrar por tipo. Requiere rediseño completo (cancelación de apartado ahora es por artículo — ver §3.3). |
-
-
-**Fuera del alcance de un bug-fix puntual — funcionalidad sin construir:**
-
-| Punto                                | Ubicación                                          | Descripción                                                                                                    |
-| -------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Integración con `inventario`          | `movimiento_service.py`                            | Ninguna rama consulta ni actualiza `inventario`. La requieren tanto `contado` (origen Inventario) como `apartado`. |
-| Apartado como cabecera-detalle        | `models.py`, `schemas/movimiento.py`, `movimiento_service.py` | No existen `apartados` / `apartados_articulos`. Diseño cerrado en §3.3; falta migración + schema + servicio.   |
-| Rama `contado` completa               | `movimiento_service.py`                            | Sin validación de origen (catálogo/inventario) ni efecto en stock.                                             |
-| Reversión de inventario en cancelación | `movimiento_service.py`                            | `cancelar_movimiento()` no toca `inventario`.                                                                  |
-
-### 4.4 Módulos con bugs activos — Auth
+### 4.3 Módulos con bugs activos — Auth
 
 | Bug                              | Archivo                  | Descripción                                                                                        |
 | -------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------- |
@@ -265,7 +247,7 @@ recibidos en esta sesión):
 > `get_current_user()` (L81) lee `token_data.username` (de `TokenData`).
 > `crear_token()` (L73) pone `usuario` en clave `sub` del JWT.
 
-### 4.5 Sin código todavía
+### 4.4 Sin código todavía
 
 | Módulo                | Spec disponible                      |
 | --------------------- | ------------------------------------- |
@@ -283,22 +265,19 @@ recibidos en esta sesión):
 
 ### Nivel 2 — Schemas
 
-4. `ApartadoCreate` (cabecera + lista de artículos) — reemplaza el uso de `MovimientoCreate` para la operación `apartado`.
-5. `MovimientoCreate` simplificado — cubre `contado`/`abono`/`gasto`; `notas` → `descripcion`.
-6. `schemas/cliente.py` — si aplica exponer la bandera naranja (depende del Nivel 0).
+4. ✅ `ApartadoCreate` (cabecera + lista de artículos) — reemplaza el uso de
+   `MovimientoCreate` para la operación `apartado`. Implementado en
+   `app/schemas/apartado.py`.
+5. ✅ `notas` → `descripcion` en `MovimientoCreate`/`MovimientoRead`. Pendiente: restringir `operacion` para que ya no acepte `apartado` como entrada válida (esa operación ahora entra por `ApartadoCreate`, no por `MovimientoCreate`).
+6. `schemas/cliente.py` — exponer la bandera naranja. Sigue pendiente: depende de que exista el cálculo (Nivel 3, punto 7).
 
 ### Nivel 3 — Servicios
 
-7. `cliente_service.py`: cálculo de bandera naranja; revisión de `sincronizar_estatus()` (depende del Nivel 0).
-8. Nuevo `apartado_service.py` (o extensión de `movimiento_service.py`):
-   - Registrar: multi-artículo + integración con inventario + validación de primer pago mínimo por lote.
-   - Liquidar: dispara cuando `saldo_pendiente` llega a 0 vía abono — artículos vigentes con match en inventario pasan a `vendido`, apaga la bandera.
-   - Cancelar artículo: revierte inventario a `disponible` si existe, sin ajustar `saldo_pendiente` ni `clientes.saldo`.
-9. `movimiento_service.py`:
-   - `contado`: integración con inventario condicional a la existencia del producto.
-   - `abono`: `saldo -=`, interacción con `apartados.saldo_pendiente` si hay un apartado abierto.
-   - `gasto`: validar `descripcion` obligatoria.
-   - `cancelar_movimiento()` genérico para estas tres operaciones (la cancelación de apartado vive en el punto 8).
+7. `cliente_service.py`: cálculo de bandera naranja; revisión de `sincronizar_estatus()`. Pendiente.
+8. ✅ Cerrado — implementado directo en `movimiento_service.py` (`crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`). No se separó en `apartado_service.py`.
+9. ✅ Cerrado — `contado`/`abono`/`gasto` completos en `movimiento_service.py`. Gaps reales que quedan, sin resolver:
+   - `cancelar_movimiento()` no revierte `inventario` cuando se cancela un movimiento `contado` (el `stock` descontado no regresa).
+   - `cancelar_movimiento()` no contempla que el último movimiento del cliente sea de operación `apartado` (ese registro lo crea `crear_apartado()`, no `registrar_movimiento()` — cancelarlo hoy solo tocaría `saldo`, sin revertir cabecera/detalle ni inventario).
 
 ### Nivel 4 — Tests
 
@@ -331,6 +310,7 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** §5 Nivel 2, punto 4 — `ApartadoCreate` (cabecera
-+ lista de artículos), que reemplaza el uso de `MovimientoCreate` para la
-operación `apartado`.
+**Siguiente paso inmediato:** §5 Nivel 3, punto 7 — cálculo de bandera
+naranja en `cliente_service.py` (o el servicio/endpoint de Consulta Cliente),
+que ya no tiene dependencias pendientes: el modelo, `apartados`, y
+`movimiento_service.py` están cerrados.

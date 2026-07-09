@@ -250,6 +250,7 @@ def cancelar_movimiento(db: Session, id_movimiento: int) -> dict:
         )
 
     try:
+        cliente = None
         if movimiento.id_cliente is not None:
             ultimo = (
                 db.query(Movimiento)
@@ -264,21 +265,13 @@ def cancelar_movimiento(db: Session, id_movimiento: int) -> dict:
                     "Para corregir registros anteriores, registra un abono compensatorio.",
                 )
 
-            if movimiento.saldo_resultante is not None:
-                anterior = (
-                    db.query(Movimiento)
-                    .filter(
-                        Movimiento.id_cliente == movimiento.id_cliente,
-                        Movimiento.id_movimiento != id_movimiento,
-                        Movimiento.saldo_resultante.isnot(None),
-                    )
-                    .order_by(Movimiento.fecha.desc(), Movimiento.id_movimiento.desc())
-                    .first()
-                )
-                cliente = db.query(Cliente).filter(
-                    Cliente.id_cliente == movimiento.id_cliente
-                ).first()
-                cliente.saldo = anterior.saldo_resultante if anterior else 0.0
+            cliente = db.query(Cliente).filter(
+                Cliente.id_cliente == movimiento.id_cliente
+            ).first()
+
+            if movimiento.operacion == Operacion.abono:
+                # Revierte el abono -- invariante: nunca se sobrescribe, += / -=.
+                cliente.saldo += movimiento.monto
                 sincronizar_estatus(cliente)
 
         if movimiento.operacion == Operacion.contado and movimiento.id_producto is not None:
@@ -300,9 +293,9 @@ def cancelar_movimiento(db: Session, id_movimiento: int) -> dict:
             # Deshace el registro de apartado completo (el movimiento cancelado
             # es, por la validación de arriba, la última operación del cliente
             # -- ningún abono lo tocó todavía). Cancela el lote entero (1 a N
-            # artículos, según el caso), regresa cada producto a inventario y
-            # cierra la cabecera como 'cancelado'. El saldo ya quedó revertido
-            # arriba vía la cadena de saldo_resultante.
+            # artículos, según el caso), regresa cada producto a inventario,
+            # revierte el saldo del cliente (-= saldo_pendiente) y cierra la
+            # cabecera como 'cancelado'.
             apartado = (
                 db.query(Apartado)
                 .filter(Apartado.id_apartado == movimiento.id_apartado)
@@ -327,6 +320,15 @@ def cancelar_movimiento(db: Session, id_movimiento: int) -> dict:
                         )
                         if producto is not None:
                             _reactivar_producto(producto)
+
+                if cliente is not None:
+                    # Revierte el alta del apartado -- invariante: nunca se
+                    # sobrescribe, += / -=. Válido porque la guarda de arriba
+                    # ("solo se cancela el último movimiento del cliente")
+                    # garantiza que ningún abono tocó saldo_pendiente todavía.
+                    cliente.saldo -= apartado.saldo_pendiente
+                    sincronizar_estatus(cliente)
+
                 apartado.estatus = EstatusApartado.cancelado
 
         db.delete(movimiento)
@@ -438,9 +440,9 @@ def crear_apartado(db: Session, data: ApartadoCreate) -> Apartado:
                 monto=data.monto_primer_pago,
                 forma_pago=data.forma_pago,
                 # saldo_resultante = saldo TOTAL del cliente tras la operación,
-                # igual semántica que en abono -- no el delta del lote. La
-                # cadena de reversión en cancelar_movimiento() depende de que
-                # este campo sea siempre el saldo total, nunca un delta.
+                # igual semántica que en abono -- no el delta del lote. Es
+                # informativo (historial); cancelar_movimiento() revierte por
+                # delta (-= saldo_pendiente), no depende de este campo.
                 saldo_resultante=round(cliente.saldo, 2),
             )
         )

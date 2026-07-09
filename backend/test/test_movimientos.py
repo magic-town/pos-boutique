@@ -428,6 +428,7 @@ class TestCancelarApartado:
         resp = client.delete(f"{BASE}/{movimiento.id_movimiento}/cancelar", headers=auth_headers)
         assert resp.status_code == 200, resp.text
 
+        db_session.refresh(apartado)
         apartado_db = db_session.query(Apartado).get(apartado.id_apartado)
         assert apartado_db.estatus == EstatusApartado.cancelado
 

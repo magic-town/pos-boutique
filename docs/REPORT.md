@@ -19,9 +19,9 @@
 
 ## 1. Jerarquía de fuentes
 
-1. **`docs/FULL_STACK/module_<nombre>.md`** — spec de UI/UX por módulo,
+1. **`docs/FULLSTACK/module_<nombre>.md`** — spec de UI/UX por módulo,
    autoridad máxima si hay contradicción. Para trabajar un módulo específico,
-   basta con su `module_<nombre>.md`. Ver `docs/FULL_STACK/README.md` para el
+   basta con su `module_<nombre>.md`. Ver `docs/FULLSTACK/README.md` para el
    mapa y estado de cada uno.
 2. **`docs/REGLAS_NEGOCIO.md`** — modelo de datos + reglas de negocio.
 3. **`docs/ARQUITECTURA.md`** — decisiones técnicas.
@@ -201,7 +201,7 @@ movimientos.id_apartado   FK → apartados, nullable
                           (enlaza el evento de caja del primer pago con el lote)
 ```
 
-Spec completa de comportamiento: `docs/FULL_STACK/module_movimientos.md`.
+Spec completa de comportamiento: `docs/FULLSTACK/module_movimientos.md`.
 Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 
 ---

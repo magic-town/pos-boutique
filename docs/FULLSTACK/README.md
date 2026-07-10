@@ -1,10 +1,6 @@
 # FULLSTACK/ — spec segmentada por módulo
 
-Reemplaza la lectura de `docs/00_FULLSTACK_DEVELOPMENT.md` completo. Ese
-archivo sigue existiendo como fuente original (§1 de `REPORT.md` lo marca
-como autoridad máxima ante contradicción), pero **para trabajar en un módulo
-específico, basta con su `module_<nombre>.md`** — no hace falta cargar los
-demás.
+**Para trabajar en un módulo específico, basta con su `module_<nombre>.md`** — no hace falta cargar los demás.
 
 ## Regla de una sola vía
 
@@ -21,11 +17,11 @@ implementar su módulo. Si un módulo necesita algo de otro (ej. Pedidos lee
 | `module_clientes.md` | Clientes | ✅ | ✅ | ✅ |
 | `module_pedidos.md` | Pedidos | ✅ | ✅ | ✅ |
 | `module_inventario.md` | Inventario | ✅ | ✅ | ✅ |
-| `module_movimientos.md` | Movimientos (Panel Principal) | ✅ | ⚠️ existente, INC-05/06 pendientes | ❌ |
+| `module_movimientos.md` | Movimientos (Panel Principal) | ✅ | ✅ | ✅ |
 | `module_shein.md` | Shein | ✅ | ✅ | ✅ |
-| `module_recargas.md` | Recargas Telefónicas | ✅ | ❌ | ❌ |
+| `module_recargas.md` | Recargas Telefónicas | ✅ | ✅ | ✅ |
 | `module_consulta.md` | Consulta Global | ✅ | ❌ | ❌ |
-| `module_setting.md` | Autenticación y Configuración | ✅ | ⚠️ solo Auth existe, Setting no | ❌ |
+| `module_setting.md` | Autenticación y Configuración | ✅ | ✅ | ✅ |
 | `resumen_tablas.md` | — (transversal) | ✅ | — | — |
 
 `⚠️` = tiene código pero con incidencias conocidas (ver `REPORT.md §4.3`) o

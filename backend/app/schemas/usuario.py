@@ -4,16 +4,33 @@ from datetime import datetime
 
 
 class UsuarioCreate(BaseModel):
-    username: str
+    usuario:  str
     password: str
     rol:      str = "estandar"
 
-    @field_validator("username", "password")
+    @field_validator("usuario")
     @classmethod
-    def no_vacio(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Este campo no puede estar vacío")
-        return v.strip()
+    def validar_usuario(cls, v: str) -> str:
+        v = v.strip() if v else v
+        if not v:
+            raise ValueError("El usuario no puede estar vacío")
+        if " " in v:
+            raise ValueError("El usuario no puede contener espacios")
+        if not (4 <= len(v) <= 16):
+            raise ValueError("El usuario debe tener entre 4 y 16 caracteres")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def validar_password(cls, v: str) -> str:
+        v = v.strip() if v else v
+        if not v:
+            raise ValueError("La contraseña no puede estar vacía")
+        if not (4 <= len(v) <= 10):
+            raise ValueError("La contraseña debe tener entre 4 y 10 caracteres")
+        if not any(c.isupper() for c in v):
+            raise ValueError("La contraseña debe tener al menos una mayúscula")
+        return v
 
     @field_validator("rol")
     @classmethod
@@ -25,9 +42,9 @@ class UsuarioCreate(BaseModel):
 
 class UsuarioRead(BaseModel):
     id_usuario:     int
-    username:       str
+    usuario:        str
     rol:            str
-    activo:         str
+    activo:         int
     fecha_registro: Optional[datetime]
 
     model_config = {"from_attributes": True}

@@ -22,6 +22,6 @@ def login(
             detail="Usuario o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    # Antes: usuario.username -> ya no existe en el modelo (renombrado a Usuario.usuario)
+    # usuario.usuario: el modelo Usuario no tiene campo "username".
     token = crear_token({"sub": usuario.usuario, "rol": usuario.rol})
     return {"access_token": token, "token_type": "bearer"}

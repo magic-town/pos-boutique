@@ -21,12 +21,13 @@ Al abrir `pos-boutique` se presenta la ventana de login.
 
 ```sql
 CREATE TABLE usuarios (
-    id_usuario    INTEGER PRIMARY KEY AUTOINCREMENT,
-    usuario       TEXT    NOT NULL UNIQUE,
-    password_hash TEXT    NOT NULL,   -- bcrypt. Nunca texto plano.
-    rol           TEXT    NOT NULL DEFAULT 'estandar'
-                      CHECK (rol IN ('estandar', 'admin')),
-    activo        INTEGER NOT NULL DEFAULT 1   -- 1 = activo, 0 = desactivado
+    id_usuario     INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario        TEXT     NOT NULL UNIQUE,
+    password_hash  TEXT     NOT NULL,   -- bcrypt. Nunca texto plano.
+    rol            TEXT     NOT NULL DEFAULT 'estandar'
+                       CHECK (rol IN ('estandar', 'admin')),
+    activo         INTEGER  NOT NULL DEFAULT 1,   -- 1 = activo, 0 = desactivado
+    fecha_registro DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 ```
 

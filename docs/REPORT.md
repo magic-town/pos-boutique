@@ -83,7 +83,7 @@ Diseño completo de columnas y tipos: `REGLAS_NEGOCIO.md`.
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | ¿Se conserva data de `pos.db`?                           | No. Reset limpio; esquema nace de `models.py` vía Alembic.                                                                              |
 | ¿Async o sync en SQLAlchemy?                             | Síncrono.                                                                                                                               |
-| ¿Nombres de campo en `Usuario`?                          | `usuario` (no `username`) y `password_hash` (no `hashed_password`). **`schemas/usuario.py` sigue sin alinearse** — pendiente §5 punto 13. |
+| ¿Nombres de campo en `Usuario`?                          | `usuario` (no `username`) y `password_hash` (no `hashed_password`). Alineado en modelo, schemas y servicio.                              |
 | ¿`pedidos` plano o cabecera-detalle?                     | Cabecera-detalle.                                                                                                                       |
 | ¿Shein comparte tabla de clientes?                       | No. `shein_clientes` independiente.                                                                                                     |
 | ¿`shein_pedidos` plano o cabecera-detalle?               | Cabecera-detalle, sin alternativa.                                                                                                      |
@@ -210,7 +210,7 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 
 | Archivo                                 | Rol                  | Estado                                                                                                                                                |
 | --------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app/models/models.py`                  | Modelo de datos      | 15 tablas migradas (verificado contra `pos.db`, head `d4e5f6a7b8c9`). Clases correctas y verificadas contra archivo real. **Docstring desactualizado** — sigue diciendo `c3d4e5f6a7b8` / 13 tablas / apartados "pendiente de migrar"; pendiente de reemplazar por un docstring que refleje las 15 tablas y el head real. |
+| `app/models/models.py`                  | Modelo de datos      | 15 tablas migradas (verificado contra `pos.db`, head `d4e5f6a7b8c9`). Clases correctas y verificadas contra archivo real.|
 | `alembic/versions/*.py`                 | 4 migraciones        | Esquema de 15 tablas aplicado, incluida `apartados`/`apartados_articulos`/FK `id_apartado`.                                                           |
 | `app/schemas/pedido.py`                 | Schema Pedido        | Cabecera-detalle, valida reglas por `tipo_producto`/`proveedor`.                                                                                      |
 | `app/services/pedido_service.py`        | Lógica Pedido        | Lookup de precio, transacciones de devolución/cancelación con reversión condicional de saldo. ||
@@ -228,6 +228,11 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `app/schemas/movimiento.py`             | Schema Movimiento     | `descripcion` (no `notas`), alineado a `models.py`. Verificado contra archivo real.                                                                    |
 | `app/schemas/apartado.py`               | Schema Apartado       | Cabecera + lista de artículos (`ApartadoCreate`), `id_cliente` resuelto, mínimo $100 validado. Verificado contra archivo real, sin cambios pendientes.  |
 | `app/services/movimiento_service.py`    | Lógica Movimientos/Apartado | `contado`/`abono`/`gasto` completos. `crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`. `cancelar_movimiento()` revierte inventario en `contado`, revierte saldo por delta (`+=`/`-=`, no depende de `saldo_resultante`) en `abono`/`apartado`, y cancela el lote completo en `apartado` (ver §3). Verificado contra archivo real y contra `test_movimientos.py` (28/28 en verde). |
+| `app/models/models.py` (`Usuario`)      | Modelo Auth           | Campos `usuario` (no `username`) y `password_hash` (no `hashed_password`); `activo: Integer`.                                                        |
+| `app/schemas/usuario.py`                | Schema Auth           | `UsuarioCreate`: `usuario` 4-16 caracteres sin espacios, `password` 4-10 caracteres con al menos una mayúscula, `rol` en (`estandar`, `admin`) — alineado a `module_setting.md`. `UsuarioRead` expone `usuario` y `activo: int`, `from_attributes = True`.  |
+| `app/schemas/token.py`                  | Schema Auth            | `Token` (`access_token`, `token_type="bearer"`), `TokenData` (`usuario`, `rol`), ambos opcionales salvo `access_token`.                              |
+| `app/services/auth_service.py`          | Lógica Auth            | `hash_password()`/`verificar_password()` (bcrypt), `crear_token()` (JWT, expira según `settings.TOKEN_EXPIRY_HOURS`), `autenticar_usuario()`, `crear_usuario()`, `get_current_user()` como dependency de FastAPI. `SECRET_KEY`/`ALGORITHM`/`TOKEN_EXPIRY_HOURS` vienen de `app/core/config.py`. |
+| `app/api/v1/endpoints/auth.py`          | Endpoint Auth          | `POST /auth/login` (`OAuth2PasswordRequestForm`), retorna `Token`. Mismo status/mensaje para usuario inexistente y password incorrecto.              |
 | `app/api/v1/endpoints/movimientos.py`   | Endpoint Movimientos | `POST /movimientos`, `GET /movimientos?id_cliente=`, `DELETE /movimientos/{id}/cancelar` — los 3 con `Depends(get_current_user)`. Verificado contra archivo real. **No expone `crear_apartado()`** — no hay endpoint para registrar un apartado todavía, solo capa de servicio (`app/api/v1/endpoints/apartados.py` sigue sin existir). |
 | `app/db/database.py`                    | Conexión BD          | SQLAlchemy síncrono.                                                                                                                                  |
 | `app/core/config.py`                    | Configuración        | Solo `DATABASE_URL`. Sin `AUTH_ENABLED`.                                                                                                              |
@@ -246,22 +251,9 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `test/test_clientes.py`   | Clientes   | ✅ 43/43 en verde |
 | `test/test_movimientos.py`| Movimientos| ✅ 28/28 en verde |
 | `test/test_apartados.py`  | Apartado   | ✅ 12/12 en verde |
+| `test/test_autenticacion.py` | Auth    | ✅ 59/59 en verde |
 
-
-### 4.3 Módulos con bugs activos — Auth
-
-| Bug                              | Archivo                  | Descripción                                                                                        |
-| -------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `UsuarioRead.username`           | `schemas/usuario.py` L28 | Campo `username` no existe en modelo (es `usuario`). `from_attributes = True` rompe serialización. |
-| `UsuarioRead.activo: str`        | `schemas/usuario.py` L30 | Debería ser `int` (modelo tiene `Integer`).                                                        |
-| `auth.py` usa `usuario.username` | `endpoints/auth.py`      | Rompe con el rename a `usuario`.                                                                   |
-| `TokenData.username`             | `schemas/token.py` L13   | Nombre interno, no mapea vía `from_attributes`. Severidad baja.                                    |
-
-> `auth_service.py` ya usa `usuario.usuario` internamente (L59, L69).
-> `get_current_user()` (L81) lee `token_data.username` (de `TokenData`).
-> `crear_token()` (L73) pone `usuario` en clave `sub` del JWT.
-
-### 4.4 Sin código todavía
+### 4.3 Sin código todavía
 
 | Módulo                | Spec disponible                      |
 | --------------------- | ------------------------------------- |
@@ -301,7 +293,7 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 
 ### Pasos restantes de la ruta general (sin cambio de alcance)
 
-13. **Corregir Auth** (§4.4): rename `username` → `usuario` en `UsuarioRead`; `activo: str` → `activo: int`; alinear `endpoints/auth.py`; evaluar `TokenData.username` (severidad baja).
+13. ✅ Cerrado — Auth (§4.1). `test_autenticacion.py` creado y corrido completo en verde (ver §4.2).
 14. **Construir Recargas** desde cero.
 15. **Construir Setting/Configuración** (esqueleto MVP — sin permisos diferenciados todavía).
 16. **Construir Consulta Global** (3 vistas de solo lectura).
@@ -318,6 +310,4 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** §5 Nivel 4 quedó cerrado por completo (puntos 10, 11 y 12 ✅ — `test_clientes.py` corrió completo en verde, incluida la nueva sección de bandera naranja). El siguiente punto de la ruta general es el **punto 13 — corregir Auth** (§4.3): rename `username` → `usuario` en `UsuarioRead`, `activo: str` → `activo: int`, alinear `endpoints/auth.py`, evaluar `TokenData.username` (severidad baja).
-
-En paralelo, sin bloquear: la corrección pendiente del docstring de `models.py` (ver §4.1).
+**Siguiente paso inmediato:** §5 Nivel 4 (Tests) y el punto 13 (Auth) quedaron cerrados por completo — todos los módulos existentes tienen test en verde (ver §4.2). El siguiente punto de la ruta general es el **punto 14 — construir Recargas** desde cero (spec completa en `module_recargas.md`, ver §4.3).

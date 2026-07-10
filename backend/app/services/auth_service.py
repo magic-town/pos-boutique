@@ -100,11 +100,11 @@ def get_current_user(
         rol     = payload.get("rol")
         if usuario is None:
             raise credentials_error
-        token_data = TokenData(username=usuario, rol=rol)
+        token_data = TokenData(usuario=usuario, rol=rol)
     except JWTError:
         raise credentials_error
 
-    user = obtener_usuario(db, token_data.username)
+    user = obtener_usuario(db, token_data.usuario)
     if not user or not user.activo:
         raise credentials_error
     return user

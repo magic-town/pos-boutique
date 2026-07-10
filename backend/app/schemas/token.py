@@ -10,5 +10,5 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     """Payload decodificado del JWT — uso interno del backend."""
-    username:  Optional[str] = None
+    usuario:   Optional[str] = None
     rol:       Optional[str] = None

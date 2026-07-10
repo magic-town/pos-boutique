@@ -374,7 +374,7 @@ Sin validación de tope de monto. Sin impacto en saldo de clientes ni inventario
 
 ## 9. Configuración
 
-**`configuracion`**: tabla clave-valor (`clave` PK, `valor`). Controla qué métodos de pago están activos (`pago_efectivo_activo`, `pago_transferencia_activo`, etc.), CLABEs registradas, zona horaria (informativa) y período de corte de la Lista de Surtido (día de inicio y fin, default miércoles a martes).
+**`configuracion`**: tabla clave-valor (`clave` PK, `valor`). Controla qué métodos de pago están activos (`pago_efectivo_activo`, `pago_transferencia_activo`, etc.), CLABEs registradas, zona horaria (informativa).
 
 - Efectivo: siempre activo, no desactivable.
 - Transferencia, tarjeta débito/crédito: activos por defecto, se pueden desactivar.

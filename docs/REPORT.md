@@ -48,7 +48,7 @@ explícita del usuario en la sesión.
 
 | Revisión              | Alcance                                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `a1b2c3d4e5f6`        | Esquema inicial: 11 tablas.                                                                           |
+| `a1b2c3d4e5f6`        | Esquema inicial: 11 tablas. Siembra `configuracion` (métodos de pago, CLABEs, `zona_horaria`) vía `op.bulk_insert` en el propio `upgrade()`.          |
 | `b2c3d4e5f6a7`        | Agrega `precios_catalogo` y `shein_pedidos_articulos`; reestructura `shein_pedidos` / `shein_cortes`. |
 | `c3d4e5f6a7b8`        | Agrega `dia_pago_especifico` y `frecuencia_pago_detalle` a `clientes`.                                |
 | `d4e5f6a7b8c9` (head) | Agrega `apartados`, `apartados_articulos`; agrega FK `id_apartado` a `movimientos`.                   |
@@ -124,6 +124,8 @@ Diseño completo de columnas y tipos: `REGLAS_NEGOCIO.md`.
 | ¿Semántica de `saldo_resultante` en movimientos con cliente? | Siempre el saldo TOTAL del cliente tras la operación, nunca un delta — misma regla para `abono` y `apartado`. Es informativo (historial); `cancelar_movimiento()` revierte por delta (`+=`/`-=` según la operación), no depende de este campo. |
 | ¿Qué pasa al cancelar un movimiento `apartado` (deshacer el registro recién hecho)? | Se cancela el lote completo: cada artículo `vigente` → `cancelado`, cada producto regresa a inventario, `apartados.estatus → cancelado`. Solo aplica si es la última operación del cliente (nadie ha abonado desde entonces). Distinto del flujo de "no le alcanzó para pagar" (cancelación parcial en cualquier momento vía `cancelar_articulo_apartado()`, sin tocar saldo). |
 | ¿A qué estatus regresa un producto al cancelarse (contado o lote de apartado)? | `disponible_c/descuento` si `precio_descuento` no es nulo, si no `disponible` — no siempre `disponible` a secas. |
+| ¿Setting tiene capa de servicio propia?                  | No. Módulo simple, sin efectos transversales con otros módulos — se construye como esqueleto para futuras implementaciones. Lógica directa en el endpoint; excepción deliberada al patrón schema/service/endpoint de los demás módulos, no un hueco pendiente. |
+| ¿Dónde se siembra la tabla `configuracion`?               | En la propia migración `a1b2c3d4e5f6` (`op.bulk_insert` dentro de `upgrade()`), no en un script aparte — consistente con que el reset de `pos.db` se hace regenerando migraciones (§3: "¿Se conserva data de `pos.db`? No."), sin recurrir a `init_db()` en `lifespan`. |
 
 ### 3.1 Diseño de `precios_catalogo`
 
@@ -236,10 +238,12 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `app/api/v1/endpoints/movimientos.py`   | Endpoint Movimientos | `POST /movimientos`, `GET /movimientos?id_cliente=`, `DELETE /movimientos/{id}/cancelar` — los 3 con `Depends(get_current_user)`. Verificado contra archivo real. **No expone `crear_apartado()`** — no hay endpoint para registrar un apartado todavía, solo capa de servicio (`app/api/v1/endpoints/apartados.py` sigue sin existir). |
 | `app/db/database.py`                    | Conexión BD          | SQLAlchemy síncrono.                                                                                                                                  |
 | `app/core/config.py`                    | Configuración        | Solo `DATABASE_URL`. Sin `AUTH_ENABLED`.                                                                                                              |
-| `app/main.py`                           | Bootstrap FastAPI    | Sin `init_db()`. 5 routers. CORS `localhost:5173`.                                                                                                    |
+| `app/main.py`                           | Bootstrap FastAPI    | Sin `init_db()`. 6 routers (incluye Setting). CORS `localhost:5173`.                                                                                  |
 | `app/schemas/__init__.py`               | Re-exports           | Nombres de Shein corregidos.                                                                                                                          |
 | `requirements.txt`                      | Dependencias prod    | Incluye `python-jose`, `passlib`/`bcrypt`, `pandas`, `odfpy`.                                                                                         |
 | `requirements-dev.txt`                  | Dependencias test    | `pytest`/`httpx`.                                                                                                                                     |
+| `app/schemas/setting.py`                | Schema Setting        | `ConfiguracionRead`/`ConfiguracionUpdate`, `UsuarioCambiarPassword` (misma regla de password que `usuario.py`, duplicada a propósito para MVP), `UsuarioCambiarRol` (`estandar`/`admin`).                                                          |
+| `app/api/v1/endpoints/setting.py`       | Endpoints Setting     | `POST /setting/usuarios`, `PATCH /usuarios/{id}/password`, `PATCH /usuarios/{id}/rol`, `GET /zona-horaria` (solo lectura), `GET /configuracion`, `PATCH /configuracion/{clave}` (valida `'0'`/`'1'` en métodos de pago; `pago_efectivo_activo` rechaza `'0'` con 409). Todos con `Depends(get_current_user)`. Sin `setting_service.py` — lógica directa en el endpoint (ver §3, excepción deliberada, módulo simple sin efectos transversales). |
 
 ### 4.2 Tests
 
@@ -253,12 +257,12 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `test/test_apartados.py`  | Apartado   | ✅ 12/12 en verde |
 | `test/test_autenticacion.py` | Auth    | ✅ 59/59 en verde |
 | `test/test_recargas.py`  | Recargas    | ✅ 17/17 en verde |
+| `test/test_setting.py`   | Setting     | ✅ 26/26 en verde |
 
 ### 4.3 Sin código todavía
 
 | Módulo                | Spec disponible                      |
 | --------------------- | ------------------------------------- |
-| Setting/Configuración | `module_setting.md` — esqueleto MVP. |
 | Consulta Global       | `module_consulta.md` — completa.     |
 
 ---
@@ -296,7 +300,7 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 
 13. ✅ Cerrado — Auth (§4.1). `test_autenticacion.py` creado y corrido completo en verde (ver §4.2).
 14. ✅ Cerrado — `test_recargas.py` — creado (ver §4.2).
-15. **Construir Setting/Configuración** (esqueleto MVP — sin permisos diferenciados todavía).
+15. ✅ Cerrado — Setting/Configuración (esqueleto MVP, sin permisos diferenciados todavía). `test_setting.py` creado, 26/26 en verde (ver §4.2).
 16. **Construir Consulta Global** (3 vistas de solo lectura).
 17. **Checklist real** — criterio de completado = pipeline + test.
 
@@ -311,4 +315,4 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** §5 Nivel 4 (Tests) y el punto 14 (Recargas) quedaron cerrados por completo — todos los módulos existentes tienen test en verde (ver §4.2). El siguiente punto de la ruta general es el **punto 15 — construir Setting/Configuración** (spec completa en `module_setting.md`, ver §4.3). Este modulo es una fusión junto con autenticación, la cual ya quedo cerrada.
+**Siguiente paso inmediato:** el punto 15 (Setting/Configuración) quedó cerrado por completo — `test_setting.py` en verde, 26/26 (ver §4.2). Todos los módulos existentes tienen test en verde. El siguiente punto de la ruta general es el **punto 16 — construir Consulta Global** (spec completa en `module_consulta.md`, ver §4.3).

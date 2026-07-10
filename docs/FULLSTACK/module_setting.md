@@ -33,12 +33,8 @@ CREATE TABLE usuarios (
 
 **Usuarios iniciales (seed):**
 
-> ⚠️ **Nota de seguridad (agregada esta sesión):** el `00_FULLSTACK_DEVELOPMENT.md`
-> original tenía las contraseñas de seed en texto plano. Se redactaron aquí
-> porque `sonia` es un usuario real ya en uso (ver `REPORT.md`/`aux_pedidos.md`)
-> — si esa contraseña sigue siendo la vigente, se recomienda rotarla. No
-> subir contraseñas reales (ni de seed) en texto plano a ningún documento
-> versionado en git.
+> ⚠️ **Nota de seguridad:** no subir contraseñas reales (ni de seed) en texto
+> plano a ningún documento versionado en git.
 
 ```python
 # backend/db/seed.py
@@ -73,7 +69,7 @@ secciones:
       - Cambiar rol de usuario   # solo edición de enum; sin lógica de permisos diferenciada en MVP
   - titulo: Información del sistema
     campos:
-      - Zona horaria: heredada del sistema operativo. Solo lectura. Informativo.
+      - Zona horaria: almacenada en la tabla `configuracion` (clave `zona_horaria`). Solo lectura. Informativo.
   - titulo: Métodos de pago
     descripcion: Activa o desactiva las formas de pago disponibles en el Panel Principal.
     controles:
@@ -110,5 +106,20 @@ CREATE TABLE configuracion (
 > La entidad `rol` ya existe en DB — cuando llegue el momento solo se añade lógica de
 > verificación en el backend sin cambio de esquema.
 
----
+#### Endpoints (`/api/v1/setting`)
 
+Todos protegidos con `Depends(get_current_user)`.
+
+| Endpoint                                  | Método | Función                                                                                 |
+| ------------------------------------------ | ------ | ---------------------------------------------------------------------------------------- |
+| `/setting/usuarios`                        | POST   | Agregar nuevo usuario. 409 si el usuario ya existe.                                     |
+| `/setting/usuarios/{id_usuario}/password`  | PATCH  | Cambiar contraseña.                                                                       |
+| `/setting/usuarios/{id_usuario}/rol`       | PATCH  | Cambiar rol (`estandar`/`admin`). Solo edición de enum, sin lógica de permisos.          |
+| `/setting/zona-horaria`                    | GET    | Solo lectura. Devuelve el valor de `configuracion` para la clave `zona_horaria`.         |
+| `/setting/configuracion`                   | GET    | Lista todas las claves/valores de `configuracion` (métodos de pago, CLABEs, zona horaria). |
+| `/setting/configuracion/{clave}`           | PATCH  | Actualiza una clave. Para claves de métodos de pago, `valor` debe ser `'0'` o `'1'`. `pago_efectivo_activo` rechaza `'0'` (409, no desactivable). |
+
+Las CLABEs (`clabe_1`, `clabe_2`) se actualizan por el mismo endpoint genérico de
+`configuracion`, como texto libre — sin validación de formato en MVP.
+
+---

@@ -193,6 +193,25 @@ def upgrade() -> None:
         sa.Column('valor', sa.String(), nullable=False),
         sa.PrimaryKeyConstraint('clave'),
     )
+    configuracion_table = sa.table(
+        'configuracion',
+        sa.column('clave', sa.String),
+        sa.column('valor', sa.String),
+    )
+    op.bulk_insert(
+        configuracion_table,
+        [
+            {'clave': 'pago_efectivo_activo', 'valor': '1'},
+            {'clave': 'pago_transferencia_activo', 'valor': '1'},
+            {'clave': 'pago_tarjeta_debito_activo', 'valor': '1'},
+            {'clave': 'pago_tarjeta_credito_activo', 'valor': '1'},
+            {'clave': 'pago_msi_activo', 'valor': '0'},
+            {'clave': 'pago_vales_activo', 'valor': '0'},
+            {'clave': 'clabe_1', 'valor': ''},
+            {'clave': 'clabe_2', 'valor': ''},
+            {'clave': 'zona_horaria', 'valor': 'America/Mexico_City'},
+        ],
+    )
 
 
 def downgrade() -> None:

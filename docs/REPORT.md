@@ -225,7 +225,7 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `app/services/cliente_service.py`       | Lógica Cliente       | Sin referencia a `"liquidado"`. `crear_cliente()` asigna los 3 campos de frecuencia. `calcular_bandera_naranja()` implementada — busca el apartado abierto del cliente y compara contra `fecha_apartado + 1 mes − 5 días`. |
 | `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente    | Rutas: `POST /` (asigna `bandera_naranja`), `GET /` (usa `ClienteResumen`, sin bandera), `GET /{id}` (asigna `bandera_naranja`). No existe `/{id}/historial` ni `/{id}/rehabilitar` (ver §3). |
 | `app/scripts/importar_precios.py`       | Import de precios    | 15,564 filas insertadas. Solo `INSERT`.                                                                                                               |
-| `app/schemas/movimiento.py` | Schema Movimiento | `descripcion` (no `notas`), alineado a `models.py`. Verificado contra archivo real. Pendiente: `operacion` sigue tipado como `Operacion` completo, sin excluir `apartado` como valor de entrada (ver §5 Nivel 2, punto 5b). |
+| `app/schemas/movimiento.py` | Schema Movimiento | `descripcion` (no `notas`), alineado a `models.py`. Verificado contra archivo real. |
 | `app/schemas/apartado.py`               | Schema Apartado       | Cabecera + lista de artículos (`ApartadoCreate`), `id_cliente` resuelto, mínimo $100 validado. Verificado contra archivo real, sin cambios pendientes.  |
 | `app/services/movimiento_service.py`    | Lógica Movimientos/Apartado | `contado`/`abono`/`gasto` completos. `crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`. `cancelar_movimiento()` revierte inventario en `contado`, revierte saldo por delta (`+=`/`-=`, no depende de `saldo_resultante`) en `abono`/`apartado`, y cancela el lote completo en `apartado` (ver §3). Verificado contra archivo real y contra `test_movimientos.py` (28/28 en verde). |
 | `app/models/models.py` (`Usuario`)      | Modelo Auth           | Campos `usuario` (no `username`) y `password_hash` (no `hashed_password`); `activo: Integer`.                                                        |
@@ -275,7 +275,7 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
    `MovimientoCreate` para la operación `apartado`. Implementado en
    `app/schemas/apartado.py`.
 5. ✅ Cerrado — `notas` → `descripcion` en `MovimientoCreate`/`MovimientoRead`, alineado a `models.py`. Verificado contra archivo real.
-5b. ⬜ Restringir `operacion` en `MovimientoCreate` para que ya no acepte `Operacion.apartado` como valor de entrada (esa operación ahora entra exclusivamente por `ApartadoCreate`). Verificado contra `app/schemas/movimiento.py`: el campo sigue tipado como `Operacion` completo, sin excluir `apartado`; el `model_validator` aún lo referencia como caso válido.
+5b. ✅ Cerrado — `operacion` en `MovimientoCreate` rechaza `Operacion.apartado` vía `field_validator`; esa operación entra exclusivamente por `ApartadoCreate`.
 6. ✅ Cerrado — `bandera_naranja: bool` expuesta en `ClienteRead`, calculada en el endpoint antes de serializar.
 
 ### Nivel 3 — Servicios

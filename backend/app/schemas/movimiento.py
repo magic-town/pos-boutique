@@ -12,6 +12,15 @@ class MovimientoCreate(BaseModel):
     forma_pago:  FormaPago
     descripcion: Optional[str] = None
 
+    @field_validator("operacion")
+    @classmethod
+    def excluir_apartado(cls, v: Operacion) -> Operacion:
+        if v == Operacion.apartado:
+            raise ValueError(
+                "La operación 'apartado' no se registra aquí; use el endpoint de apartados"
+            )
+        return v
+
     @field_validator("monto")
     @classmethod
     def monto_positivo(cls, v: float) -> float:
@@ -21,7 +30,7 @@ class MovimientoCreate(BaseModel):
 
     @model_validator(mode="after")
     def validar_reglas_operacion(self) -> "MovimientoCreate":
-        if self.operacion in (Operacion.apartado, Operacion.abono):
+        if self.operacion == Operacion.abono:
             if self.id_cliente is None:
                 raise ValueError(
                     f"La operación '{self.operacion.value}' requiere un cliente"

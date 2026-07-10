@@ -366,6 +366,7 @@ Sin validación de tope de monto. Sin impacto en saldo de clientes ni inventario
 | `fecha_registro` | DateTime | Autogenerado |
 
 - Autenticación **activa** en todos los endpoints vía JWT (`python-jose`). Sin flag `AUTH_ENABLED` — no existe en `config.py`.
+- `password` (entrada, no se persiste): 4 a 10 caracteres, al menos una mayúscula. Se valida antes de hashear — a la base de datos solo llega `password_hash`.
 - Sin recuperación de contraseña por correo (sistema offline) — la hace el desarrollador directamente en la base de datos.
 - Permisos diferenciados por rol: pendientes de implementación futura, sin cambio de esquema.
 

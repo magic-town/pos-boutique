@@ -225,7 +225,7 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `app/services/cliente_service.py`       | Lógica Cliente       | Sin referencia a `"liquidado"`. `crear_cliente()` asigna los 3 campos de frecuencia. `calcular_bandera_naranja()` implementada — busca el apartado abierto del cliente y compara contra `fecha_apartado + 1 mes − 5 días`. |
 | `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente    | Rutas: `POST /` (asigna `bandera_naranja`), `GET /` (usa `ClienteResumen`, sin bandera), `GET /{id}` (asigna `bandera_naranja`). No existe `/{id}/historial` ni `/{id}/rehabilitar` (ver §3). |
 | `app/scripts/importar_precios.py`       | Import de precios    | 15,564 filas insertadas. Solo `INSERT`.                                                                                                               |
-| `app/schemas/movimiento.py`             | Schema Movimiento     | `descripcion` (no `notas`), alineado a `models.py`. Verificado contra archivo real.                                                                    |
+| `app/schemas/movimiento.py` | Schema Movimiento | `descripcion` (no `notas`), alineado a `models.py`. Verificado contra archivo real. Pendiente: `operacion` sigue tipado como `Operacion` completo, sin excluir `apartado` como valor de entrada (ver §5 Nivel 2, punto 5b). |
 | `app/schemas/apartado.py`               | Schema Apartado       | Cabecera + lista de artículos (`ApartadoCreate`), `id_cliente` resuelto, mínimo $100 validado. Verificado contra archivo real, sin cambios pendientes.  |
 | `app/services/movimiento_service.py`    | Lógica Movimientos/Apartado | `contado`/`abono`/`gasto` completos. `crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`. `cancelar_movimiento()` revierte inventario en `contado`, revierte saldo por delta (`+=`/`-=`, no depende de `saldo_resultante`) en `abono`/`apartado`, y cancela el lote completo en `apartado` (ver §3). Verificado contra archivo real y contra `test_movimientos.py` (28/28 en verde). |
 | `app/models/models.py` (`Usuario`)      | Modelo Auth           | Campos `usuario` (no `username`) y `password_hash` (no `hashed_password`); `activo: Integer`.                                                        |
@@ -252,12 +252,12 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 | `test/test_movimientos.py`| Movimientos| ✅ 28/28 en verde |
 | `test/test_apartados.py`  | Apartado   | ✅ 12/12 en verde |
 | `test/test_autenticacion.py` | Auth    | ✅ 59/59 en verde |
+| `test/test_recargas.py`  | Recargas    | ✅ 17/17 en verde |
 
 ### 4.3 Sin código todavía
 
 | Módulo                | Spec disponible                      |
 | --------------------- | ------------------------------------- |
-| Recargas Telefónicas  | `module_recargas.md` — completa.     |
 | Setting/Configuración | `module_setting.md` — esqueleto MVP. |
 | Consulta Global       | `module_consulta.md` — completa.     |
 
@@ -274,7 +274,8 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 4. ✅ `ApartadoCreate` (cabecera + lista de artículos) — reemplaza el uso de
    `MovimientoCreate` para la operación `apartado`. Implementado en
    `app/schemas/apartado.py`.
-5. ✅ `notas` → `descripcion` en `MovimientoCreate`/`MovimientoRead`. Pendiente: restringir `operacion` para que ya no acepte `apartado` como entrada válida (esa operación ahora entra por `ApartadoCreate`, no por `MovimientoCreate`).
+5. ✅ Cerrado — `notas` → `descripcion` en `MovimientoCreate`/`MovimientoRead`, alineado a `models.py`. Verificado contra archivo real.
+5b. ⬜ Restringir `operacion` en `MovimientoCreate` para que ya no acepte `Operacion.apartado` como valor de entrada (esa operación ahora entra exclusivamente por `ApartadoCreate`). Verificado contra `app/schemas/movimiento.py`: el campo sigue tipado como `Operacion` completo, sin excluir `apartado`; el `model_validator` aún lo referencia como caso válido.
 6. ✅ Cerrado — `bandera_naranja: bool` expuesta en `ClienteRead`, calculada en el endpoint antes de serializar.
 
 ### Nivel 3 — Servicios
@@ -294,7 +295,7 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 ### Pasos restantes de la ruta general (sin cambio de alcance)
 
 13. ✅ Cerrado — Auth (§4.1). `test_autenticacion.py` creado y corrido completo en verde (ver §4.2).
-14. **Construir Recargas** desde cero.
+14. ✅ Cerrado — `test_recargas.py` — creado (ver §4.2).
 15. **Construir Setting/Configuración** (esqueleto MVP — sin permisos diferenciados todavía).
 16. **Construir Consulta Global** (3 vistas de solo lectura).
 17. **Checklist real** — criterio de completado = pipeline + test.
@@ -310,4 +311,4 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** §5 Nivel 4 (Tests) y el punto 13 (Auth) quedaron cerrados por completo — todos los módulos existentes tienen test en verde (ver §4.2). El siguiente punto de la ruta general es el **punto 14 — construir Recargas** desde cero (spec completa en `module_recargas.md`, ver §4.3).
+**Siguiente paso inmediato:** §5 Nivel 4 (Tests) y el punto 14 (Recargas) quedaron cerrados por completo — todos los módulos existentes tienen test en verde (ver §4.2). El siguiente punto de la ruta general es el **punto 15 — construir Setting/Configuración** (spec completa en `module_setting.md`, ver §4.3). Este modulo es una fusión junto con autenticación, la cual ya quedo cerrada.

@@ -1,6 +1,6 @@
 """
 test_clientes.py — mapeado 1:1 a test/casos_clientes.md y a
-docs/spec/module_clientes.md.
+FULLSTACK/module_clientes.md.
 
 ✅ RUTAS CONFIRMADAS contra `app/api/v1/endpoints/clientes.py` real:
 `POST /api/v1/clientes`, `GET /api/v1/clientes/{id_cliente}`,

@@ -1,5 +1,5 @@
 """
-Tests del módulo Pedidos. Mapeado a docs/spec/module_pedidos.md.
+Tests del módulo Pedidos. Mapeado a docs/FULLSTACK/module_pedidos.md.
 
 Todo lo aquí probado ya se validó manualmente con curl en sesión de
 desarrollo (ver REPORT.md §5 paso 1) -- esta suite lo automatiza para que

@@ -1,7 +1,7 @@
 """
 Tests del módulo Setting/Configuración.
 
-Mapeado 1:1 a docs/FULL_STACK/module_setting.md y a
+Mapeado 1:1 a docs/spec/module_setting.md y a
 app/api/v1/endpoints/setting.py. Usa las fixtures compartidas de
 conftest.py (client, auth_headers, db_session) -- no duplica fixtures de
 cliente/auth aquí (ver convención en conftest.py).

@@ -1,5 +1,5 @@
 """
-Modelo de datos alineado a docs/spec/*.md + docs/REGLAS_NEGOCIO.md
+Modelo de datos alineado a docs/FULL_STACK/*.md + docs/REGLAS_NEGOCIO.md
 (fuentes de verdad — ver docs/REPORT.md §1 para la jerarquía completa).
 
 15 tablas migradas y verificadas contra pos.db (alembic_version = d4e5f6a7b8c9,

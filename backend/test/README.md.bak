@@ -27,13 +27,13 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
   (cliente desechable, `no_cliente` único por corrida vía `uuid`, creado
   directo en SQLAlchemy para no depender de módulos con bugs conocidos).
 - `test_<modulo>.py` — un archivo por módulo, mapeado 1:1 a
-  `docs/spec/module_<modulo>.md`. Si el spec de un módulo no tiene un
+  `FULLSTACK/module_<modulo>.md`. Si el spec de un módulo no tiene un
   `module_<modulo>.md` propio todavía, ese es el primer paso, no escribir el
   test a ciegas contra el `.md` monolítico.
 
 ## Módulos y su estado (actualizar conforme se agreguen)
 
-| Módulo | `docs/spec/module_*.md` | `test_*.py` | `casos_uso` |
+| Módulo | `FULLSTACK/module_*.md` | `test_*.py` | `casos_uso` |
 |---|---|---|---|
 | Pedidos | ✅ existe | ✅ `test_pedidos.py` (corrido, verde) | ✅ `casos_pedidos.md` |
 | Inventario | ✅ existe | ✅ `test_inventario.py` (corrido, verde) | ✅ `casos_inventario.md` |
@@ -44,7 +44,7 @@ corriendo — usa `TestClient`, que invoca la app directamente en proceso.
 | Consulta | ✅ existe | ❌ pendiente (sin código todavía) | ❌ en diseño |
 | Setting | ✅ existe | ❌ pendiente (Auth existente; Setting sin código) | ❌ en diseño |
 
-Ver `docs/spec/README.md` para el detalle de cada uno (es la fuente de
+Ver `docs/FULLSTACK/README.md` para el detalle de cada uno (es la fuente de
 verdad de esta tabla — actualízala ahí primero, luego refleja aquí).
 
 Detalle en lenguaje llano de cada caso, mapeado 1:1 a los tests de abajo: `casos_inventario.md`, `casos_pedidos.md`, `casos_shein.md`, `casos_clientes.md`.
@@ -177,7 +177,7 @@ parcial.
   prueba en `test_movimientos.py`, no aquí.
 
 **Pendiente de actualizar por tu lado, no de código:** `casos_clientes.md`
-§3 (Rehabilitar Cliente) queda obsoleto y `docs/spec/module_clientes.md`
+§3 (Rehabilitar Cliente) queda obsoleto y `docs/FULLSTACK/module_clientes.md`
 no necesita cambios (nunca definió esta opción) — pero si algún otro
 documento (`REPORT.md`, `TRAZABILIDAD.md`) todavía menciona
 `rehabilitar_cliente` como parte del alcance de Clientes, conviene
@@ -186,7 +186,7 @@ en una sesión futura.
 
 ## Al agregar un módulo nuevo
 
-1. Extraer `docs/spec/module_<nombre>.md` del monolito (o pedir que se
+1. Extraer `FULLSTACK/module_<nombre>.md` del monolito (o pedir que se
    extraiga), del mismo tamaño/nivel de detalle que `module_pedidos.md`.
 2. Escribir `test_<nombre>.py` usando las fixtures de `conftest.py` — no
    crear un cliente de prueba ni un login propio dentro del archivo.

@@ -1,5 +1,5 @@
 """
-Tests del módulo Inventario. Mapeado a docs/spec/module_inventario.md.
+Tests del módulo Inventario. Mapeado a docs/FULLSTACK/module_inventario.md.
 """
 
 import uuid

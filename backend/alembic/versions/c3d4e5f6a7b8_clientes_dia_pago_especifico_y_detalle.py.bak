@@ -4,7 +4,7 @@ Revision ID: c3d4e5f6a7b8
 Revises: b2c3d4e5f6a7
 Create Date: 2026-07-06
 
-Ver docs/REGLAS_NEGOCIO.md §2 y docs/spec/module_clientes.md (regla de
+Ver docs/REGLAS_NEGOCIO.md §2 y docs/FULL_STACK/module_clientes.md (regla de
 negocio frecuencia_pago, ajuste de fecha_pago_programada). Agrega 2 columnas
 nullable a clientes, ya migrada en pos.db:
 

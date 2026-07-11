@@ -1,5 +1,5 @@
 """
-Lógica de negocio del módulo Inventario (docs/spec/module_inventario.md).
+Lógica de negocio del módulo Inventario (FULLSTACK/module_inventario.md).
 """
 
 from datetime import date

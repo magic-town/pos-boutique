@@ -2,7 +2,7 @@
 
 > **Qué es este documento:** una fotografía del estado actual — decisiones
 > tomadas, código implementado, huecos de visibilidad y ruta de trabajo. No es
-> spec de negocio (eso es `REGLAS_NEGOCIO.md` / `docs/FULLSTACK/*.md`).
+> spec de negocio (eso es `REGLAS_NEGOCIO.md` / `docs/spec/*.md`).
 > Es el documento que permite retomar el trabajo en cualquier sesión nueva sin
 > recargar todo el repo. Si solo compartes este archivo, Claude debe poder
 > saber qué hacer a continuación; solo pide otro archivo cuando algo no se
@@ -19,13 +19,13 @@
 
 ## 1. Jerarquía de fuentes
 
-1. **`docs/FULLSTACK/module_<nombre>.md`** — spec de UI/UX por módulo,
+1. **`docs/spec/module_<nombre>.md`** — spec de UI/UX por módulo,
    autoridad máxima si hay contradicción. Para trabajar un módulo específico,
-   basta con su `module_<nombre>.md`. Ver `docs/FULLSTACK/README.md` para el
+   basta con su `module_<nombre>.md`. Ver `docs/spec/README.md` para el
    mapa y estado de cada uno.
 2. **`docs/REGLAS_NEGOCIO.md`** — modelo de datos + reglas de negocio.
 3. **`docs/ARQUITECTURA.md`** — decisiones técnicas.
-4. **`docs/README.md`** — orientación y arranque.
+4. **`README.md`** (raíz del repo, no dentro de `docs/`) — orientación y arranque.
 5. **`backend/app/models/models.py`** — 15 tablas migradas a `pos.db`,
    alineadas a la spec maestra (verificado directo contra `pos.db`:
    `alembic_version = d4e5f6a7b8c9`, `.tables` confirma las 15, incluidas
@@ -201,7 +201,7 @@ movimientos.id_apartado   FK → apartados, nullable
                           (enlaza el evento de caja del primer pago con el lote)
 ```
 
-Spec completa de comportamiento: `docs/FULLSTACK/module_movimientos.md`.
+Spec completa de comportamiento: `docs/spec/module_movimientos.md`.
 Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 
 ---

@@ -1,7 +1,7 @@
 # Casos de uso — Módulo Clientes
 
 > Espejo en lenguaje llano de `test_clientes.py`, mapeado 1:1 a
-> `docs/spec/module_clientes.md`. No reemplaza ese archivo — aquí solo se
+> `FULLSTACK/module_clientes.md`. No reemplaza ese archivo — aquí solo se
 > listan los casos que el test ejercita y su resultado esperado.
 
 **Rutas confirmadas** contra `app/api/v1/endpoints/clientes.py` real:

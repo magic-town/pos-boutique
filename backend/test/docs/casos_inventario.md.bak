@@ -1,7 +1,7 @@
 # Casos de prueba — Inventario
 
 Espejo en lenguaje humano de `test/test_inventario.py`. Mapeado a
-`docs/spec/module_inventario.md`. Si cambias una regla de negocio ahí,
+`docs/FULL_STACK/module_inventario.md`. Si cambias una regla de negocio ahí,
 actualiza el caso correspondiente aquí y el test real.
 
 Helper compartido por todos los casos: `_crear_producto(client, headers, **overrides)`

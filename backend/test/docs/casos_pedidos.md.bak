@@ -1,7 +1,7 @@
 # Casos de prueba — Pedidos
 
 Espejo en lenguaje humano de `test/test_pedidos.py`. Mapeado a
-`docs/spec/module_pedidos.md`. Si cambias una regla de negocio ahí,
+`docs/FULL_STACK/module_pedidos.md`. Si cambias una regla de negocio ahí,
 actualiza el caso correspondiente aquí y el test real.
 
 Helpers compartidos:

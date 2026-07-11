@@ -1,8 +1,8 @@
 """
 Fixtures compartidas por todos los módulos de test.
 
-Convención (ver docs/spec/README.md): un archivo test_<modulo>.py por
-módulo, mapeado 1:1 al spec en docs/spec/module_<modulo>.md. Todos comparten
+Convención (ver docs/FULLSTACK/README.md): un archivo test_<modulo>.py por
+módulo, mapeado 1:1 al spec en FULLSTACK/module_<modulo>.md. Todos comparten
 este conftest.py -- no duplicar fixtures de cliente/auth en cada archivo.
 """
 

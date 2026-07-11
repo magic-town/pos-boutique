@@ -1,5 +1,5 @@
 """
-Schemas del módulo Inventario (docs/spec/module_inventario.md).
+Schemas del módulo Inventario (FULLSTACK/module_inventario.md).
 
 Primera implementación de código de este módulo -- el modelo SQLAlchemy
 (Inventario, en models.py) ya existía, sin usarse desde ningún endpoint.

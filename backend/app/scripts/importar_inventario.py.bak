@@ -4,7 +4,7 @@ Carga inicial (o por lote) de inventario_bz.ods -> tabla inventario.
 Uso:
     python -m app.scripts.importar_inventario /ruta/a/inventario_bz.ods
 
-Reglas (docs/spec/module_inventario.md, sección "Carga inicial"):
+Reglas (FULLSTACK/module_inventario.md, sección "Carga inicial"):
 - Solo INSERT. Cada fila del .ods es un producto nuevo -- no hay clave
   natural en el archivo para detectar duplicados (a diferencia de
   tabla_precios.ods). Responsabilidad operativa: correr esto solo cuando hay

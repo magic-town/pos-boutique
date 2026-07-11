@@ -1,5 +1,5 @@
 """
-Tests del módulo Shein. Mapeado a docs/spec/module_shein.md.
+Tests del módulo Shein. Mapeado a docs/FULLSTACK/module_shein.md.
 
 Cubre los 5 flujos (Registrar Cliente, Registrar Pedido, Lista de Pedidos,
 Registrar Corte, Consulta de Cortes) más los 3 fixes de esta sesión:

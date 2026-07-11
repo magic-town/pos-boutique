@@ -1,5 +1,5 @@
 """
-Endpoints del módulo Inventario (docs/spec/module_inventario.md).
+Endpoints del módulo Inventario (FULLSTACK/module_inventario.md).
 
 Falta registrar en main.py: app.include_router(inventario.router, prefix="/api/v1")
 -- a diferencia de Pedidos, este router es nuevo, no reemplaza uno existente.

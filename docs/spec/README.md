@@ -20,12 +20,14 @@ implementar su módulo. Si un módulo necesita algo de otro (ej. Pedidos lee
 | `module_movimientos.md` | Movimientos (Panel Principal) | ✅ | ✅ | ✅ |
 | `module_shein.md` | Shein | ✅ | ✅ | ✅ |
 | `module_recargas.md` | Recargas Telefónicas | ✅ | ✅ | ✅ |
-| `module_consulta.md` | Consulta Global | ✅ | ❌ | ❌ |
+| `module_consulta.md` | Consulta Global | ❌ | ❌ | ❌ |
 | `module_setting.md` | Autenticación y Configuración | ✅ | ✅ | ✅ |
 | `resumen_tablas.md` | — (transversal) | ✅ | — | — |
 
 `⚠️` = tiene código pero con incidencias conocidas (ver `REPORT.md §4.3`) o
-incompleto. `❌` = no empezado. Actualizar esta tabla cada vez que un módulo
+incompleto. 
+
+`❌` = no empezado. Actualizar esta tabla cada vez que un módulo
 cambie de columna — es el mismo principio que ya rige `REPORT.md §5`.
 
 ## `resumen_tablas.md`

@@ -529,9 +529,9 @@ o esperar a que este esté listo.
 
 ### 5.1 `module_consulta.md` — discrepancia entre REPORT.md y filesystem
 
-`REPORT.md` §4.3 dice: *"Consulta Global — `module_consulta.md` — completa"*.
+`REPORT.md` §4.3 dice: *"Consulta Global — `module_consulta.md` — incompleta"*.
 Sin embargo, `module_consulta.md` **no existe** en `docs/FULLSTACK/`. El
-`README.md` de FULLSTACK lista el archivo pero marca Código y Test como `❌`.
+`README.md` de FULLSTACK lista el archivo marca Extraído, Código y Test como `❌`.
 
 **Impacto:** la spec de Consulta Global se tomó exclusivamente de
 `REGLAS_NEGOCIO.md` §10 (3 consultas de solo lectura). Si existe un

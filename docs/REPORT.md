@@ -263,7 +263,7 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 
 | Módulo                | Spec disponible                      |
 | --------------------- | ------------------------------------- |
-| Consulta Global       | `module_consulta.md` — completa.     |
+| Consulta Global       | `module_consulta.md` — no existe.     |
 
 ---
 

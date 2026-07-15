@@ -14,18 +14,18 @@ implementar su módulo. Si un módulo necesita algo de otro (ej. Pedidos lee
 
 | Archivo | Módulo | Extraído | Código | Test |
 |---|---|---|---|---|
-| `module_clientes.md` | Clientes | ✅ | ✅ | ✅ |
+| `module_clientes.md` | Clientes | ✅ | ⚠️ | ⚠️ |
 | `module_pedidos.md` | Pedidos | ✅ | ✅ | ✅ |
 | `module_inventario.md` | Inventario | ✅ | ✅ | ✅ |
 | `module_movimientos.md` | Movimientos (Panel Principal) | ✅ | ✅ | ✅ |
-| `module_shein.md` | Shein | ✅ | ✅ | ✅ |
+| `module_shein.md` | Shein | ✅ | ⚠️ | ⚠️ |
 | `module_recargas.md` | Recargas Telefónicas | ✅ | ✅ | ✅ |
-| `module_consulta.md` | Consulta Global | ❌ | ❌ | ❌ |
+| `module_consulta_finanzas.md` | Consulta Finanzas | ✅ | ❌ | ❌ |
 | `module_setting.md` | Autenticación y Configuración | ✅ | ✅ | ✅ |
 | `resumen_tablas.md` | — (transversal) | ✅ | — | — |
 
-`⚠️` = tiene código pero con incidencias conocidas (ver `REPORT.md §4.3`) o
-incompleto. 
+`⚠️` = spec actualizado por rediseño; código y tests requieren actualización
+(ver `REPORT.md §4` y `§5`).
 
 `❌` = no empezado. Actualizar esta tabla cada vez que un módulo
 cambie de columna — es el mismo principio que ya rige `REPORT.md §5`.

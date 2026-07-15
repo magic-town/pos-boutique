@@ -28,6 +28,9 @@ def crear_shein_cliente(db: Session, data: SheinClienteCreate) -> SheinCliente:
         nombre=data.nombre,
         colonia=data.colonia,
         telefono=data.telefono,
+        frecuencia_pago=data.frecuencia_pago,
+        dia_pago_especifico=data.dia_pago_especifico,
+        frecuencia_pago_detalle=data.frecuencia_pago_detalle,
     )
     db.add(cliente)
     db.commit()

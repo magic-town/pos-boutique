@@ -1,40 +1,39 @@
 # Reglas de Negocio y Modelo de Datos — pos-boutique
 
 > Este documento responde **qué hace el sistema y bajo qué reglas**, independientemente
-> de cómo se ve la UI (eso vive en `FULLSTACK/*.md`) y de cómo está
+> de cómo se ve la UI (eso vive en `docs/spec/module_*.md`) y de cómo está
 > construido técnicamente (eso vive en `ARQUITECTURA.md`).
 >
 > **Estado:** el modelo de datos aquí descrito está implementado en
-> `backend/app/models/models.py` y migrado a `pos.db` (`a1b2c3d4e5f6_esquema_inicial.py`).
-> La tabla `precios_catalogo` está diseñada y cerrada pero pendiente de agregar
-> a `models.py` + migración Alembic.
-> El §6 (Módulo Shein) fue rediseñado — `shein_pedidos` cambia de estructura y se
-> agrega `shein_pedidos_articulos`. Ambas están diseñadas y cerradas, pendientes de
-> reflejarse en `models.py` + migración Alembic (esquema anterior aún vive en `pos.db`).
-> El §5 (Panel Principal) incorpora las tablas `apartados` y `apartados_articulos`,
-> diseñadas y cerradas, pendientes de reflejarse en `models.py` + migración Alembic.
+> `backend/app/models/models.py` y migrado a `pos.db` (head `d4e5f6a7b8c9`).
+> Las tablas `cartera_vencida`, `familiares` y `shein_movimientos`, así como las
+> columnas nuevas en `shein_clientes`, están especificadas aquí pero pendientes de
+> migración Alembic y actualización en `models.py`.
 
 ---
 
 ## 1. Glosario de entidades
 
-| Tabla | Módulo | Resumen de una línea |
-|---|---|---|
-| `clientes` | Clientes | Cartera de crédito de la boutique |
-| `pedidos` | Pedidos | Cabecera de un pedido a proveedor |
-| `pedidos_articulos` | Pedidos | Artículos individuales de un pedido (1 a 4 por pedido) |
-| `precios_catalogo` | Pedidos | Catálogo de precios importado desde `tabla_precios.ods` |
-| `inventario` | Inventario | Existencias propias de la boutique (piso de venta) |
-| `movimientos` | Panel Principal | Registro de toda operación de caja (contado, apartado, abono, gasto) |
-| `apartados` | Panel Principal | Cabecera de un apartado: cliente, fecha semilla y saldo pendiente del lote |
-| `apartados_articulos` | Panel Principal | Artículos individuales de un apartado (1 a N por lote) |
-| `shein_clientes` | Shein | Clientes transaccionales de Shein, independientes de `clientes` |
-| `shein_pedidos` | Shein | Cabecera de un pedido Shein (1 a 4 artículos) |
-| `shein_pedidos_articulos` | Shein | Artículos individuales de un pedido Shein (1 a 4 por pedido) |
-| `shein_cortes` | Shein | Cortes periódicos que concentran pedidos y registran el `cupon` obtenido de Shein |
-| `recargas` | Recargas | Registro de recargas telefónicas vendidas |
-| `usuarios` | Autenticación | Cuentas de acceso al sistema |
-| `configuracion` | Configuración | Parámetros del sistema (métodos de pago activos, etc.) |
+| Tabla                     | Módulo          | Resumen de una línea                                                        |
+|---------------------------|-----------------|-----------------------------------------------------------------------------|
+| `clientes`                | Clientes        | Cartera de crédito de la boutique                                           |
+| `cartera_vencida`         | Clientes        | Archivo de clientes morosos cancelados; tabla independiente sin FKs         |
+| `familiares`              | Clientes        | Vínculos familiares entre pares de clientes de la cartera                   |
+| `pedidos`                 | Pedidos         | Cabecera de un pedido a proveedor                                           |
+| `pedidos_articulos`       | Pedidos         | Artículos individuales de un pedido (1 a 4 por pedido)                      |
+| `precios_catalogo`        | Pedidos         | Catálogo de precios importado desde `tabla_precios.ods`                     |
+| `inventario`              | Inventario      | Existencias propias de la boutique (piso de venta)                          |
+| `movimientos`             | Panel Principal | Registro de toda operación de caja (contado, apartado, abono, gasto)        |
+| `apartados`               | Panel Principal | Cabecera de un apartado: cliente, fecha semilla y saldo pendiente del lote  |
+| `apartados_articulos`     | Panel Principal | Artículos individuales de un apartado (1 a N por lote)                      |
+| `shein_clientes`          | Shein           | Clientes con cartera de crédito propia, independientes de `clientes`        |
+| `shein_movimientos`       | Shein           | Abonos a la cartera de crédito Shein                                        |
+| `shein_pedidos`           | Shein           | Cabecera de un pedido Shein (1 a 4 artículos)                               |
+| `shein_pedidos_articulos` | Shein           | Artículos individuales de un pedido Shein (1 a 4 por pedido)                |
+| `shein_cortes`            | Shein           | Cortes periódicos que concentran pedidos y registran el `cupon`             |
+| `recargas`                | Recargas        | Registro de recargas telefónicas vendidas                                   |
+| `usuarios`                | Autenticación   | Cuentas de acceso al sistema                                                |
+| `configuracion`           | Configuración   | Parámetros del sistema (métodos de pago activos, etc.)                      |
 
 ---
 
@@ -42,60 +41,70 @@
 
 ### Modelo de datos
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_cliente` | Integer, PK | Nunca aparece en UI |
-| `no_cliente` | String, único | Autogenerado: `{Colonia}-{consecutivo:03d}` |
-| `nombre` | String(40) | Obligatorio |
-| `colonia` | String(20) | Obligatorio |
-| `telefono` | Integer | 10 dígitos, obligatorio |
-| `frecuencia_pago` | Enum: `semanal`, `quincenal`, `dia_especifico_mes`, `otro` | Obligatorio |
-| `dia_pago_especifico` | Integer, nullable | 1-31. Obligatorio solo si `frecuencia_pago = dia_especifico_mes`. Se define una sola vez al registrar y persiste mientras la cuenta esté activa |
-| `frecuencia_pago_detalle` | String(60), nullable | Obligatorio solo si `frecuencia_pago = otro`. Texto libre con el acuerdo especial |
-| `ref_nombre` | String(40) | Obligatorio |
-| `ref_colonia` | String(40) | Obligatorio |
-| `ref_telefono` | Integer, nullable | 10 dígitos, opcional |
-| `saldo` | Float | Default `0`. Deuda acumulada del cliente |
-| `estatus` | Enum: `activo`, `inactivo` | Default `inactivo`. Derivado del `saldo`, siempre automático, nunca editable manualmente |
-| `fecha_registro` | Date | Autogenerado al crear |
-| `fecha_pago_programada` | Date, nullable | `NULL` hasta el primer abono. Ver regla de ciclo abajo |
+| Campo                    | Tipo                                    | Regla                                                                              |
+|--------------------------|-----------------------------------------|------------------------------------------------------------------------------------|
+| `id_cliente`             | Integer, PK                             | Nunca aparece en UI. No cambia aunque se reutilice el `no_cliente`.                |
+| `no_cliente`             | String, único                           | Slot reutilizable. Formato: `{Colonia}-{consecutivo:03d}`                         |
+| `nombre`                 | String(40)                              | Obligatorio                                                                        |
+| `colonia`                | String(20)                              | Obligatorio                                                                        |
+| `telefono`               | Integer                                 | 10 dígitos, obligatorio                                                            |
+| `frecuencia_pago`        | Enum: `semanal`, `quincenal`, `dia_especifico_mes`, `otro` | Obligatorio                                              |
+| `dia_pago_especifico`    | Integer, nullable                       | 1-31. Obligatorio solo si `frecuencia_pago = dia_especifico_mes`                   |
+| `frecuencia_pago_detalle`| String(60), nullable                    | Obligatorio solo si `frecuencia_pago = otro`                                       |
+| `ref_nombre`             | String(40)                              | Obligatorio                                                                        |
+| `ref_colonia`            | String(40)                              | Obligatorio                                                                        |
+| `ref_telefono`           | Integer, nullable                       | 10 dígitos, opcional                                                               |
+| `saldo`                  | Float                                   | Default `0`. Deuda acumulada del cliente                                           |
+| `estatus`                | Enum: `activo`, `inactivo`              | Default `inactivo`. Derivado del `saldo`, siempre automático, nunca editable       |
+| `fecha_registro`         | Date                                    | Autogenerado al crear                                                              |
+| `fecha_pago_programada`  | Date, nullable                          | `NULL` hasta el primer abono                                                       |
+
+### Tabla `cartera_vencida`
+
+| Campo                    | Tipo        | Regla                                                      |
+|--------------------------|-------------|------------------------------------------------------------|
+| `id_cartera_vencida`     | Integer, PK | —                                                          |
+| `no_cliente_original`    | String      | `no_cliente` del slot al momento de la cancelación        |
+| `nombre`                 | String      | Datos del cliente moroso                                   |
+| `colonia`                | String      | —                                                          |
+| `telefono`               | Integer     | —                                                          |
+| `ref_nombre`             | String      | —                                                          |
+| `ref_colonia`            | String      | —                                                          |
+| `ref_telefono`           | Integer, nullable | —                                                   |
+| `saldo_cancelado`        | Float       | Deuda perdonada al momento de cancelación                  |
+| `fecha_registro_original`| String      | `fecha_registro` del registro en `clientes`               |
+| `fecha_cancelacion`      | String      | Fecha de la operación `Cancelar Cliente`                   |
+
+Sin llaves foráneas. Tabla de archivo independiente; no se relaciona con ninguna otra tabla.
+
+### Tabla `familiares`
+
+| Campo          | Tipo        | Regla                                                                  |
+|----------------|-------------|------------------------------------------------------------------------|
+| `id_vinculo`   | Integer, PK | —                                                                      |
+| `id_cliente_a` | Integer, FK → `clientes` | Siempre el menor de los dos `id_cliente`            |
+| `id_cliente_b` | Integer, FK → `clientes` | Siempre el mayor de los dos `id_cliente`            |
+
+`CHECK (id_cliente_a < id_cliente_b)` + índice único en `(id_cliente_a, id_cliente_b)`
+garantizan que cada par familiar se almacene en un único orden sin duplicados invertidos.
 
 ### Reglas de negocio
 
-1. **`estatus` es un campo derivado del `saldo`, nunca una decisión operativa.** El cliente nace `inactivo` con `saldo = 0`. Pasa a `activo` en automático en cuanto recibe y acepta un producto que impacta su `saldo`. Regresa a `inactivo` en automático en cuanto liquida su `saldo` a `0` — sin bloquear ninguna operación ni requerir acción de la operadora.
-2. **Ciclo de `fecha_pago_programada` — cálculo diferenciado por `frecuencia_pago`:**
-   Se instancia en el primer abono y se recalcula en cada abono subsiguiente
-   (nunca al registrar al cliente ni al registrar un apartado). La **fórmula** de
-   cálculo depende del tipo de frecuencia:
-   - **`semanal`:** rodante, sin cambios. `fecha_pago_programada = fecha_abono + 7 días`,
-     recalculada desde la fecha real de cada abono (no desde la fecha programada anterior).
-   - **`quincenal`:** deja de ser rodante. Se fija a **fechas de calendario**: el
-     día `15` de cada mes y el **último día del mes** (28, 29, 30 o 31 según
-     corresponda). `fecha_pago_programada` = la próxima de esas dos fechas
-     posterior a la fecha del abono.
-   - **`dia_especifico_mes`:** se fija al día capturado en `dia_pago_especifico`
-     al registrar al cliente. `fecha_pago_programada` = la próxima ocurrencia
-     de ese día posterior a la fecha del abono. Si el día no existe en un mes
-     dado (p. ej. `31` en febrero), se aplica el mismo *clamp* al último día
-     del mes que usa `quincenal`.
-   - **`otro`:** sin cambios — el sistema nunca calcula esta fecha;
-     `fecha_pago_programada` permanece `NULL` siempre. El acuerdo se documenta
-     en `frecuencia_pago_detalle`, capturado una sola vez al registrar.
-   > Implementación pendiente: la fórmula vive en `movimiento_service.py`;
-   > ver `docs/REPORT.md` para su estado actual — hoy solo se documenta la
-   > regla y se captura el dato de origen (`dia_pago_especifico` /
-   > `frecuencia_pago_detalle`) en el alta del cliente.
-3. **Sistema de banderas (visual, no bloqueante):**
+1. **`estatus` es un campo derivado del `saldo`, nunca una decisión operativa.** El cliente nace `inactivo` con `saldo = 0`. Pasa a `activo` automáticamente cuando un movimiento impacta su `saldo` al alza. Regresa a `inactivo` automáticamente cuando su `saldo` llega a `0`.
+2. **`no_cliente` es un slot reutilizable.** La `PRIMARY KEY` no cambia. Cuando el slot queda disponible (saldo = 0 e inactivo), la operadora puede asignarlo a un nuevo cliente reescribiendo los campos del registro. El historial de movimientos, pedidos y apartados del cliente anterior queda vinculado al mismo `id_cliente`.
+3. **`Cancelar Cliente`** se aplica a clientes en `bandera_roja`. La operación: (1) copia los datos del cliente a `cartera_vencida`, (2) pone `saldo = 0` y limpia los campos del slot en `clientes`. El agregado de cuentas por cobrar del negocio (`Σ clientes.saldo WHERE saldo > 0`) disminuye en el monto cancelado.
+4. **Ciclo de `fecha_pago_programada`:** se instancia en el primer abono y se recalcula en cada abono subsiguiente. Fórmula diferenciada por `frecuencia_pago`:
+   - **`semanal`:** rodante. `fecha_pago_programada = fecha_abono + 7 días`.
+   - **`quincenal`:** fechas fijas de calendario: día `15` y último día del mes. `fecha_pago_programada` = la próxima de esas dos fechas posterior al abono.
+   - **`dia_especifico_mes`:** se fija al día capturado en `dia_pago_especifico`. `fecha_pago_programada` = la próxima ocurrencia posterior al abono. Si el día no existe en el mes, se aplica *clamp* al último día del mes.
+   - **`otro`:** el sistema nunca calcula. `fecha_pago_programada` permanece `NULL`. El acuerdo vive en `frecuencia_pago_detalle`.
+5. **Sistema de banderas (visual, no bloqueante):**
    - 🟡 Amarilla: `fecha_pago_programada - hoy <= 2 días`
    - 🔴 Roja: `hoy > fecha_pago_programada`
-   - 🟠 Naranja: el cliente tiene un apartado abierto (`apartados.estatus = 'abierto'`)
-     y faltan 5 días o menos para cumplirse un mes desde `apartados.fecha_apartado`.
-     Se calcula al vuelo, no se persiste. Es **independiente** de `fecha_pago_programada`
-     y de las banderas amarilla/roja — puede coexistir con cualquiera de ellas, ya que
-     responde a un ciclo distinto (el plazo de un apartado, no el ciclo normal de abonos).
-     Se apaga en cuanto `apartados.estatus = 'liquidado'`. Ver §5 para el detalle de
-     `apartados`.
-   - Sin bandera amarilla/roja: cualquier otro caso, o `fecha_pago_programada = NULL`, o `saldo = 0`
+   - 🟠 Naranja: cliente tiene apartado abierto (`apartados.estatus = 'abierto'`) y faltan ≤ 5 días para cumplirse un mes desde `apartados.fecha_apartado`
+   - ⚫ Negra: el cliente tiene `bandera_roja` **Y** al menos un familiar (vía tabla `familiares`) también tiene `bandera_roja` simultáneamente. Se calcula al vuelo.
+   - Sin bandera: ninguna de las anteriores, o `fecha_pago_programada = NULL`, o `saldo = 0`.
+6. **Tabla `familiares` sin transitividad.** Solo pares declarados explícitamente. Un cliente puede tener múltiples vínculos. La operadora los gestiona desde **Editar Cliente**.
 
 ---
 
@@ -107,63 +116,46 @@
 
 **`pedidos_articulos`** (detalle, 1 a 4 artículos principales por pedido):
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_articulo` | Integer, PK | Nunca aparece en UI |
-| `id_pedido` | FK → `pedidos` | Obligatorio |
-| `rol` | Enum: `principal`, `alternativa` | Default `principal` |
-| `id_articulo_principal` | FK → `pedidos_articulos`, nullable | Solo se llena si `rol = alternativa`. Enlaza la alternativa con su principal |
-| `tipo_producto` | Enum: `formal`, `informal` | Obligatorio |
-| `proveedor` | Enum: `Price_Shoes`, `Pakar`, `Cklass`, `otro`, nullable | Solo si `tipo_producto = formal`. NULL si informal |
-| `id_producto` | String(12), nullable | Referencia libre al catálogo del proveedor. Sin FK real. Solo si formal |
-| `producto` | String(40) | Obligatorio |
-| `marca`, `talla` | String, nullable | Opcionales en cualquier tipo |
-| `monto` | Float, nullable | Ver regla de resolución abajo |
-| `estatus_articulo` | Enum: `vigente`, `en_almacen`, `devuelto`, `cancelado` | Default `vigente`. Controla el ciclo de vida |
-| `id_articulo_sustituye` | FK → `pedidos_articulos`, nullable | Solo en artículo sustituto de una devolución. Apunta al artículo original devuelto |
+| Campo                     | Tipo                                                          | Regla                                                                                                                     |
+|---------------------------|---------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|
+| `id_articulo`             | Integer, PK                                                   | Nunca aparece en UI                                                                                                       |
+| `id_pedido`               | FK → `pedidos`                                                | Obligatorio                                                                                                               |
+| `rol`                     | Enum: `principal`, `alternativa`                              | Default `principal`                                                                                                       |
+| `id_articulo_principal`   | FK → `pedidos_articulos`, nullable                            | Solo si `rol = alternativa`                                                                                               |
+| `tipo_producto`           | Enum: `formal`, `informal`                                    | Obligatorio                                                                                                               |
+| `proveedor`               | Enum: `Price_Shoes`, `Pakar`, `Cklass`, `otro`, nullable      | Solo si `tipo_producto = formal`. NULL si informal                                                                        |
+| `id_producto`             | String(12), nullable                                          | Sin FK real. Solo si formal                                                                                               |
+| `producto`                | String(40)                                                    | Obligatorio                                                                                                               |
+| `marca`, `talla`          | String, nullable                                              | Opcionales                                                                                                                |
+| `monto`                   | Float, nullable                                               | Ver regla de resolución                                                                                                   |
+| `estatus_articulo`        | Enum: `vigente`, `en_almacen`, `devuelto`, `cancelado`        | Default `vigente`                                                                                                         |
+| `id_articulo_sustituye`   | FK → `pedidos_articulos`, nullable                            | Solo en artículo sustituto de una devolución                                                                              |
 
 **`precios_catalogo`** (catálogo importado desde `tabla_precios.ods`):
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_precio` | Integer, PK | Interno |
-| `proveedor` | Enum: `Price_Shoes`, `Pakar`, `Cklass` | Sin `otro` — ese proveedor no tiene catálogo digitalizado |
-| `id_producto` | String(12) | Normalizado desde `ID`/`CÓDIGO`/`modelo` según pestaña de origen |
-| `precio_venta` | Integer | Precio final de venta que usa el POS |
-| `fecha_catalogo` | Date | Normalizada a ISO. Determina qué precio gana cuando hay duplicados |
-| `catalogo` | String, nullable | Nombre del catálogo/tomo — preservado del .ods, no usado por el POS |
-| `temporada` | String, nullable | Temporada — preservado del .ods, no usado por el POS |
-| `pagina` | Integer, nullable | Página en el catálogo físico — preservado del .ods |
-| `precio_base` | Integer, nullable | Precio sugerido/base — preservado del .ods |
-
-Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos futuros (producto vigente temporada tras temporada). Lookup siempre por `MAX(fecha_catalogo)`.
+| Campo           | Tipo                                | Regla                                                                     |
+|-----------------|-------------------------------------|---------------------------------------------------------------------------|
+| `id_precio`     | Integer, PK                         | Interno                                                                   |
+| `proveedor`     | Enum: `Price_Shoes`, `Pakar`, `Cklass` | Sin `otro`                                                             |
+| `id_producto`   | String(12)                          | Lookup por `proveedor` + `id_producto`, gana `MAX(fecha_catalogo)`        |
+| `precio_venta`  | Integer                             | Precio final de venta                                                     |
+| `fecha_catalogo`| Date                                | Determina qué precio gana cuando hay duplicados                           |
+| `catalogo`, `temporada`, `pagina`, `precio_base` | varios | Preservados del .ods, no usados por el POS                |
 
 ### Reglas de negocio
 
-1. **Un pedido tiene de 1 a 4 artículos principales.** Solo el primero es obligatorio al crear; los demás se pueden agregar mientras el pedido sea editable (artículos en `vigente`).
-2. **Cada principal puede tener 0 o 1 alternativa**, salvo cuando
-   `proveedor = Price_Shoes` en el **principal**, en cuyo caso puede tener
-   **hasta 3 alternativas** (1 principal + 3 alternativas = 4 artículos en
-   ese renglón). La condición se evalúa sobre el proveedor del principal, no
-   de cada alternativa individual — si el principal es Price_Shoes, las
-   alternativas heredan el límite de 3, sin importar su propio proveedor. La
-   alternativa (o alternativas) es una buena práctica operativa (se ofrece si
-   el principal no está disponible en el proveedor), pero nunca es
-   obligatoria para guardar el pedido.
-3. **El saldo del cliente NO se carga al registrar el pedido.** Se carga únicamente cuando el artículo se marca `en_almacen`. Solo se cobra lo que efectivamente se surtió.
-4. **Resolución de `monto`:**
-   - `formal` + proveedor con catálogo (`Price_Shoes`, `Pakar`, `Cklass`): lookup automático en `precios_catalogo` por `id_producto`, gana `MAX(fecha_catalogo)`. Si no existe el ID, campo queda vacío y editable.
-   - `formal` + `proveedor = otro`: captura manual obligatoria.
-   - `informal`: captura libre, opcional.
+1. Un pedido tiene de 1 a 4 artículos principales. Solo el primero es obligatorio al crear.
+2. Cada principal puede tener 0 o 1 alternativa, salvo `proveedor = Price_Shoes` (hasta 3 alternativas).
+3. **El saldo del cliente NO se carga al registrar el pedido.** Solo cuando el artículo se marca `en_almacen`.
+4. **Resolución de `monto`:** formal con catálogo → lookup automático por `MAX(fecha_catalogo)`; formal con `otro` → captura manual; informal → captura libre, opcional.
 5. **`estatus_articulo` y su efecto en saldo:**
-   - `vigente` → sin efecto en saldo.
-   - `vigente` → `en_almacen`: `saldo += monto` (el artículo llegó al piso). Si el `estatus` del cliente era `inactivo`, cambia a `activo` en la misma transacción.
-   - `en_almacen` → `devuelto`: `saldo -= monto` (cliente devuelve). Se abre pedido sustituto pre-cargado. El sustituto nace `vigente` e impactará saldo cuando llegue a `en_almacen`.
-   - `vigente` → `cancelado`: sin efecto en saldo (nunca se había cargado).
-   - `en_almacen` → `cancelado`: `saldo -= monto` si `monto IS NOT NULL` (se revierte lo que se había cargado). El artículo pasa a inventario físico.
-6. **`id_articulo_sustituye`** se llena únicamente en el artículo sustituto de una devolución, apuntando al `id_articulo` del original devuelto. En todos los demás casos es `NULL`.
-7. **Lista de Surtido:** vista global de todos los artículos en `vigente` dentro de un período de corte configurable (default: miércoles a martes). Es la lista con la que se realizan las compras al proveedor. Desde esta vista la operadora marca artículos como `en_almacen` — ese es el momento en que el saldo se carga al cliente.
-8. **Sincronización de `precios_catalogo`:** el script `backend/app/scripts/importar_precios.py` lee `tabla_precios.ods` y hace solo `INSERT` de filas nuevas (nunca borra ni sobreescribe). El usuario lo dispara manualmente desde el POS o terminal cuando el proveedor libera catálogo nuevo.
+   - `vigente` → sin efecto.
+   - `vigente` → `en_almacen`: `saldo += monto`. Si el cliente era `inactivo`, cambia a `activo`.
+   - `en_almacen` → `devuelto`: `saldo -= monto`. Se abre pedido sustituto pre-cargado.
+   - `vigente` → `cancelado`: sin efecto.
+   - `en_almacen` → `cancelado`: `saldo -= monto` si `monto IS NOT NULL`. Artículo pasa a inventario.
+6. **Lista de Surtido:** vista global de artículos en `vigente` dentro del período de corte configurable (default: miércoles a martes). Desde aquí la operadora marca artículos como `en_almacen`.
+7. El script `importar_precios.py` solo hace `INSERT`. Nunca borra ni sobreescribe.
 
 ---
 
@@ -171,91 +163,79 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 
 ### Modelo de datos
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_producto` | Integer, PK | No se reutiliza aunque el producto se venda |
-| `categoria` | Enum: `dama`, `caballero`, `infantil`, `accesorio`, `calzado` | Obligatorio |
-| `tipo_producto` | Enum: `formal`, `informal` | Obligatorio |
-| `descripcion` | String(40) | Obligatorio |
-| `talla`, `color`, `marca` | String, nullable | Opcionales |
-| `precio_venta` | Integer | Obligatorio |
-| `precio_descuento` | Integer, nullable | `NULL` = sin descuento. Con valor = precio vigente |
-| `stock` | Integer | Default `0` |
-| `estatus` | Enum: `disponible`, `disponible_c/descuento`, `en_ruta`, `apartado`, `vendido` | Default `disponible` |
-| `descripcion_ruta` | String, nullable | Obligatorio solo si `estatus = en_ruta` (validado en servicio) |
-| `created` | Date | Autogenerado |
-| `changed_status` | Date, nullable | Se actualiza en cada cambio de `estatus` |
+| Campo               | Tipo                                                                           | Regla                                   |
+|---------------------|--------------------------------------------------------------------------------|-----------------------------------------|
+| `id_producto`       | Integer, PK                                                                    | No se reutiliza                         |
+| `categoria`         | Enum: `dama`, `caballero`, `infantil`, `accesorio`, `calzado`                  | Obligatorio                             |
+| `tipo_producto`     | Enum: `formal`, `informal`                                                     | Obligatorio                             |
+| `descripcion`       | String(40)                                                                     | Obligatorio                             |
+| `talla`, `color`, `marca` | String, nullable                                                         | Opcionales                              |
+| `precio_venta`      | Integer                                                                        | Obligatorio                             |
+| `precio_descuento`  | Integer, nullable                                                              | `NULL` = sin descuento                  |
+| `stock`             | Integer                                                                        | Default `0`                             |
+| `estatus`           | Enum: `disponible`, `disponible_c/descuento`, `en_ruta`, `apartado`, `vendido` | Default `disponible`                    |
+| `descripcion_ruta`  | String, nullable                                                               | Obligatorio solo si `estatus = en_ruta` |
+| `created`           | Date                                                                           | Autogenerado                            |
+| `changed_status`    | Date, nullable                                                                 | Se actualiza en cada cambio de `estatus`|
 
 ### Reglas de negocio
 
-1. **Transiciones de estatus válidas:**
-   - `disponible` → `en_ruta`, `disponible_c/descuento`, `apartado`, `vendido`
-   - `disponible_c/descuento` → `disponible`, `en_ruta`, `apartado`, `vendido`
-   - `en_ruta` → `disponible`, `vendido`
-   - `apartado` → `disponible` (cancelación del artículo), `vendido` (liquidación del apartado)
-   - `vendido` → sin transición posible
-2. **`precio_descuento` no tiene columna de porcentaje** — se calcula al vuelo: `(1 - precio_descuento / precio_venta) * 100`.
-3. **Todo cambio de `estatus` debe actualizar `changed_status`** en la misma transacción — invariante global del sistema.
+1. **Transiciones válidas:** `disponible` → `en_ruta`, `disponible_c/descuento`, `apartado`, `vendido`. `disponible_c/descuento` → `disponible`, `en_ruta`, `apartado`, `vendido`. `en_ruta` → `disponible`, `vendido`. `apartado` → `disponible` (cancelación), `vendido` (liquidación). `vendido` → terminal.
+2. `precio_descuento` no tiene columna de porcentaje — se calcula al vuelo: `(1 - precio_descuento / precio_venta) * 100`.
+3. Todo cambio de `estatus` debe actualizar `changed_status` en la misma transacción.
 
 ---
 
 ## 5. Panel Principal — Movimientos de caja
 
-> El Panel Principal es la pantalla de operación cotidiana: caja registradora, siempre
-> visible. Cubre cuatro operaciones — `contado`, `apartado`, `abono`, `gasto` — y escribe
-> en `movimientos`, y adicionalmente en `apartados` / `apartados_articulos` cuando la
-> operación es `apartado`.
+> El Panel Principal es la pantalla de operación cotidiana. Cubre cuatro operaciones —
+> `contado`, `apartado`, `abono`, `gasto` — y escribe en `movimientos`, y adicionalmente
+> en `apartados` / `apartados_articulos` cuando la operación es `apartado`.
 
 ### Modelo de datos
 
 **`movimientos`** (registro de todo evento de caja):
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_movimiento` | Integer, PK | — |
-| `operacion` | Enum: `contado`, `apartado`, `abono`, `gasto` | Obligatorio |
-| `id_cliente` | FK → `clientes`, nullable | Obligatorio en `apartado`/`abono`. `NULL` en `gasto` |
-| `id_producto` | FK → `inventario`, nullable | Solo en `contado` con coincidencia en inventario |
-| `id_apartado` | FK → `apartados`, nullable | Solo en `apartado` — enlaza el evento de caja con su lote |
-| `monto` | Float | Obligatorio, > 0. En `apartado`, representa el primer pago del lote, no el saldo |
-| `forma_pago` | Enum: `efectivo`, `transferencia`, `tarjeta` | Depende de `configuracion` (métodos activos) |
-| `saldo_resultante` | Float, nullable | `NULL` en `contado`/`gasto`. Calculado en `apartado`/`abono` |
-| `descripcion` | String(60), nullable | **Obligatoria únicamente en `gasto`** |
-| `fecha` | DateTime | Autogenerado |
+| Campo            | Tipo                                                  | Regla                                                          |
+|------------------|-------------------------------------------------------|----------------------------------------------------------------|
+| `id_movimiento`  | Integer, PK                                           | —                                                              |
+| `operacion`      | Enum: `contado`, `apartado`, `abono`, `gasto`         | Obligatorio                                                    |
+| `id_cliente`     | FK → `clientes`, nullable                             | Obligatorio en `apartado`/`abono`. `NULL` en `gasto`           |
+| `id_producto`    | FK → `inventario`, nullable                           | Solo en `contado` con coincidencia en inventario               |
+| `id_apartado`    | FK → `apartados`, nullable                            | Solo en `apartado`                                             |
+| `monto`          | Float                                                 | Obligatorio, > 0                                               |
+| `forma_pago`     | Enum: `efectivo`, `transferencia`, `tarjeta`          | Depende de `configuracion`                                     |
+| `saldo_resultante`| Float, nullable                                      | `NULL` en `contado`/`gasto`. Calculado en `apartado`/`abono`   |
+| `descripcion`    | String(60), nullable                                  | Obligatoria únicamente en `gasto`                              |
+| `fecha`          | DateTime                                              | Autogenerado                                                   |
 
 **`apartados`** (cabecera de un lote de apartado):
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_apartado` | Integer, PK | — |
-| `id_cliente` | FK → `clientes` | Obligatorio |
-| `fecha_apartado` | DateTime | Autogenerado. Semilla de la bandera naranja (ver §2) |
-| `monto_primer_pago` | Float | Mínimo $100.00. Cubre todo el lote, no por artículo |
-| `saldo_pendiente` | Float | `Σ(precio_producto del lote) - monto_primer_pago`. Se reduce únicamente por abonos |
-| `estatus` | Enum: `abierto`, `liquidado` | Default `abierto` |
+| Campo               | Tipo                       | Regla                                           |
+|---------------------|----------------------------|-------------------------------------------------|
+| `id_apartado`       | Integer, PK                | —                                               |
+| `id_cliente`        | FK → `clientes`            | Obligatorio                                     |
+| `fecha_apartado`    | DateTime                   | Autogenerado. Semilla de la bandera naranja      |
+| `monto_primer_pago` | Float                      | Mínimo $100.00. Por lote, no por artículo        |
+| `saldo_pendiente`   | Float                      | `Σ(precio_producto) - monto_primer_pago`         |
+| `estatus`           | Enum: `abierto`, `liquidado`| Default `abierto`                              |
 
 **`apartados_articulos`** (detalle, 1 a N artículos por lote):
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_apartado_articulo` | Integer, PK | Nunca aparece en UI |
-| `id_apartado` | FK → `apartados` | Obligatorio |
-| `id_producto` | FK → `inventario`, nullable | Opcional. `NULL` si no hubo coincidencia en inventario o no se capturó |
-| `precio_producto` | Float | Autollenado desde `inventario.precio_venta` si hay coincidencia; capturado a mano si no. Se persiste siempre |
-| `estatus_articulo` | Enum: `vigente`, `vendido`, `cancelado` | Default `vigente` |
+| Campo                  | Tipo                               | Regla                                                     |
+|------------------------|------------------------------------|-----------------------------------------------------------|
+| `id_apartado_articulo` | Integer, PK                        | Nunca aparece en UI                                       |
+| `id_apartado`          | FK → `apartados`                   | Obligatorio                                               |
+| `id_producto`          | FK → `inventario`, nullable        | Opcional. `NULL` si no hay coincidencia en inventario     |
+| `precio_producto`      | Float                              | Autollenado desde inventario o capturado a mano. Siempre persistido |
+| `estatus_articulo`     | Enum: `vigente`, `vendido`, `cancelado` | Default `vigente`                                   |
 
 ### Reglas de negocio por operación
 
-- **Contado:** no impacta saldo de cliente. `id_producto` es opcional; si hay coincidencia en `inventario`, se autollenan descripción y precio, se descuenta `stock` y se marca `vendido` si llega a 0. Si no hay coincidencia — producto no registrado en el sistema, o no se capturó `id_producto` — la descripción y el precio se capturan a mano y no hay efecto en inventario.
-- **Apartado:**
-  1. Cliente obligatorio, registrado en `clientes`. Un cliente solo puede tener un apartado abierto (`estatus = 'abierto'`) a la vez; ese apartado agrupa de 1 a N artículos bajo la misma `fecha_apartado`.
-  2. Por artículo, `id_producto` es opcional. Con coincidencia en `inventario` (`estatus IN ('disponible', 'disponible_c/descuento')`), el sistema autollena `precio_producto` y, al confirmar, cambia `inventario.estatus` a `apartado`. Sin coincidencia, `precio_producto` se captura a mano y el artículo no genera movimiento de inventario, aunque sí forma parte del saldo del lote.
-  3. **Primer pago mínimo: $100.00, único para todo el lote** (no por artículo). El backend rechaza montos menores.
-  4. `saldo_pendiente = Σ(precio_producto de todos los artículos del lote) - monto_primer_pago`, se **suma** al saldo existente del cliente (`saldo += saldo_pendiente`). Nunca se sobrescribe. Si el `estatus` del cliente era `inactivo`, cambia a `activo` en la misma transacción.
-  5. Liquidación: cuando `apartados.saldo_pendiente` llega a `0` vía abonos, `apartados.estatus` pasa a `liquidado`; todo artículo `vigente` con `id_producto` existente en `inventario` cambia a `inventario.estatus = 'vendido'`. La bandera naranja del cliente se apaga.
-  6. Cancelación de un artículo del lote: `estatus_articulo` pasa a `cancelado`; si tiene `id_producto` existente en `inventario`, su estatus vuelve a `disponible`. La cancelación **no ajusta** `saldo_pendiente` ni `clientes.saldo` — la deuda generada por ese artículo permanece y se cobra igual que cualquier otro saldo pendiente del cliente.
-- **Abono:** `saldo_resultante = saldo_actual - monto`. Rechazado si `monto > saldo_actual`. Recalcula `fecha_pago_programada` del cliente según su `frecuencia_pago` (§2). Si el cliente tiene un apartado abierto, el mismo abono reduce también `apartados.saldo_pendiente`; si ese saldo llega a `0`, aplica la regla de liquidación anterior. Si `saldo_resultante` (saldo general del cliente) llega a `0`, el `estatus` del cliente cambia a `inactivo` en la misma transacción.
-- **Gasto:** sin cliente ni producto. `descripcion` obligatoria. `saldo_resultante = NULL`. Representa salida de caja.
+- **Contado:** no impacta saldo de cliente. `id_producto` opcional; si hay coincidencia en `inventario`, se descuenta `stock` y se actualiza `estatus`. Sin coincidencia: descripción y precio manual, sin efecto en inventario.
+- **Apartado:** cliente obligatorio, un solo apartado abierto por cliente a la vez. `id_producto` opcional por artículo. Primer pago mínimo $100.00 por lote. `saldo_pendiente = Σ(precio_producto) - monto_primer_pago` se suma al saldo del cliente. Liquidación: cuando `saldo_pendiente = 0`, `estatus → liquidado`, artículos vigentes con inventario → `vendido`. Cancelación de artículo: `estatus_articulo → cancelado`; inventario regresa a disponible. **No ajusta `saldo_pendiente` ni `clientes.saldo`**.
+- **Abono:** `saldo_resultante = saldo_actual - monto`. Rechazado si `monto > saldo_actual`. Recalcula `fecha_pago_programada`. Si el cliente tiene apartado abierto, el abono reduce también `apartados.saldo_pendiente`; si llega a `0`, se aplica liquidación. Si `saldo_resultante = 0`, `estatus → inactivo`.
+- **Gasto:** sin cliente ni producto. `descripcion` obligatoria. `saldo_resultante = NULL`. Salida de caja.
 
 > El saldo agregado del negocio no es un campo en base de datos — se deriva por consulta agregada sobre `movimientos`.
 
@@ -263,77 +243,91 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 
 ## 6. Módulo Shein
 
-> La boutique actúa como intermediaria: compra en la app de Shein a nombre del cliente y cobra el mismo precio, siempre de contado, sin devoluciones.
->
-> `shein_pedidos` adopta la misma estructura cabecera-detalle que `pedidos` /
-> `pedidos_articulos` (§3): un `shein_pedido` es una cabecera con 1 a 4 artículos en
-> `shein_pedidos_articulos`. A diferencia de Pedidos, **Shein no maneja el concepto de
-> artículo alternativo** — no aplica `rol` ni `id_articulo_principal`.
+> La boutique actúa como intermediaria. El cliente solicita artículos en la app de Shein,
+> la tienda ejecuta la compra y cobra al mismo precio. Los clientes tienen cartera de
+> crédito propia en `shein_clientes`, independiente de la cartera principal. Sin
+> devoluciones.
 
 ### Modelo de datos
 
-**`shein_clientes`** (independiente de `clientes` — sin saldo, sin garante, sin frecuencia de pago):
+**`shein_clientes`** (independiente de `clientes` — con saldo, frecuencia de pago, banderas):
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_shein_cliente` | Integer, PK | — |
-| `nombre` | String(20) | Obligatorio |
-| `colonia` | String(12) | Obligatorio |
-| `telefono` | Integer | 10 dígitos, obligatorio |
+| Campo                    | Tipo                                                   | Regla                                                           |
+|--------------------------|--------------------------------------------------------|-----------------------------------------------------------------|
+| `id_shein_cliente`       | Integer, PK                                            | —                                                               |
+| `nombre`                 | String(20)                                             | Obligatorio                                                     |
+| `colonia`                | String(12)                                             | Obligatorio                                                     |
+| `telefono`               | Integer                                                | 10 dígitos, obligatorio                                         |
+| `frecuencia_pago`        | Enum: `semanal`, `quincenal`, `dia_especifico_mes`, `otro` | Obligatorio                                                 |
+| `dia_pago_especifico`    | Integer, nullable                                      | 1-31. Solo si `frecuencia_pago = dia_especifico_mes`            |
+| `frecuencia_pago_detalle`| String(60), nullable                                   | Solo si `frecuencia_pago = otro`                                |
+| `saldo`                  | Float                                                  | Default `0`. Deuda acumulada                                    |
+| `estatus`                | Enum: `activo`, `inactivo`                             | Default `inactivo`. Derivado del `saldo`, nunca manual          |
+| `fecha_pago_programada`  | Date, nullable                                         | `NULL` hasta el primer abono                                    |
 
-**`shein_pedidos`** (cabecera — equivalente a `pedidos` en §3):
+**`shein_movimientos`** (abonos a la cartera Shein):
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_shein_pedido` | Integer, PK | Nunca aparece en UI |
-| `id_shein_cliente` | FK → `shein_clientes` | Obligatorio |
-| `id_shein_corte` | FK → `shein_cortes`, nullable | `NULL` hasta asignarse a un corte |
-| `estatus_pago` | Enum: `pago_pendiente`, `pagado`, nullable | `NULL` hasta que el corte se guarda. Ver regla 5 |
-| `fecha` | Date | Autogenerado al crear |
+| Campo                 | Tipo                                                  | Regla                                               |
+|-----------------------|-------------------------------------------------------|-----------------------------------------------------|
+| `id_shein_movimiento` | Integer, PK                                           | —                                                   |
+| `id_shein_cliente`    | FK → `shein_clientes`                                 | Obligatorio                                         |
+| `monto`               | Float                                                 | > 0, no puede exceder `shein_clientes.saldo`         |
+| `forma_pago`          | Enum: `efectivo`, `transferencia`, `tarjeta`          | Depende de `configuracion`                          |
+| `saldo_resultante`    | Float                                                 | `saldo - monto` al momento del abono                |
+| `fecha`               | DateTime                                              | Autogenerado                                        |
+
+**`shein_pedidos`** (cabecera):
+
+| Campo             | Tipo                                         | Regla                                                                |
+|-------------------|----------------------------------------------|----------------------------------------------------------------------|
+| `id_shein_pedido` | Integer, PK                                  | —                                                                    |
+| `id_shein_cliente`| FK → `shein_clientes`                        | Obligatorio                                                          |
+| `id_shein_corte`  | FK → `shein_cortes`, nullable                | `NULL` hasta asignarse a un corte                                    |
+| `estatus_pago`    | Enum: `pago_pendiente`, `pagado`, nullable   | `NULL` hasta que el corte se guarda                                  |
+| `fecha`           | Date                                         | Autogenerado al crear                                                |
 
 **`shein_pedidos_articulos`** (detalle, 1 a 4 artículos por pedido, sin alternativa):
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_shein_articulo` | Integer, PK | Nunca aparece en UI |
-| `id_shein_pedido` | FK → `shein_pedidos` | Obligatorio |
-| `id_articulo` | String(20), nullable | Referencia libre al ID del artículo en la app Shein. Informativo, sin catálogo ni FK real |
-| `producto` | String(60) | Obligatorio. Descripción libre del artículo |
-| `tipo_producto` | Enum: `Nacional`, `Importado` | Obligatorio. Informativo, sin impacto operativo en MVP |
-| `monto` | Float | Obligatorio. Precio en la app al momento en que el cliente solicita el artículo |
-| `monto_vigente` | Float, nullable | Se llena únicamente si el precio cambió al momento del corte (subida o bajada) |
-| `estatus_articulo` | Enum: `vigente`, `confirmado`, `cancelado` | Default `vigente`. Ver regla 6 |
+| Campo               | Tipo                                             | Regla                                                              |
+|---------------------|--------------------------------------------------|--------------------------------------------------------------------|
+| `id_shein_articulo` | Integer, PK                                      | —                                                                  |
+| `id_shein_pedido`   | FK → `shein_pedidos`                             | Obligatorio                                                        |
+| `id_articulo`       | String(20), nullable                             | Referencia libre al ID en la app Shein. Informativo                |
+| `producto`          | String(60)                                       | Obligatorio                                                        |
+| `tipo_producto`     | Enum: `Nacional`, `Importado`                    | Obligatorio. Informativo en MVP                                    |
+| `monto`             | Float                                            | Precio al momento de la solicitud                                  |
+| `monto_vigente`     | Float, nullable                                  | Solo si el precio cambió en el corte                               |
+| `estatus_articulo`  | Enum: `vigente`, `confirmado`, `cancelado`       | Default `vigente`                                                  |
 
 **`shein_cortes`:**
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_shein_corte` | Integer, PK | — |
-| `fecha_corte` | Date | Obligatorio |
-| `total_pedidos` | Integer | Cantidad de `shein_pedidos` incluidos en el corte. Calculado por backend |
-| `suma_pedidos` | Float | Suma de los montos confirmados de todos los pedidos incluidos (ver regla 8). Calculado por backend |
-| `total_ticket` | Float | Lo efectivamente pagado en caja OXXO. Captura manual, dato de Shein |
-| `cupon` | Float | `suma_pedidos - total_ticket`. Calculado por backend al guardar |
+| Campo           | Tipo    | Regla                                                                  |
+|-----------------|---------|------------------------------------------------------------------------|
+| `id_shein_corte`| Integer, PK | —                                                               |
+| `fecha_corte`   | Date    | Obligatorio                                                            |
+| `total_pedidos` | Integer | Pedidos con al menos 1 artículo `confirmado`. Calculado por backend    |
+| `suma_pedidos`  | Float   | Suma de `monto_pedido` de pedidos incluidos. Calculado por backend     |
+| `total_ticket`  | Float   | Lo pagado en caja OXXO. Captura manual                                 |
+| `cupon`         | Float   | `suma_pedidos - total_ticket`. Calculado por backend al guardar        |
 
 ### Reglas de negocio
 
-1. **Por qué `shein_clientes` es independiente:** forzar estos clientes en `clientes` introduciría campos obligatorios que no aplican (garante, saldo, frecuencia de pago) y contaminaría la cartera de crédito real.
-2. **Un `shein_pedido` tiene de 1 a 4 artículos.** Solo el primero es obligatorio al crear; los demás se pueden agregar mientras el pedido siga editable (`id_shein_corte IS NULL`, con al menos un artículo en `vigente`).
-3. **Sin saldo, sin cartera de crédito.** A diferencia de Pedidos, ningún artículo Shein impacta el `saldo` de ningún cliente en ningún momento del ciclo — el cliente Shein siempre paga de contado en OXXO. `estatus_pago` en `shein_pedidos` es el único mecanismo de seguimiento de cobro.
-4. **Variación de precios:** ya sea que el precio **baje o suba** entre el momento del pedido y el momento del corte, se notifica al cliente y este debe confirmar el artículo con el precio actualizado. La tienda nunca absorbe la diferencia en silencio.
-5. **Resolución de `estatus_articulo` en el corte:**
-   - Si el precio no cambió: el artículo pasa automáticamente a `confirmado` (con `monto_vigente = NULL`, se usa `monto`).
-   - Si el precio cambió y el cliente confirma: `estatus_articulo = 'confirmado'`, `monto_vigente` se llena con el nuevo precio.
-   - Si el precio cambió y el cliente cancela: `estatus_articulo = 'cancelado'`.
-6. **Cascada de cancelación a nivel pedido:**
-   - Si **todos** los artículos de un `shein_pedido` quedan `cancelado`, el pedido completo se considera cancelado: no se le asigna `id_shein_corte` ni `estatus_pago`. Sin ningún otro impacto en la operación.
-   - Si el pedido conserva **al menos un** artículo `confirmado`, el pedido continúa: se le asigna `id_shein_corte` y `estatus_pago = 'pago_pendiente'`, usando solo los artículos `confirmado` para los cálculos de monto.
-7. **Ciclo de `estatus_pago`:** al guardar un `shein_corte`, todos los `shein_pedidos` incluidos (con al menos un artículo `confirmado`) pasan de `NULL` a `pago_pendiente`. Conforme cada cliente paga en OXXO, su pedido pasa individualmente a `pagado`. `estatus_pago` vive en `shein_pedidos`, no en `shein_clientes` ni en `shein_cortes` — dos pedidos del mismo cliente en cortes distintos pueden tener estatus de pago diferentes.
-8. **Cálculo de montos:**
-   - `monto_pedido` (por pedido): suma de `COALESCE(monto_vigente, monto)` de los artículos `confirmado` de ese pedido. No es una columna almacenada — se deriva por consulta.
-   - `suma_pedidos` (por corte): suma de `monto_pedido` de todos los pedidos incluidos en el corte. Sí se almacena en `shein_cortes`.
-9. **`cupon` no se calcula internamente.** Shein lo determina externamente y la tienda lo obtiene junto con `total_ticket` al momento de pagar en caja OXXO — ambos se capturan en la misma acción de guardar el corte. `cupon = suma_pedidos - total_ticket`.
-10. **El pago de la tienda al proveedor (OXXO) es informativo y no se registra en el sistema** — no existe un estatus "confirmado → pagado" a nivel `shein_corte`. Lo único que el sistema rastrea después de `fecha_corte` es el cobro al cliente (`estatus_pago` en `shein_pedidos`).
+1. **Por qué `shein_clientes` es independiente:** forzar estos clientes en `clientes` introduciría dependencias sobre la cartera principal y campos que no aplican.
+2. **Un `shein_pedido` tiene de 1 a 4 artículos.** Solo el primero es obligatorio al crear.
+3. **Cartera de crédito.** Al guardar el corte, el `monto_pedido` de cada pedido incluido se carga al `saldo` del `shein_cliente` (`saldo += monto_pedido`). Los clientes liquidan vía abonos en `shein_movimientos` (`saldo -= monto_abono`). `estatus` derivado automáticamente de `saldo`.
+4. **Ciclo de `fecha_pago_programada`.** Misma lógica que `clientes` (§2, regla 4). Se instancia y recalcula en cada abono de `shein_movimientos`.
+5. **Sistema de banderas.** 🟡 Amarilla y 🔴 Roja calculadas al vuelo con la misma semántica que en `clientes`. Visuales, no bloqueantes.
+6. **Variación de precios.** Cualquier variación (sube o baja) exige notificación y confirmación explícita del cliente.
+7. **Resolución de `estatus_articulo` en el corte:**
+   - Sin cambio de precio: `confirmado` automático.
+   - Con cambio y cliente confirma: `confirmado` + `monto_vigente = nuevo_precio`.
+   - Con cambio y cliente cancela: `cancelado`.
+8. **Cascada de cancelación a nivel pedido:**
+   - Todos `cancelado` → el pedido no recibe `id_shein_corte` ni `estatus_pago`. Saldo no impactado.
+   - Al menos uno `confirmado` → `id_shein_corte` asignado, `estatus_pago = 'pago_pendiente'`, saldo cargado.
+9. **`cupon`** no se calcula internamente. Se obtiene junto con `total_ticket` al pagar en OXXO. `cupon = suma_pedidos - total_ticket`.
+10. **`estatus_pago`** vive en `shein_pedidos`, no en `shein_clientes`. Dos pedidos del mismo cliente en cortes distintos pueden tener estatus de pago diferente.
+11. **Sin script de migración.** No existe tabla ODS para Shein. Todos los clientes se registran directamente mediante `Registrar Cliente Shein`.
 
 ---
 
@@ -341,12 +335,12 @@ Sin restricción `UNIQUE`. El mismo `id_producto` puede repetirse en catálogos 
 
 Tabla independiente, sin relaciones:
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_recarga` | Integer, PK | — |
-| `compania` | Enum: `Telcel`, `Movistar`, `Unefon`, `AT&T` | Obligatorio |
-| `monto` | Float | Obligatorio |
-| `fecha` | DateTime | Autogenerado (timestamp completo) |
+| Campo       | Tipo                                              | Regla         |
+|-------------|---------------------------------------------------|---------------|
+| `id_recarga`| Integer, PK                                       | —             |
+| `compania`  | Enum: `Telcel`, `Movistar`, `Unefon`, `AT&T`      | Obligatorio   |
+| `monto`     | Float                                             | Obligatorio   |
+| `fecha`     | DateTime                                          | Autogenerado  |
 
 Sin validación de tope de monto. Sin impacto en saldo de clientes ni inventario — solo trazabilidad de ingresos.
 
@@ -356,25 +350,24 @@ Sin validación de tope de monto. Sin impacto en saldo de clientes ni inventario
 
 **`usuarios`:**
 
-| Campo | Tipo | Regla |
-|---|---|---|
-| `id_usuario` | Integer, PK | — |
-| `usuario` | String, único | 4 a 16 caracteres, sin espacios |
-| `password_hash` | String | bcrypt. Nunca texto plano |
-| `rol` | String | `estandar` o `admin`. Default `estandar` |
-| `activo` | Integer | `1` = activo, `0` = desactivado. Default `1` |
-| `fecha_registro` | DateTime | Autogenerado |
+| Campo           | Tipo     | Regla                                                         |
+|-----------------|----------|---------------------------------------------------------------|
+| `id_usuario`    | Integer, PK | —                                                          |
+| `usuario`       | String, único | 4 a 16 caracteres, sin espacios                          |
+| `password_hash` | String   | bcrypt. Nunca texto plano                                     |
+| `rol`           | String   | `estandar` o `admin`. Default `estandar`                      |
+| `activo`        | Integer  | `1` = activo, `0` = desactivado. Default `1`                  |
+| `fecha_registro`| DateTime | Autogenerado                                                  |
 
-- Autenticación **activa** en todos los endpoints vía JWT (`python-jose`). Sin flag `AUTH_ENABLED` — no existe en `config.py`.
-- `password` (entrada, no se persiste): 4 a 10 caracteres, al menos una mayúscula. Se valida antes de hashear — a la base de datos solo llega `password_hash`.
-- Sin recuperación de contraseña por correo (sistema offline) — la hace el desarrollador directamente en la base de datos.
-- Permisos diferenciados por rol: pendientes de implementación futura, sin cambio de esquema.
+- Autenticación **activa** en todos los endpoints vía JWT. Sin flag `AUTH_ENABLED`.
+- `password` (entrada, no persiste): 4 a 10 caracteres, al menos una mayúscula.
+- Sin recuperación de contraseña por correo (sistema offline).
 
 ---
 
 ## 9. Configuración
 
-**`configuracion`**: tabla clave-valor (`clave` PK, `valor`). Controla qué métodos de pago están activos (`pago_efectivo_activo`, `pago_transferencia_activo`, etc.), CLABEs registradas, zona horaria (informativa).
+**`configuracion`**: tabla clave-valor (`clave` PK, `valor`). Controla qué métodos de pago están activos, CLABEs registradas, zona horaria (informativa).
 
 - Efectivo: siempre activo, no desactivable.
 - Transferencia, tarjeta débito/crédito: activos por defecto, se pueden desactivar.
@@ -382,17 +375,17 @@ Sin validación de tope de monto. Sin impacto en saldo de clientes ni inventario
 
 ---
 
-## 10. Módulo Consulta Global
+## 10. Módulo Consulta Finanzas
 
-Tres consultas de solo lectura sobre datos agregados (no reemplazan la Consulta Historial por cliente individual ni la Consulta de Cortes del Módulo Shein — ver §6):
+Tres consultas de solo lectura sobre datos agregados. No reemplazan la Consulta Historial
+por cliente individual (Módulo Clientes) ni la Consulta de Cortes del Módulo Shein.
 
-1. **Ventas totales por período** — suma de `movimientos` (excluyendo `gasto`) agrupada por operación, con total consolidado.
-2. **Ventas por segmento** — distribución entre Caja (movimientos), Shein y Recargas en un período.
-3. **Cartera de clientes por segmento** — clientes con saldo activo agrupados por colonia, con saldo total y promedio.
+1. **Cortes por periodo** — suma de `movimientos` segmentada por `operacion` (`abono`, `contado`, `apartado`, `gasto`), agrupada por rango de fechas con drill-down por colonia y tipo de producto.
+2. **Ventas por segmento** — distribución entre Tienda (`saldo_tienda = ingresos_tienda - egresos_tienda`), Shein (`ingresos_shein = Σ shein_movimientos`) y Recargas (`ingresos_recargas = Σ recargas`), con `total_caja = saldo_tienda + ingresos_shein + ingresos_recargas`. También expone `total_acreedores = Σ clientes.saldo + Σ shein_clientes.saldo` como snapshot al momento de consulta.
+3. **Detalle tienda** — desglose de ingresos de `movimientos` por `forma_pago` (`efectivo`, `transferencia`, `tarjeta`) en un período.
 
-> El seguimiento de `pago_pendiente` / `pagado` por corte Shein vive en su propia
-> consulta dentro del Módulo Shein (Opción 5 — Consulta de Cortes), no aquí — es
-> información operativa del módulo, no un agregado transversal del negocio.
+> El seguimiento de `pago_pendiente` / `pagado` por corte Shein vive en Consulta de
+> Cortes del Módulo Shein (Opción 6), no aquí.
 
 ---
 
@@ -400,7 +393,7 @@ Tres consultas de solo lectura sobre datos agregados (no reemplazan la Consulta 
 
 Reglas que aplican transversalmente y que cualquier servicio nuevo debe respetar:
 
-- El saldo de un cliente **nunca se sobrescribe** — siempre `saldo += monto` o `saldo -= monto`. Nunca `saldo = monto`.
+- El saldo de un cliente **nunca se sobrescribe** — siempre `saldo += monto` o `saldo -= monto`. Nunca `saldo = monto`. La misma regla aplica a `shein_clientes.saldo`.
 - `apartados.saldo_pendiente` solo se reduce mediante abonos — nunca se ajusta por la cancelación de artículos individuales del lote.
 - Ninguna operación de caja se registra sin `forma_pago`.
 - Ningún cambio de `estatus` en `inventario` ocurre sin actualizar `changed_status` en la misma transacción.
@@ -408,4 +401,6 @@ Reglas que aplican transversalmente y que cualquier servicio nuevo debe respetar
 - `id_articulo_sustituye` solo se llena en artículos sustitutos de devolución. En todos los demás casos es `NULL`.
 - El script `importar_precios.py` solo hace `INSERT`. Nunca borra ni sobreescribe filas existentes en `precios_catalogo`.
 - `estatus_pago` (Shein) vive en `shein_pedidos`, nunca en `shein_clientes` — el estatus de cobro es por pedido, no global al cliente.
-- `cupon` (Shein) nunca se calcula por porcentaje interno — siempre se deriva de `suma_pedidos - total_ticket`, con `total_ticket` capturado manualmente al pagar en OXXO.
+- `cupon` (Shein) siempre es `suma_pedidos - total_ticket`, con `total_ticket` capturado manualmente al pagar en OXXO.
+- La tabla `cartera_vencida` no tiene llaves foráneas. Es un archivo independiente; no se relaciona con ninguna tabla del sistema.
+- La bandera negra no bloquea operaciones — es visual, misma política que todas las demás banderas.

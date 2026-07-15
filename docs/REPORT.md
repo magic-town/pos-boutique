@@ -4,16 +4,21 @@
 > tomadas, código implementado, huecos de visibilidad y ruta de trabajo. No es
 > spec de negocio (eso es `REGLAS_NEGOCIO.md` / `docs/spec/*.md`).
 > Es el documento que permite retomar el trabajo en cualquier sesión nueva sin
-> recargar todo el repo. Si solo compartes este archivo, Claude debe poder
+> recargar todo el repo. Si solo compartes este archivo, el agente debe poder
 > saber qué hacer a continuación; solo pide otro archivo cuando algo no se
 > pueda inferir de aquí (ver §6).
 >
+> **Ánimo actual (Momentum):** ¡Excelente! La fundación de datos está consolidada. 
+> La migración de las 18 tablas del rediseño (`e5f6a7b8c9d0`) fue un éxito y la 
+> suite de pruebas base está en verde (>210 tests pasando). Se resolvieron las 
+> validaciones estrictas de pydantic en Shein (`frecuencia_pago`). El terreno 
+> está perfectamente preparado para inyectar la nueva lógica de negocio.
+>
 > **No es bitácora de cambios.** Si un bug se corrige y el estado resultante
 > ya queda reflejado en las decisiones/código/tests de este documento, no se
-> documenta el historial del fix (qué decía antes, cómo se encontró, qué
-> commit lo tocó) — solo el estado actual correcto. La pregunta antes de
-> agregar algo aquí es "¿esto lo necesita una sesión nueva para retomar el
-> trabajo?", no "¿esto pasó?".
+> documenta el historial del fix — solo el estado actual correcto. La pregunta
+> antes de agregar algo aquí es "¿esto lo necesita una sesión nueva para
+> retomar el trabajo?", no "¿esto pasó?".
 
 ---
 
@@ -25,55 +30,56 @@
    mapa y estado de cada uno.
 2. **`docs/REGLAS_NEGOCIO.md`** — modelo de datos + reglas de negocio.
 3. **`docs/ARQUITECTURA.md`** — decisiones técnicas.
-4. **`README.md`** (raíz del repo, no dentro de `docs/`) — orientación y arranque.
-5. **`backend/app/models/models.py`** — 15 tablas migradas a `pos.db`,
-   alineadas a la spec maestra (verificado directo contra `pos.db`:
-   `alembic_version = d4e5f6a7b8c9`, `.tables` confirma las 15, incluidas
-   `apartados`/`apartados_articulos`).
+4. **`README.md`** (raíz del repo) — orientación y arranque.
+5. **`backend/app/models/models.py`** — 15 tablas migradas a `pos.db`
+   (head `d4e5f6a7b8c9`). **Desincronizado con las specs actuales:** las
+   tablas `cartera_vencida`, `familiares` y `shein_movimientos`, así como
+   las columnas nuevas en `shein_clientes`, están en spec pero no en código.
+   Ver §5 para el orden de trabajo.
 
 **Regla de edición:** el usuario edita los `module_*.md` y
-`REGLAS_NEGOCIO.md` directamente; Claude no los reescribe salvo instrucción
+`REGLAS_NEGOCIO.md` directamente; el agente no los reescribe salvo instrucción
 explícita del usuario en la sesión.
 
 ---
 
 ## 2. Estado del modelo de datos (`models.py` / `pos.db`)
 
-15 tablas migradas y alineadas a spec. Cadena de migraciones aplicadas:
+15 tablas migradas. Cadena de migraciones aplicadas:
 
 > **Verificado directo contra `pos.db`**: `SELECT version_num FROM
-> alembic_version` → `d4e5f6a7b8c9`. `.tables` confirma las 15 tablas de
-> abajo, incluidas `apartados` y `apartados_articulos`. `PRAGMA table_info`
-> confirma la FK `id_apartado` en `movimientos`.
+> alembic_version` → `e5f6a7b8c9d0`. `.tables` confirma las 18 tablas.
 
 | Revisión              | Alcance                                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `a1b2c3d4e5f6`        | Esquema inicial: 11 tablas. Siembra `configuracion` (métodos de pago, CLABEs, `zona_horaria`) vía `op.bulk_insert` en el propio `upgrade()`.          |
+| `a1b2c3d4e5f6`        | Esquema inicial: 11 tablas. Siembra `configuracion` vía `op.bulk_insert` en `upgrade()`.              |
 | `b2c3d4e5f6a7`        | Agrega `precios_catalogo` y `shein_pedidos_articulos`; reestructura `shein_pedidos` / `shein_cortes`. |
 | `c3d4e5f6a7b8`        | Agrega `dia_pago_especifico` y `frecuencia_pago_detalle` a `clientes`.                                |
-| `d4e5f6a7b8c9` (head) | Agrega `apartados`, `apartados_articulos`; agrega FK `id_apartado` a `movimientos`.                   |
+| `d4e5f6a7b8c9`        | Agrega `apartados`, `apartados_articulos`; agrega FK `id_apartado` a `movimientos`.                   |
+| `e5f6a7b8c9d0` (head) | Agrega `cartera_vencida`, `familiares`, `shein_movimientos`; agrega columnas de cartera a `shein_clientes`. |
 
-### Tablas
+### Tablas en `pos.db` (estado actual — 18 tablas)
 
 | Tabla                     | Módulo          | Notas                                                                        |
 | ------------------------- | --------------- | ---------------------------------------------------------------------------- |
 | `clientes`                | Clientes        | Incluye `frecuencia_pago`, `dia_pago_especifico`, `frecuencia_pago_detalle`. |
+| `cartera_vencida`         | Clientes        | Tabla de archivo independiente, sin FKs.                                     |
+| `familiares`              | Clientes        | FK doble a `clientes`. `CHECK (id_cliente_a < id_cliente_b)`.                |
 | `pedidos`                 | Pedidos         | Cabecera.                                                                    |
 | `pedidos_articulos`       | Pedidos         | Detalle, 1 a 4 artículos, con `rol` (principal/alternativa).                 |
 | `precios_catalogo`        | Pedidos         | Catálogo importado de `tabla_precios.ods`. Poblada: 15,564 filas.            |
 | `inventario`              | Inventario      | —                                                                            |
-| `movimientos`             | Panel Principal | Incluye FK `id_apartado` (nullable, solo para `operacion='apartado'`).      |
-| `apartados`               | Panel Principal | Cabecera del lote de apartado. Ver §3.3.                                     |
-| `apartados_articulos`     | Panel Principal | Detalle, 1 a N artículos por lote. Ver §3.3.                                 |
-| `shein_clientes`          | Shein           | Independiente de `clientes`.                                                 |
-| `shein_pedidos`           | Shein           | Cabecera: `id_shein_cliente`, `id_shein_corte`, `estatus_pago`, `fecha`.     |
+| `movimientos`             | Panel Principal | Incluye FK `id_apartado` (nullable, solo para `operacion='apartado'`).       |
+| `apartados`               | Panel Principal | Cabecera del lote de apartado.                                               |
+| `apartados_articulos`     | Panel Principal | Detalle, 1 a N artículos por lote.                                           |
+| `shein_clientes`          | Shein           | Con cartera: `saldo`, `estatus`, `frecuencia_pago`, `dia_pago_especifico`, `frecuencia_pago_detalle`, `fecha_pago_programada`. |
+| `shein_movimientos`       | Shein           | Abonos a la cartera Shein. FK a `shein_clientes`.                            |
+| `shein_pedidos`           | Shein           | Cabecera.                                                                    |
 | `shein_pedidos_articulos` | Shein           | Detalle, 1 a 4 artículos, sin alternativa.                                   |
-| `shein_cortes`            | Shein           | `suma_pedidos`, `total_ticket`, `cupon = suma_pedidos - total_ticket`.       |
+| `shein_cortes`            | Shein           | —                                                                            |
 | `recargas`                | Recargas        | —                                                                            |
 | `usuarios`                | Autenticación   | —                                                                            |
 | `configuracion`           | Configuración   | —                                                                            |
-
-Diseño completo de columnas y tipos: `REGLAS_NEGOCIO.md`.
 
 ---
 
@@ -83,49 +89,30 @@ Diseño completo de columnas y tipos: `REGLAS_NEGOCIO.md`.
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | ¿Se conserva data de `pos.db`?                           | No. Reset limpio; esquema nace de `models.py` vía Alembic.                                                                              |
 | ¿Async o sync en SQLAlchemy?                             | Síncrono.                                                                                                                               |
-| ¿Nombres de campo en `Usuario`?                          | `usuario` (no `username`) y `password_hash` (no `hashed_password`). Alineado en modelo, schemas y servicio.                              |
+| ¿Nombres de campo en `Usuario`?                          | `usuario` (no `username`) y `password_hash` (no `hashed_password`).                                                                     |
 | ¿`pedidos` plano o cabecera-detalle?                     | Cabecera-detalle.                                                                                                                       |
-| ¿Shein comparte tabla de clientes?                       | No. `shein_clientes` independiente.                                                                                                     |
+| ¿Shein comparte tabla de clientes?                       | No. `shein_clientes` independiente de `clientes` — sin FK entre ellas.                                                                  |
 | ¿`shein_pedidos` plano o cabecera-detalle?               | Cabecera-detalle, sin alternativa.                                                                                                      |
-| ¿Cómo se calcula el `cupon` de Shein?                    | `cupon = suma_pedidos - total_ticket`.                                                                                                  |
-| ¿Variación de precio Shein?                              | Cualquier variación exige notificación y confirmación del cliente.                                                                      |
-| ¿`estatus_pago` en Shein?                                | En `shein_pedidos`, por pedido.                                                                                                         |
-| ¿Si todos los artículos Shein se cancelan?               | Pedido no recibe `id_shein_corte` ni `estatus_pago`.                                                                                    |
-| ¿`init_db.py` en `lifespan`?                             | No. Alembic es la única fuente de esquema.                                                                                              |
+| ¿Cómo se calcula el `cupon` de Shein?                    | `cupon = suma_pedidos - total_ticket`. Nunca con porcentaje interno.                                                                    |
+| ¿Variación de precio Shein?                              | Cualquier variación (sube o baja) exige notificación y confirmación del cliente.                                                        |
+| ¿`estatus_pago` en Shein?                                | En `shein_pedidos`, por pedido. Nunca en `shein_clientes`.                                                                              |
+| ¿Si todos los artículos Shein se cancelan?               | Pedido no recibe `id_shein_corte` ni `estatus_pago`. Saldo no impactado.                                                                |
 | ¿`precios_catalogo` en SQLite?                           | Sí. Tabla migrada y poblada (15,564 filas).                                                                                             |
 | ¿Sincronización de `tabla_precios.ods`?                  | Script manual `importar_precios.py`. Solo `INSERT`.                                                                                     |
-| ¿Columnas de `precios_catalogo`?                         | Todas las del `.ods`, incluidas auxiliares no usadas por el POS.                                                                        |
-| ¿Resolución de precio de artículo?                       | `SELECT precio_venta WHERE proveedor = :p AND id_producto = :id ORDER BY fecha_catalogo DESC LIMIT 1`.                                  |
-| ¿`id_producto` es único por proveedor?                   | No. Desempate por `MAX(fecha_catalogo)`.                                                                                                |
 | ¿Cuándo sube el saldo de un artículo de pedido?          | Al marcarse `en_almacen`.                                                                                                               |
-| ¿Columna `redondea` del `.ods`?                          | Descartada.                                                                                                                             |
-| ¿Valores no numéricos en `pagina`?                       | `NULL`.                                                                                                                                 |
-| ¿Cuántas alternativas puede tener un artículo principal? | 0–1, salvo `Price_Shoes` (hasta 3).                                                                                                     |
-| ¿Cómo se verifica un módulo?                             | `backend/test/` (pytest + `TestClient`), un archivo por módulo.                                                                         |
-| ¿`inventario_bz.ods` sincroniza cambios?                 | Solo `INSERT`. Sin clave natural para UPSERT.                                                                                           |
-| ¿Descuento de Inventario?                                | Solo en el sistema (`POST /inventario/descuento-masivo`).                                                                               |
-| ¿Segmento de descuento masivo?                           | Filtro por `categoria`/`tipo_producto`/`marca`/`talla`/`color`, y/o selección manual de `ids_producto`.                                 |
-| ¿Apartado modela plano o cabecera-detalle?               | Cabecera-detalle: `apartados` + `apartados_articulos`, mismo patrón que Pedidos.                                                        |
-| ¿Un cliente puede tener varios apartados abiertos?       | No. Solo una `fecha_apartado` activa a la vez; puede agrupar varios artículos bajo esa misma fecha.                                     |
-| ¿`id_producto` obligatorio en Apartado?                  | No. Opcional por artículo. Con coincidencia en `inventario`, autollena `precio_producto`; sin coincidencia, se captura a mano.           |
-| ¿El primer pago mínimo aplica por artículo o por lote?   | Por lote completo (`monto_primer_pago`, mínimo $100), no por artículo.                                                                  |
-| ¿Cómo se calcula `saldo_pendiente` del apartado?         | `Σ(precio_producto del lote) − monto_primer_pago`. Se suma al `saldo` del cliente.                                                       |
-| ¿Semilla de la bandera naranja?                          | `apartados.fecha_apartado`. Independiente de `fecha_pago_programada` y de las banderas amarilla/roja.                                   |
-| ¿La bandera naranja se persiste?                         | No. Se calcula al vuelo: activa si `estatus='abierto'` y faltan ≤5 días para cumplirse 1 mes desde `fecha_apartado`.                     |
-| ¿Dónde vive el cálculo de la bandera naranja?            | Fuera de `sincronizar_estatus()` (ese archivo solo deriva `activo`/`inactivo` de `saldo`). Se calcula en lectura, join `clientes` + `apartados`, en el servicio/endpoint de Consulta Cliente / Panel Principal. No se expone en `schemas/cliente.py` hasta que `apartados` esté migrado. |
-| ¿Qué pasa al liquidar un apartado?                       | `estatus → liquidado`; artículos `vigente` con `id_producto` en inventario pasan a `vendido`; la bandera se apaga.                       |
-| ¿Qué pasa al cancelar un artículo de un apartado?        | `estatus_articulo → cancelado`; si existe en inventario, regresa a `disponible`. No ajusta `saldo_pendiente` ni `clientes.saldo`.        |
-| ¿Contado rechaza si el producto no está en inventario?   | No. Sin coincidencia, se captura descripción y precio a mano; sin efecto en inventario.                                                 |
-| ¿`precio_producto` capturado a mano se persiste?         | Sí, siempre, en `apartados_articulos.precio_producto`.                                                                                  |
-| ¿Cómo se cancela un apartado si el cliente no termina de pagar? | No existe "cancelar el lote". Se cancela artículo por artículo (1, 2, o todos, vía `cancelar_articulo_apartado()`); `apartados` nunca se da de baja como unidad — sigue `abierto` hasta liquidarse por abono. |
-| ¿`estatus` del cliente cambia automático al liquidar por abono? | Sí, automático (`sincronizar_estatus()`), nunca manual. `module_movimientos.md` tenía una nota contraria a esto — corrección pendiente de aplicar ahí. |
-| ¿`ApartadoCreate` recibe `no_cliente` o `id_cliente`?     | `id_cliente` ya resuelto — consistente con `MovimientoCreate` (mismo campo "No. Cliente" del Panel Principal).                          |
-| ¿Se puede rehabilitar `estatus` manualmente?             | No. `estatus` no es campo capturable en ningún formulario/endpoint — se deriva solo de `saldo` vía `sincronizar_estatus()`. `PATCH /{id}/rehabilitar` fue removido y no se repone. |
-| ¿Semántica de `saldo_resultante` en movimientos con cliente? | Siempre el saldo TOTAL del cliente tras la operación, nunca un delta — misma regla para `abono` y `apartado`. Es informativo (historial); `cancelar_movimiento()` revierte por delta (`+=`/`-=` según la operación), no depende de este campo. |
-| ¿Qué pasa al cancelar un movimiento `apartado` (deshacer el registro recién hecho)? | Se cancela el lote completo: cada artículo `vigente` → `cancelado`, cada producto regresa a inventario, `apartados.estatus → cancelado`. Solo aplica si es la última operación del cliente (nadie ha abonado desde entonces). Distinto del flujo de "no le alcanzó para pagar" (cancelación parcial en cualquier momento vía `cancelar_articulo_apartado()`, sin tocar saldo). |
-| ¿A qué estatus regresa un producto al cancelarse (contado o lote de apartado)? | `disponible_c/descuento` si `precio_descuento` no es nulo, si no `disponible` — no siempre `disponible` a secas. |
-| ¿Setting tiene capa de servicio propia?                  | No. Módulo simple, sin efectos transversales con otros módulos — se construye como esqueleto para futuras implementaciones. Lógica directa en el endpoint; excepción deliberada al patrón schema/service/endpoint de los demás módulos, no un hueco pendiente. |
-| ¿Dónde se siembra la tabla `configuracion`?               | En la propia migración `a1b2c3d4e5f6` (`op.bulk_insert` dentro de `upgrade()`), no en un script aparte — consistente con que el reset de `pos.db` se hace regenerando migraciones (§3: "¿Se conserva data de `pos.db`? No."), sin recurrir a `init_db()` en `lifespan`. |
+| ¿Cuántas alternativas puede tener un artículo principal? | 0-1, salvo `Price_Shoes` (hasta 3).                                                                                                     |
+| ¿Apartado modela plano o cabecera-detalle?               | Cabecera-detalle: `apartados` + `apartados_articulos`.                                                                                  |
+| ¿Un cliente puede tener varios apartados abiertos?       | No. Solo uno a la vez.                                                                                                                  |
+| ¿El primer pago mínimo aplica por artículo o por lote?   | Por lote completo (`monto_primer_pago`, mínimo $100).                                                                                   |
+| ¿Se puede rehabilitar `estatus` manualmente?             | No. `estatus` se deriva solo de `saldo` vía `sincronizar_estatus()`. `PATCH /{id}/rehabilitar` fue removido.                            |
+| ¿Setting tiene capa de servicio propia?                  | No. Lógica directa en endpoint — excepción deliberada al patrón schema/service/endpoint.                                                |
+| ¿`no_cliente` es permanente por persona?                 | No. Es un slot reutilizable. Al cancelar un cliente o liquidar cuenta, el `no_cliente` puede reasignarse. El `id_cliente` (PK) no cambia.|
+| ¿`cartera_vencida` tiene FKs?                            | No. Tabla de archivo independiente, sin relaciones.                                                                                     |
+| ¿`familiares` es transitiva?                             | No. Solo pares declarados explícitamente. Sin grupos familiares.                                                                        |
+| ¿Shein tiene script de migración desde ODS?              | No. No existe tabla ODS para Shein. Todos los clientes se registran directamente en el sistema.                                         |
+| ¿Shein tiene cartera de crédito?                         | Sí. `shein_clientes` incorpora `saldo`, `estatus`, `frecuencia_pago`, `dia_pago_especifico`, `frecuencia_pago_detalle`, `fecha_pago_programada`. Los abonos viven en `shein_movimientos`. |
+| ¿El cargo de saldo Shein ocurre al corte o al pedido?    | Al guardar el corte. El `monto_pedido` (artículos `confirmado`) se carga al `saldo` del `shein_cliente`.                                |
+| ¿El sistema sigue siendo local (single-device)?          | No. Se requiere espejo Android para operar sin PC (ver §5, tareas pendientes). `ARQUITECTURA.md` debe actualizarse.                     |
 
 ### 3.1 Diseño de `precios_catalogo`
 
@@ -150,59 +137,99 @@ Mapeo de columnas por pestaña del `.ods`:
 | `pakar`       | `CÓDIGO`   | `precio_venta` | `2 PAGO`      |
 | `cklass`      | `modelo`   | `precio_venta` | `precio_base` |
 
-### 3.2 Diseño de tablas Shein
+### 3.2 Diseño de tablas Shein (estado spec actual)
 
 ```
+shein_clientes                             (cartera propia)
+├── id_shein_cliente        Integer, PK
+├── nombre                  String(20) NOT NULL
+├── colonia                 String(12) NOT NULL
+├── telefono                Integer NOT NULL
+├── frecuencia_pago         Enum (semanal|quincenal|dia_especifico_mes|otro)
+├── dia_pago_especifico     Integer, nullable
+├── frecuencia_pago_detalle String(60), nullable
+├── saldo                   Float NOT NULL DEFAULT 0
+├── estatus                 Enum (activo|inactivo) DEFAULT 'inactivo'
+└── fecha_pago_programada   Date, nullable
+
+shein_movimientos                          (abonos a cartera)
+├── id_shein_movimiento     Integer, PK
+├── id_shein_cliente        FK → shein_clientes
+├── monto                   Float NOT NULL
+├── forma_pago              Enum (efectivo|transferencia|tarjeta)
+├── saldo_resultante        Float NOT NULL
+└── fecha                   DateTime NOT NULL
+
 shein_pedidos                              (cabecera)
-├── id_shein_pedido    Integer, PK
-├── id_shein_cliente   FK → shein_clientes
-├── id_shein_corte     FK → shein_cortes, nullable
-├── estatus_pago       Enum (pago_pendiente | pagado), nullable
-└── fecha              Date
+├── id_shein_pedido         Integer, PK
+├── id_shein_cliente        FK → shein_clientes
+├── id_shein_corte          FK → shein_cortes, nullable
+├── estatus_pago            Enum (pago_pendiente|pagado), nullable
+└── fecha                   Date
 
 shein_pedidos_articulos                    (detalle)
-├── id_shein_articulo  Integer, PK
-├── id_shein_pedido    FK → shein_pedidos
-├── id_articulo        String(20), nullable
-├── producto           String(60) NOT NULL
-├── tipo_producto      Enum (Nacional | Importado)
-├── monto              Float NOT NULL
-├── monto_vigente      Float, nullable
-└── estatus_articulo   Enum (vigente | confirmado | cancelado)
+├── id_shein_articulo       Integer, PK
+├── id_shein_pedido         FK → shein_pedidos
+├── id_articulo             String(20), nullable
+├── producto                String(60) NOT NULL
+├── tipo_producto           Enum (Nacional|Importado)
+├── monto                   Float NOT NULL
+├── monto_vigente           Float, nullable
+└── estatus_articulo        Enum (vigente|confirmado|cancelado)
 
 shein_cortes
-├── id_shein_corte     Integer, PK
-├── fecha_corte        Date
-├── total_pedidos      Integer
-├── suma_pedidos       Float
-├── total_ticket       Float        (captura manual, pago en OXXO)
-└── cupon              Float        (= suma_pedidos - total_ticket)
+├── id_shein_corte          Integer, PK
+├── fecha_corte             Date
+├── total_pedidos           Integer
+├── suma_pedidos            Float
+├── total_ticket            Float
+└── cupon                   Float
 ```
 
-### 3.3 Diseño de Apartado (cabecera-detalle)
+### 3.3 Diseño de tablas nuevas (spec, pendientes de migración)
+
+```
+cartera_vencida                            (archivo independiente, sin FKs)
+├── id_cartera_vencida      Integer, PK
+├── no_cliente_original     Text NOT NULL
+├── nombre                  Text NOT NULL
+├── colonia                 Text NOT NULL
+├── telefono                Integer NOT NULL
+├── ref_nombre              Text NOT NULL
+├── ref_colonia             Text NOT NULL
+├── ref_telefono            Integer, nullable
+├── saldo_cancelado         Real NOT NULL
+├── fecha_registro_original Text NOT NULL
+└── fecha_cancelacion       Text NOT NULL
+
+familiares                                 (pares de clientes emparentados)
+├── id_vinculo              Integer, PK
+├── id_cliente_a            FK → clientes (el menor de los dos id_cliente)
+├── id_cliente_b            FK → clientes (el mayor de los dos id_cliente)
+├── CHECK (id_cliente_a < id_cliente_b)
+└── UNIQUE INDEX uq_familiares(id_cliente_a, id_cliente_b)
+```
+
+### 3.4 Diseño de Apartado (cabecera-detalle)
 
 ```
 apartados                                  (cabecera)
-├── id_apartado         Integer, PK
-├── id_cliente          FK → clientes
-├── fecha_apartado      DateTime          (semilla de la bandera naranja)
-├── monto_primer_pago   Float             (mínimo $100, por lote — no por artículo)
-├── saldo_pendiente     Float             (Σ precio_producto − monto_primer_pago)
-└── estatus             Enum (abierto | liquidado)
+├── id_apartado             Integer, PK
+├── id_cliente              FK → clientes
+├── fecha_apartado          DateTime
+├── monto_primer_pago       Float (mínimo $100, por lote)
+├── saldo_pendiente         Float (Σ precio_producto − monto_primer_pago)
+└── estatus                 Enum (abierto|liquidado)
 
 apartados_articulos                        (detalle, 1 a N artículos por lote)
-├── id_apartado_articulo  Integer, PK
-├── id_apartado           FK → apartados
-├── id_producto           FK → inventario, nullable
-├── precio_producto       Float           (autollenado o manual, siempre persistido)
-└── estatus_articulo      Enum (vigente | vendido | cancelado)
+├── id_apartado_articulo    Integer, PK
+├── id_apartado             FK → apartados
+├── id_producto             FK → inventario, nullable
+├── precio_producto         Float (autollenado o manual, siempre persistido)
+└── estatus_articulo        Enum (vigente|vendido|cancelado)
 
-movimientos.id_apartado   FK → apartados, nullable
-                          (enlaza el evento de caja del primer pago con el lote)
+movimientos.id_apartado     FK → apartados, nullable
 ```
-
-Spec completa de comportamiento: `docs/spec/module_movimientos.md`.
-Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 
 ---
 
@@ -210,99 +237,132 @@ Modelo de datos y reglas: `REGLAS_NEGOCIO.md` §5.
 
 ### 4.1 Módulos cerrados (implementados y con test en verde)
 
-| Archivo                                 | Rol                  | Estado                                                                                                                                                |
-| --------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app/models/models.py`                  | Modelo de datos      | 15 tablas migradas (verificado contra `pos.db`, head `d4e5f6a7b8c9`). Clases correctas y verificadas contra archivo real.|
-| `alembic/versions/*.py`                 | 4 migraciones        | Esquema de 15 tablas aplicado, incluida `apartados`/`apartados_articulos`/FK `id_apartado`.                                                           |
-| `app/schemas/pedido.py`                 | Schema Pedido        | Cabecera-detalle, valida reglas por `tipo_producto`/`proveedor`.                                                                                      |
-| `app/services/pedido_service.py`        | Lógica Pedido        | Lookup de precio, transacciones de devolución/cancelación con reversión condicional de saldo. ||
-| `app/api/v1/endpoints/pedidos.py`       | Endpoints Pedido     | 4 flujos probados end-to-end.                                                                                                                         |
-| `app/schemas/pedido_shein.py`           | Schema Shein         | `max_length` alineado a `models.py`.                                                                                                                  |
-| `app/services/pedido_shein_service.py`  | Lógica Shein         | `monto_pedido` (post-corte, `confirmado`) y `monto_pedido_vigente` (pre-corte) separados. Autoconfirma `vigente` sin cambio de precio al crear corte. |
-| `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein      | 5 flujos + agregar artículo a pedido existente.                                                                                                       |
-| `app/schemas/inventario.py`             | Schema Inventario    | —                                                                                                                                                     |
-| `app/services/inventario_service.py`    | Lógica Inventario    | Transiciones validadas, descuento masivo.                                                                                                             |
-| `app/api/v1/endpoints/inventario.py`    | Endpoints Inventario | Registrado en `main.py`.                                                                                                                              |
-| `app/schemas/cliente.py`                | Schema Cliente       | `telefono`/`ref_telefono` int, `frecuencia_pago` obligatorio, validación condicional, `max_length` alineado. `ClienteRead.bandera_naranja: bool` agregado — no es columna mapeada, debe asignarse al objeto `Cliente` antes de `model_validate()` (lo hace el endpoint). No está en `ClienteResumen`. |
-| `app/services/cliente_service.py`       | Lógica Cliente       | Sin referencia a `"liquidado"`. `crear_cliente()` asigna los 3 campos de frecuencia. `calcular_bandera_naranja()` implementada — busca el apartado abierto del cliente y compara contra `fecha_apartado + 1 mes − 5 días`. |
-| `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente    | Rutas: `POST /` (asigna `bandera_naranja`), `GET /` (usa `ClienteResumen`, sin bandera), `GET /{id}` (asigna `bandera_naranja`). No existe `/{id}/historial` ni `/{id}/rehabilitar` (ver §3). |
-| `app/scripts/importar_precios.py`       | Import de precios    | 15,564 filas insertadas. Solo `INSERT`.                                                                                                               |
-| `app/schemas/movimiento.py` | Schema Movimiento | `descripcion` (no `notas`), alineado a `models.py`. Verificado contra archivo real. |
-| `app/schemas/apartado.py`               | Schema Apartado       | Cabecera + lista de artículos (`ApartadoCreate`), `id_cliente` resuelto, mínimo $100 validado. Verificado contra archivo real, sin cambios pendientes.  |
-| `app/services/movimiento_service.py`    | Lógica Movimientos/Apartado | `contado`/`abono`/`gasto` completos. `crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`. `cancelar_movimiento()` revierte inventario en `contado`, revierte saldo por delta (`+=`/`-=`, no depende de `saldo_resultante`) en `abono`/`apartado`, y cancela el lote completo en `apartado` (ver §3). Verificado contra archivo real y contra `test_movimientos.py` (28/28 en verde). |
-| `app/models/models.py` (`Usuario`)      | Modelo Auth           | Campos `usuario` (no `username`) y `password_hash` (no `hashed_password`); `activo: Integer`.                                                        |
-| `app/schemas/usuario.py`                | Schema Auth           | `UsuarioCreate`: `usuario` 4-16 caracteres sin espacios, `password` 4-10 caracteres con al menos una mayúscula, `rol` en (`estandar`, `admin`) — alineado a `module_setting.md`. `UsuarioRead` expone `usuario` y `activo: int`, `from_attributes = True`.  |
-| `app/schemas/token.py`                  | Schema Auth            | `Token` (`access_token`, `token_type="bearer"`), `TokenData` (`usuario`, `rol`), ambos opcionales salvo `access_token`.                              |
-| `app/services/auth_service.py`          | Lógica Auth            | `hash_password()`/`verificar_password()` (bcrypt), `crear_token()` (JWT, expira según `settings.TOKEN_EXPIRY_HOURS`), `autenticar_usuario()`, `crear_usuario()`, `get_current_user()` como dependency de FastAPI. `SECRET_KEY`/`ALGORITHM`/`TOKEN_EXPIRY_HOURS` vienen de `app/core/config.py`. |
-| `app/api/v1/endpoints/auth.py`          | Endpoint Auth          | `POST /auth/login` (`OAuth2PasswordRequestForm`), retorna `Token`. Mismo status/mensaje para usuario inexistente y password incorrecto.              |
-| `app/api/v1/endpoints/movimientos.py`   | Endpoint Movimientos | `POST /movimientos`, `GET /movimientos?id_cliente=`, `DELETE /movimientos/{id}/cancelar` — los 3 con `Depends(get_current_user)`. Verificado contra archivo real. **No expone `crear_apartado()`** — no hay endpoint para registrar un apartado todavía, solo capa de servicio (`app/api/v1/endpoints/apartados.py` sigue sin existir). |
-| `app/db/database.py`                    | Conexión BD          | SQLAlchemy síncrono.                                                                                                                                  |
-| `app/core/config.py`                    | Configuración        | Solo `DATABASE_URL`. Sin `AUTH_ENABLED`.                                                                                                              |
-| `app/main.py`                           | Bootstrap FastAPI    | Sin `init_db()`. 6 routers (incluye Setting). CORS `localhost:5173`.                                                                                  |
-| `app/schemas/__init__.py`               | Re-exports           | Nombres de Shein corregidos.                                                                                                                          |
-| `requirements.txt`                      | Dependencias prod    | Incluye `python-jose`, `passlib`/`bcrypt`, `pandas`, `odfpy`.                                                                                         |
-| `requirements-dev.txt`                  | Dependencias test    | `pytest`/`httpx`.                                                                                                                                     |
-| `app/schemas/setting.py`                | Schema Setting        | `ConfiguracionRead`/`ConfiguracionUpdate`, `UsuarioCambiarPassword` (misma regla de password que `usuario.py`, duplicada a propósito para MVP), `UsuarioCambiarRol` (`estandar`/`admin`).                                                          |
-| `app/api/v1/endpoints/setting.py`       | Endpoints Setting     | `POST /setting/usuarios`, `PATCH /usuarios/{id}/password`, `PATCH /usuarios/{id}/rol`, `GET /zona-horaria` (solo lectura), `GET /configuracion`, `PATCH /configuracion/{clave}` (valida `'0'`/`'1'` en métodos de pago; `pago_efectivo_activo` rechaza `'0'` con 409). Todos con `Depends(get_current_user)`. Sin `setting_service.py` — lógica directa en el endpoint (ver §3, excepción deliberada, módulo simple sin efectos transversales). |
+| Archivo                                 | Rol                   | Estado                                                                    |
+| --------------------------------------- | --------------------- | ------------------------------------------------------------------------- |
+| `app/models/models.py`                  | Modelo de datos       | ✅ 18 tablas. Sincronizado con spec (migración `e5f6a7b8c9d0`).           |
+| `alembic/versions/*.py`                 | 5 migraciones         | ✅ Head `e5f6a7b8c9d0`. Migración del rediseño completada.                |
+| `app/schemas/pedido.py`                 | Schema Pedido         | Cabecera-detalle, valida reglas por `tipo_producto`/`proveedor`.           |
+| `app/services/pedido_service.py`        | Lógica Pedido         | Lookup de precio, transacciones de devolución/cancelación.                |
+| `app/api/v1/endpoints/pedidos.py`       | Endpoints Pedido      | 4 flujos probados end-to-end.                                             |
+| `app/schemas/pedido_shein.py`           | Schema Shein          | **En progreso:** incluye `frecuencia_pago`. Faltan endpoints de abono.    |
+| `app/services/pedido_shein_service.py`  | Lógica Shein          | **En progreso:** crea cliente con `frecuencia_pago`. Falta lógica de `saldo`.|
+| `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein       | **Desincronizado:** falta endpoint de abono Shein.                        |
+| `app/schemas/inventario.py`             | Schema Inventario     | —                                                                         |
+| `app/services/inventario_service.py`    | Lógica Inventario     | Transiciones validadas, descuento masivo.                                 |
+| `app/api/v1/endpoints/inventario.py`    | Endpoints Inventario  | —                                                                         |
+| `app/schemas/cliente.py`                | Schema Cliente        | **Desincronizado:** no incluye bandera negra ni vinculación de familiares.|
+| `app/services/cliente_service.py`       | Lógica Cliente        | **Desincronizado:** falta `cancelar_cliente()`, `bandera_negra()`, familiares.|
+| `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente     | **Desincronizado:** falta endpoint `Cancelar Cliente`.                    |
+| `app/scripts/importar_precios.py`       | Import de precios     | 15,564 filas insertadas. Solo `INSERT`.                                   |
+| `app/schemas/movimiento.py`             | Schema Movimiento     | —                                                                         |
+| `app/schemas/apartado.py`               | Schema Apartado       | —                                                                         |
+| `app/services/movimiento_service.py`    | Lógica Movimientos    | `contado`/`abono`/`gasto`/`apartado` completos.                           |
+| `app/models/models.py` (`Usuario`)      | Modelo Auth           | —                                                                         |
+| `app/schemas/usuario.py`                | Schema Auth           | —                                                                         |
+| `app/schemas/token.py`                  | Schema Auth           | —                                                                         |
+| `app/services/auth_service.py`          | Lógica Auth           | —                                                                         |
+| `app/api/v1/endpoints/auth.py`          | Endpoint Auth         | —                                                                         |
+| `app/api/v1/endpoints/movimientos.py`   | Endpoint Movimientos  | **No expone `crear_apartado()`** — `apartados.py` no existe.              |
+| `app/db/database.py`                    | Conexión BD           | SQLAlchemy síncrono.                                                      |
+| `app/core/config.py`                    | Configuración         | Solo `DATABASE_URL`. Sin `AUTH_ENABLED`.                                  |
+| `app/main.py`                           | Bootstrap FastAPI     | Sin `init_db()`. CORS `localhost:5173`.                                   |
+| `app/schemas/setting.py`                | Schema Setting        | —                                                                         |
+| `app/api/v1/endpoints/setting.py`       | Endpoints Setting     | Sin `setting_service.py` — excepción deliberada.                          |
 
-### 4.2 Tests
+### 4.2 Tests (todos en verde en la build previa al rediseño)
 
-| Test                      | Módulo     | Estado           |
-| ------------------------- | ---------- | ---------------- |
-| `test/test_pedidos.py`    | Pedidos    | ✅ en verde       |
-| `test/test_inventario.py` | Inventario | ✅ 19/19 en verde |
-| `test/test_shein.py`      | Shein      | ✅ 28/28 en verde |
-| `test/test_clientes.py`   | Clientes   | ✅ 43/43 en verde |
-| `test/test_movimientos.py`| Movimientos| ✅ 28/28 en verde |
-| `test/test_apartados.py`  | Apartado   | ✅ 12/12 en verde |
-| `test/test_autenticacion.py` | Auth    | ✅ 59/59 en verde |
-| `test/test_recargas.py`  | Recargas    | ✅ 17/17 en verde |
-| `test/test_setting.py`   | Setting     | ✅ 26/26 en verde |
+| Test                        | Módulo      | Estado               |
+| --------------------------- | ----------- | -------------------- |
+| `test/test_pedidos.py`      | Pedidos     | ✅ en verde           |
+| `test/test_inventario.py`   | Inventario  | ✅ 19/19 en verde     |
+| `test/test_shein.py`        | Shein       | ✅ 28/28 — **requiere actualización por rediseño Shein** |
+| `test/test_clientes.py`     | Clientes    | ✅ 43/43 — **requiere actualización por rediseño Clientes** |
+| `test/test_movimientos.py`  | Movimientos | ✅ 28/28 en verde     |
+| `test/test_apartados.py`    | Apartados   | ✅ 12/12 en verde     |
+| `test/test_autenticacion.py`| Auth        | ✅ 59/59 en verde     |
+| `test/test_recargas.py`     | Recargas    | ✅ 17/17 en verde     |
+| `test/test_setting.py`      | Setting     | ✅ 26/26 en verde     |
 
 ### 4.3 Sin código todavía
 
-| Módulo                | Spec disponible                      |
-| --------------------- | ------------------------------------- |
-| Consulta Global       | `module_consulta.md` — no existe.     |
+| Módulo / Funcionalidad       | Spec disponible                                    |
+| ---------------------------- | -------------------------------------------------- |
+| Endpoint Apartado            | `module_movimientos.md` — servicio existe, endpoint no. `app/api/v1/endpoints/apartados.py` no existe. |
+| Consulta Finanzas            | `module_consulta_finanzas.md` ✅ (creado en rediseño) |
+| Espejo Android               | Spec pendiente de crear. Ver §5.                   |
 
 ---
 
 ## 5. Orden de prioridad (jerarquía → código)
 
-### Nivel 1 — Modelo de datos
+### Cerrados ✅
 
-✅ Cerrado. `models.py` y `pos.db` alineados a §3.3, head `d4e5f6a7b8c9`.
+Niveles 1-4 completos. Auth, Setting, todos los módulos existentes con test en verde.
+Ver §4.2 para el detalle.
 
-### Nivel 2 — Schemas
+### Tareas pendientes — por orden de ejecución
 
-4. ✅ `ApartadoCreate` (cabecera + lista de artículos) — reemplaza el uso de
-   `MovimientoCreate` para la operación `apartado`. Implementado en
-   `app/schemas/apartado.py`.
-5. ✅ Cerrado — `notas` → `descripcion` en `MovimientoCreate`/`MovimientoRead`, alineado a `models.py`. Verificado contra archivo real.
-5b. ✅ Cerrado — `operacion` en `MovimientoCreate` rechaza `Operacion.apartado` vía `field_validator`; esa operación entra exclusivamente por `ApartadoCreate`.
-6. ✅ Cerrado — `bandera_naranja: bool` expuesta en `ClienteRead`, calculada en el endpoint antes de serializar.
+**Bloque A — Modelo de datos (✅ COMPLETADO)**
 
-### Nivel 3 — Servicios
+16. [x] Agregar migración Alembic para:
+    - Columnas nuevas en `shein_clientes`: `saldo`, `estatus`, `frecuencia_pago`,
+      `dia_pago_especifico`, `frecuencia_pago_detalle`, `fecha_pago_programada`.
+    - Tabla nueva `cartera_vencida` (sin FKs).
+    - Tabla nueva `familiares` (FKs a `clientes`, constraint + índice único).
+    - Tabla nueva `shein_movimientos` (FK a `shein_clientes`).
+17. [x] Actualizar `models.py` con los nuevos modelos y columnas.
+18. [x] Actualizar `resumen_tablas.md` en `docs/spec/` con las tablas nuevas.
+19. [x] Actualizar `docs/spec/README.md` con `module_consulta_finanzas.md` en el mapa de módulos.
 
-7. ✅ Cerrado — `calcular_bandera_naranja()` en `cliente_service.py`. No requirió tocar `sincronizar_estatus()` (confirma lo ya documentado en §3: el cálculo vive fuera de esa función).
-8. ✅ Cerrado — implementado directo en `movimiento_service.py` (`crear_apartado()`, `obtener_apartado_abierto()`, `cancelar_articulo_apartado()`). No se separó en `apartado_service.py`.
-9. ✅ Cerrado — `contado`/`abono`/`gasto` completos en `movimiento_service.py`. `cancelar_movimiento()` revierte inventario en `contado`, revierte saldo por delta en `abono`/`apartado`, y cancela el lote completo en `apartado` (ver §3 para el detalle de comportamiento).
+**Bloque B — Módulo Clientes**
 
-### Nivel 4 — Tests
+20. Actualizar `app/schemas/cliente.py`: agregar `bandera_negra`.
+21. Actualizar `app/services/cliente_service.py`:
+    - `cancelar_cliente()` — snapshot a `cartera_vencida` + limpieza del slot.
+    - `calcular_bandera_negra()` — consulta `familiares` + `bandera_roja` de familiares.
+    - Vinculación/desvinculación de familiares.
+22. Actualizar `app/api/v1/endpoints/clientes.py`: endpoint `DELETE /{id}/cancelar` (o `POST /{id}/cancelar`).
+23. Actualizar `test/test_clientes.py` con los nuevos flujos.
 
-✅ Cerrado.
+**Bloque C — Módulo Shein**
 
-10. ✅ Cerrado — `test_apartados.py` — creado (ver §4.2).
-11. ✅ Cerrado — `test_movimientos.py` (`contado`/`abono`/`gasto`/`apartado`, 28 casos, corrida completa en verde).
-12. ✅ Cerrado — revisión de `test_clientes.py` (bandera naranja): agregada la sección 3 (`TestSumarUnMes`, `TestCalcularBanderaNaranja`, `TestBanderaNaranjaEndpoint`) — umbral de 5 días, clamp de fin de mes, y que un apartado no-`abierto` apague la bandera aunque la fecha esté vencida. Corrida completa en verde (ver §4.2).
+24. Actualizar `app/schemas/pedido_shein.py`:
+    - `SheinClienteCreate` / `SheinClienteRead` con campos de cartera.
+    - `SheinMovimientoCreate` / `SheinMovimientoRead` (nuevo).
+25. Actualizar `app/services/pedido_shein_service.py`:
+    - Carga de `saldo` al guardar corte (`saldo += monto_pedido` por `shein_cliente`).
+    - `registrar_abono_shein()` — reduce `saldo`, recalcula `fecha_pago_programada`.
+    - `calcular_bandera_shein()` — amarilla y roja.
+26. Actualizar `app/api/v1/endpoints/pedidos_shein.py`:
+    - Endpoint `POST /shein/abono`.
+27. Actualizar `test/test_shein.py` con los nuevos flujos de cartera.
 
-### Pasos restantes de la ruta general (sin cambio de alcance)
+**Bloque D — Endpoint Apartado (pendiente pre-rediseño)**
 
-13. ✅ Cerrado — Auth (§4.1). `test_autenticacion.py` creado y corrido completo en verde (ver §4.2).
-14. ✅ Cerrado — `test_recargas.py` — creado (ver §4.2).
-15. ✅ Cerrado — Setting/Configuración (esqueleto MVP, sin permisos diferenciados todavía). `test_setting.py` creado, 26/26 en verde (ver §4.2).
-16. **Construir Consulta Global** (3 vistas de solo lectura).
-17. **Checklist real** — criterio de completado = pipeline + test.
+28. Crear `app/api/v1/endpoints/apartados.py` — exponer `crear_apartado()` del servicio existente.
+29. Registrar el router en `main.py`.
+
+**Bloque E — Módulo Consulta Finanzas**
+
+30. Construir spec → código → test:
+    - Schema de solo lectura.
+    - Service con las 3 consultas (Cortes por periodo, Ventas por segmento, Detalle tienda).
+    - Endpoints `GET /consulta-finanzas/cortes`, `GET /consulta-finanzas/segmentos`, `GET /consulta-finanzas/detalle`.
+    - `test/test_consulta_finanzas.py`.
+
+**Bloque F — Espejo Android**
+
+31. Actualizar `docs/ARQUITECTURA.md`: el sistema deja de ser local-only; documentar
+    el nuevo modelo de sincronización multi-dispositivo.
+32. Definir spec técnica del espejo Android (`docs/spec/module_android.md` o similar):
+    stack (nativo / cross-platform), mecanismo de sincronización con el backend FastAPI,
+    alcance funcional (mínimo: consulta saldo y cambio `estatus_articulo` vigente → en_almacen;
+    máximo: espejo completo de todos los módulos).
+33. Implementar.
+
+**Bloque G — Checklist real**
+
+34. Criterio de completado de la sesión de trabajo: pipeline + test en verde para cada bloque.
 
 ---
 
@@ -315,4 +375,4 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** el punto 15 (Setting/Configuración) quedó cerrado por completo — `test_setting.py` en verde, 26/26 (ver §4.2). Todos los módulos existentes tienen test en verde. El siguiente punto de la ruta general es el **punto 16 — construir Consulta Global** (spec completa en `module_consulta.md`, ver §4.3).
+**Siguiente paso inmediato:** Bloque B — Módulo Clientes. Empezar por actualizar `app/schemas/cliente.py` (agregar `bandera_negra`), luego `app/services/cliente_service.py` (funciones `cancelar_cliente`, `calcular_bandera_negra`, vinculación de familiares) y finalmente exponer el endpoint de cancelación en `app/api/v1/endpoints/clientes.py`.

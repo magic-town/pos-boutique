@@ -2,7 +2,7 @@
 
 > Este documento responde **cómo está construido el sistema**, no qué hace ni qué
 > reglas de negocio aplica (eso vive en `REGLAS_NEGOCIO.md`) ni cómo se ve la UI
-> (eso vive en `00_FULLSTACK_DEVELOPMENT.md`).
+> (eso vive en `doscs/spec/*.md`).
 
 ---
 
@@ -13,10 +13,6 @@ punto de venta físico**. No existe ni se planea:
 - Soporte multi-empresa o multi-sucursal.
 - Roles corporativos jerárquicos (gerente regional, supervisor de zona, etc.).
 - Sincronización multi-dispositivo en tiempo real entre puntos de venta.
-
-> Nota histórica: una versión anterior de este documento introducía tablas
-> `empresas`, `sucursales` e `impuestos` con relaciones corporativas. Eso nunca
-> formó parte del alcance real del proyecto y fue retirado por completo.
 
 El sistema corre **localmente**, en la máquina de operación del negocio, con base
 de datos SQLite en archivo.

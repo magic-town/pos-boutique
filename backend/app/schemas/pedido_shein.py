@@ -1,7 +1,10 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import date
 from typing import Optional
-from app.models.models import TipoProductoShein, EstatusArticuloShein, EstatusPago
+from app.models.models import (
+    TipoProductoShein, EstatusArticuloShein, EstatusPago,
+    FrecuenciaPagoShein, EstatusSheinCliente,
+)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -9,9 +12,12 @@ from app.models.models import TipoProductoShein, EstatusArticuloShein, EstatusPa
 # ──────────────────────────────────────────────────────────────────────────
 
 class SheinClienteCreate(BaseModel):
-    nombre:   str = Field(max_length=20)
-    colonia:  str = Field(max_length=12)
-    telefono: int
+    nombre:                  str = Field(max_length=20)
+    colonia:                 str = Field(max_length=12)
+    telefono:                int
+    frecuencia_pago:         FrecuenciaPagoShein
+    dia_pago_especifico:     Optional[int] = None   # 1-31; obligatorio si frecuencia_pago = dia_especifico_mes
+    frecuencia_pago_detalle: Optional[str] = Field(default=None, max_length=60)  # obligatorio si frecuencia_pago = otro
 
     @field_validator("nombre", "colonia")
     @classmethod
@@ -27,12 +33,35 @@ class SheinClienteCreate(BaseModel):
             raise ValueError("El teléfono debe tener 10 dígitos")
         return v
 
+    @field_validator("dia_pago_especifico")
+    @classmethod
+    def dia_en_rango(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and not (1 <= v <= 31):
+            raise ValueError("dia_pago_especifico debe estar entre 1 y 31")
+        return v
+
+    @model_validator(mode="after")
+    def validar_campos_condicionales(self):
+        if self.frecuencia_pago == FrecuenciaPagoShein.dia_especifico_mes:
+            if self.dia_pago_especifico is None:
+                raise ValueError("dia_pago_especifico es obligatorio cuando frecuencia_pago = dia_especifico_mes")
+        if self.frecuencia_pago == FrecuenciaPagoShein.otro:
+            if not self.frecuencia_pago_detalle or not self.frecuencia_pago_detalle.strip():
+                raise ValueError("frecuencia_pago_detalle es obligatorio cuando frecuencia_pago = otro")
+        return self
+
 
 class SheinClienteRead(BaseModel):
-    id_shein_cliente: int
-    nombre:           str
-    colonia:          str
-    telefono:         int
+    id_shein_cliente:        int
+    nombre:                  str
+    colonia:                 str
+    telefono:                int
+    frecuencia_pago:         FrecuenciaPagoShein
+    dia_pago_especifico:     Optional[int]
+    frecuencia_pago_detalle: Optional[str]
+    saldo:                   float
+    estatus:                 EstatusSheinCliente
+    fecha_pago_programada:   Optional[date]
 
     model_config = {"from_attributes": True}
 

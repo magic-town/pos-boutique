@@ -15,6 +15,7 @@ def _crear_shein_cliente(client, headers, **overrides):
         "nombre": "Cliente Shein Test",
         "colonia": "Centro",
         "telefono": 4441234567,
+        "frecuencia_pago": "semanal",
     }
     payload.update(overrides)
     resp = client.post("/api/v1/shein/clientes", headers=headers, json=payload)
@@ -56,7 +57,7 @@ class TestRegistrarClienteShein:
         resp = client.post(
             "/api/v1/shein/clientes",
             headers=auth_headers,
-            json={"nombre": "   ", "colonia": "Centro", "telefono": 4441234567},
+            json={"nombre": "   ", "colonia": "Centro", "telefono": 4441234567, "frecuencia_pago": "semanal"},
         )
         assert resp.status_code == 422
 
@@ -64,7 +65,7 @@ class TestRegistrarClienteShein:
         resp = client.post(
             "/api/v1/shein/clientes",
             headers=auth_headers,
-            json={"nombre": "Prueba", "colonia": "Centro", "telefono": 123456789},
+            json={"nombre": "Prueba", "colonia": "Centro", "telefono": 123456789, "frecuencia_pago": "semanal"},
         )
         assert resp.status_code == 422
 
@@ -72,7 +73,7 @@ class TestRegistrarClienteShein:
         resp = client.post(
             "/api/v1/shein/clientes",
             headers=auth_headers,
-            json={"nombre": "Prueba", "colonia": "Centro", "telefono": 12345678901},
+            json={"nombre": "Prueba", "colonia": "Centro", "telefono": 12345678901, "frecuencia_pago": "semanal"},
         )
         assert resp.status_code == 422
 

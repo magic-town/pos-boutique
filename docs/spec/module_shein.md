@@ -2,55 +2,50 @@
 
 > **Naturaleza del módulo:** la boutique actúa como intermediaria. El cliente solicita
 > uno o varios artículos vistos en la app de Shein. La tienda ejecuta la compra, la
-> entrega y cobra al mismo precio de la app. Siempre de contado. Sin devoluciones.
+> entrega y cobra al mismo precio de la app. A diferencia del modelo anterior de pago
+> de contado en OXXO, los clientes Shein ahora tienen una **cartera de crédito propia**:
+> el monto del pedido se carga a su saldo al momento del corte y se liquida mediante
+> abonos. Sin devoluciones.
 >
-> **Corrección de diseño respecto a la versión anterior:** `shein_pedidos` deja de ser
-> una tabla plana de un artículo por renglón. Adopta la misma estructura cabecera-detalle
-> que `pedidos` / `pedidos_articulos` (ver [Módulo Pedidos](#módulo-pedidos)): un
-> `shein_pedido` es una cabecera con 1 a 4 artículos en `shein_pedidos_articulos`.
-> A diferencia de Pedidos, **Shein no maneja artículo alternativo** — no aplica `rol`
-> ni `id_articulo_principal`.
->
-> El valor que aporta `pos-boutique` en este módulo es triple: registro limpio de cada
-> solicitud individual, resolución transparente de variaciones de precio con el cliente,
-> y trazabilidad de dónde está el dinero del negocio entre `fecha_corte` y el cobro final
-> a cada cliente.
+> `shein_pedidos` adopta la estructura cabecera-detalle: un `shein_pedido` es una
+> cabecera con 1 a 4 artículos en `shein_pedidos_articulos`. **Shein no maneja artículo
+> alternativo** — no aplica `rol` ni `id_articulo_principal`.
 
 ---
 
 ### Decisiones de diseño — Shein
 
 **Cartera propia vs. tabla `clientes`.**
-Los clientes de Shein son transaccionales: no tienen saldo, no tienen garante, no tienen
-`frecuencia_pago`. Forzarlos en `clientes` introduciría datos obligatorios que no aplican
-y contaminaría la cartera de crédito. Decisión: tabla independiente `shein_clientes` con
-los campos mínimos necesarios.
+Los clientes de Shein son transaccionales con sus propias condiciones. Forzarlos en
+`clientes` introduciría dependencias sobre el módulo de crédito principal y contaminaría
+la cartera de crédito de la boutique. Decisión: tabla independiente `shein_clientes` con
+cartera de crédito propia, sin FK a `clientes`.
 
 **Cabecera-detalle, sin alternativa.**
-El diseño anterior limitaba un `shein_pedido` a un solo artículo. Se reestructura
-siguiendo el mismo patrón de `pedidos` / `pedidos_articulos`: `shein_pedidos` es la
-cabecera (1 a 4 artículos, solo el primero obligatorio) y `shein_pedidos_articulos` es
-el detalle. Se descarta deliberadamente el concepto de alternativa — Shein no tiene esa
-funcionalidad operativa.
+`shein_pedidos` es la cabecera (1 a 4 artículos, solo el primero obligatorio) y
+`shein_pedidos_articulos` es el detalle. Se descarta el concepto de alternativa —
+Shein no tiene esa funcionalidad operativa.
 
 **`cupon` — de dónde sale y dónde vive.**
-El bono (renombrado `cupon`) no se estima con un porcentaje interno como en el diseño
-anterior. Shein lo determina externamente con sus propios cálculos y la tienda lo obtiene
-junto con `total_ticket` al momento de pagar en caja OXXO. Por expertise de RDBMS se
-decide almacenar `total_ticket` (el dato que sí capturamos directamente en caja) y
-derivar `cupon = suma_pedidos - total_ticket`, calculado y persistido por el backend en
-el mismo momento — el mismo patrón que ya usaba `bono_monto` en el diseño anterior, solo
-que ahora sin `porcentaje_bono`.
+El bono (`cupon`) no se estima con un porcentaje interno. Shein lo determina externamente
+y la tienda lo obtiene junto con `total_ticket` al momento de pagar en caja OXXO.
+Se almacena `total_ticket` y se deriva `cupon = suma_pedidos - total_ticket`, calculado
+y persistido por el backend al guardar el corte.
 
 **`estatus_pago` vive en el pedido, no en el cliente.**
 Un cliente Shein puede tener pedidos en distintos cortes con distinto estatus de cobro
 simultáneamente. Colocar `estatus_pago` en `shein_clientes` perdería esa granularidad.
 
-**Variación de precio — corrección de negocio.**
-El diseño anterior asumía que solo una subida de precio requería confirmación del
-cliente ("si baja, la tienda absorbe la diferencia"). Esto es incorrecto: **tanto una
-baja como una subida** de precio requieren notificar al cliente y obtener su
-confirmación explícita del artículo al precio actualizado.
+**Variación de precio.**
+**Cualquier variación** de precio (sube o baja) exige notificar al cliente y obtener
+su confirmación explícita del artículo al precio actualizado. La tienda nunca absorbe
+la diferencia en silencio.
+
+**Saldo y abonos.**
+Al guardar un corte, el `monto_pedido` de cada pedido incluido se suma al `saldo` del
+`shein_cliente`. Los clientes liquidan vía abonos registrados en `shein_movimientos`.
+La cartera Shein sigue las mismas reglas que la cartera principal: `saldo` nunca se
+sobreescribe, siempre `+= monto` o `-= monto`.
 
 ---
 
@@ -60,29 +55,63 @@ confirmación explícita del artículo al precio actualizado.
 
 ```sql
 CREATE TABLE shein_clientes (
-    id_shein_cliente  INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre            TEXT(20) NOT NULL,
-    colonia           TEXT(12) NOT NULL,
-    telefono          INTEGER  NOT NULL   -- 10 dígitos
+    id_shein_cliente        INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre                  TEXT(20) NOT NULL,
+    colonia                 TEXT(12) NOT NULL,
+    telefono                INTEGER  NOT NULL,          -- 10 dígitos
+    frecuencia_pago         TEXT     NOT NULL,          -- Enum: semanal | quincenal | dia_especifico_mes | otro
+    dia_pago_especifico     INTEGER,                    -- 1-31. Solo si frecuencia_pago = 'dia_especifico_mes'
+    frecuencia_pago_detalle TEXT,                       -- Solo si frecuencia_pago = 'otro'
+    saldo                   REAL     NOT NULL DEFAULT 0,
+    estatus                 TEXT     NOT NULL DEFAULT 'inactivo'
+                                CHECK (estatus IN ('activo', 'inactivo')),
+    fecha_pago_programada   TEXT                        -- ISO 8601. NULL hasta el primer abono.
 );
 ```
 
-| Campo              | Nota                                                                |
-| ------------------ | ------------------------------------------------------------------- |
-| `id_shein_cliente` | PK interna. Identificador operativo visible en UI como consecutivo. |
-| `nombre`           | Nombre completo. Máximo 20 caracteres.                              |
-| `colonia`          | Máximo 12 caracteres.                                               |
-| `telefono`         | 10 dígitos. Obligatorio. Sin guiones ni espacios.                   |
+| Campo                    | Nota                                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `id_shein_cliente`       | PK interna. Identificador operativo visible en UI como consecutivo.                                             |
+| `nombre`                 | Nombre completo. Máximo 20 caracteres.                                                                          |
+| `colonia`                | Máximo 12 caracteres.                                                                                           |
+| `telefono`               | 10 dígitos. Obligatorio. Sin guiones ni espacios.                                                               |
+| `frecuencia_pago`        | Enum. Define la periodicidad esperada de abono.                                                                 |
+| `dia_pago_especifico`    | 1-31. Obligatorio solo si `frecuencia_pago = dia_especifico_mes`.                                               |
+| `frecuencia_pago_detalle`| Texto libre, hasta 60 caracteres. Obligatorio solo si `frecuencia_pago = otro`.                                 |
+| `saldo`                  | Deuda acumulada. `saldo >= 0` siempre. `saldo > 0` = deuda activa. `saldo = 0` = cuenta liquidada.             |
+| `estatus`                | Derivado automáticamente del `saldo`, nunca editable. `inactivo` por defecto. Pasa a `activo` cuando hay saldo. |
+| `fecha_pago_programada`  | `NULL` hasta el primer abono. Se instancia y recalcula en cada abono según `frecuencia_pago`.                   |
 
 > Esta tabla es independiente de `clientes`. No existe FK entre ellas. Un cliente que
-> tenga crédito en la tienda y también compre por Shein tiene registros en ambas tablas
-> — eso es correcto y no genera inconsistencia.
+> tenga crédito en la tienda y también compre por Shein tiene registros en ambas tablas —
+> eso es correcto y no genera inconsistencia.
+
+#### Tabla `shein_movimientos`
+
+Registro de abonos a la cartera Shein. Tabla independiente de `movimientos`.
+
+```sql
+CREATE TABLE shein_movimientos (
+    id_shein_movimiento  INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_shein_cliente     INTEGER NOT NULL REFERENCES shein_clientes(id_shein_cliente),
+    monto                REAL    NOT NULL,
+    forma_pago           TEXT    NOT NULL
+                             CHECK (forma_pago IN ('efectivo', 'transferencia', 'tarjeta')),
+    saldo_resultante     REAL    NOT NULL,
+    fecha                TEXT    NOT NULL   -- ISO 8601: YYYY-MM-DD HH:MM:SS
+);
+```
+
+| Campo                  | Nota                                                                        |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `id_shein_movimiento`  | PK interna.                                                                 |
+| `id_shein_cliente`     | FK al cliente Shein que abona.                                              |
+| `monto`                | Monto del abono. Mayor que 0. No puede exceder `shein_clientes.saldo`.      |
+| `forma_pago`           | Método de pago. Depende de los métodos activos en `configuracion`.          |
+| `saldo_resultante`     | `saldo_shein_cliente - monto` al momento del abono. Informativo.            |
+| `fecha`                | Timestamp completo. Autogenerado al registrar.                              |
 
 #### Tabla `shein_pedidos` (cabecera)
-
-Equivalente a `pedidos` en el [Módulo Pedidos](#módulo-pedidos): solo agrupa artículos
-bajo un cliente y una fecha. La asignación a un corte y el estatus de cobro viven aquí,
-no en el detalle.
 
 ```sql
 CREATE TABLE shein_pedidos (
@@ -100,68 +129,60 @@ CREATE TABLE shein_pedidos (
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id_shein_pedido` | PK interna. No aparece en UI — se muestra como consecutivo (`#1`, `#2`...).                                                                       |
 | `id_shein_corte`  | `NULL` mientras el pedido está pendiente de corte. Se asigna al guardar un corte, y solo si el pedido conserva al menos un artículo `confirmado`. |
-| `estatus_pago`    | `NULL` hasta que el corte se guarda → `pago_pendiente` → `pagado` conforme el cliente paga. Vive aquí, no en `shein_clientes`.                    |
-| `fecha`           | Fecha de creación del pedido (momento en que el cliente solicita el primer artículo).                                                             |
+| `estatus_pago`    | `NULL` hasta que el corte se guarda → `pago_pendiente` (saldo cargado) → `pagado` (saldo liquidado vía abonos). Vive aquí, no en `shein_clientes`.|
+| `fecha`           | Fecha de creación del pedido.                                                                                                                     |
 
 #### Tabla `shein_pedidos_articulos` (detalle)
-
-Cada pedido tiene entre 1 y 4 artículos. Sin concepto de alternativa — cada renglón es
-un artículo independiente que el cliente solicitó.
 
 ```sql
 CREATE TABLE shein_pedidos_articulos (
     id_shein_articulo  INTEGER PRIMARY KEY AUTOINCREMENT,
     id_shein_pedido    INTEGER NOT NULL REFERENCES shein_pedidos(id_shein_pedido),
     id_articulo        TEXT(20),
-                       -- Referencia libre al ID del artículo en la app Shein.
-                       -- Informativo, sin catálogo digitalizado, sin FK real.
     producto           TEXT(60) NOT NULL,
-                       -- Descripción libre del artículo. Coexiste con id_articulo.
-    tipo_producto       TEXT    NOT NULL CHECK (tipo_producto IN ('Nacional', 'Importado')),
-                       -- Informativo en MVP. Sin impacto operativo ni de cálculo.
-    monto               REAL    NOT NULL,
-                       -- Precio en la app Shein al momento en que el cliente solicita el artículo.
-    monto_vigente        REAL,
-                       -- NULL si el precio no cambió. Se llena solo si cambió al momento
-                       -- del corte (sube o baja) — ver regla de resolución abajo.
-    estatus_articulo     TEXT    NOT NULL DEFAULT 'vigente'
-                            CHECK (estatus_articulo IN ('vigente', 'confirmado', 'cancelado'))
+    tipo_producto      TEXT    NOT NULL CHECK (tipo_producto IN ('Nacional', 'Importado')),
+    monto              REAL    NOT NULL,
+    monto_vigente      REAL,
+    estatus_articulo   TEXT    NOT NULL DEFAULT 'vigente'
+                           CHECK (estatus_articulo IN ('vigente', 'confirmado', 'cancelado'))
 );
 ```
 
-| Campo               | Nota                                                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `id_shein_articulo` | PK interna. No aparece en UI.                                                                                                                    |
-| `id_shein_pedido`   | FK a cabecera. No aparece en UI.                                                                                                                 |
-| `id_articulo`       | Campo que captura el ejecutivo con el ID del artículo tal como aparece en la app Shein. Opcional, informativo, sin lookup.                       |
-| `producto`          | Descripción libre. Obligatorio. Coexiste con `id_articulo` — no lo reemplaza.                                                                    |
-| `tipo_producto`     | `Nacional` o `Importado`. Obligatorio, informativo, sin impacto operativo declarado en MVP.                                                      |
-| `monto`             | Precio capturado al momento de la solicitud del cliente.                                                                                         |
-| `monto_vigente`     | Se llena únicamente durante **Registrar Corte**, y solo si el precio en la app cambió respecto a `monto`.                                        |
-| `estatus_articulo`  | Controla la resolución del artículo en el corte. Ver [Enum `estatus_articulo` (Shein)](#flujo-de-variación-de-precios-y-cancelación-en-cascada). |
+| Campo               | Nota                                                                                                                    |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `id_shein_articulo` | PK interna. No aparece en UI.                                                                                           |
+| `id_shein_pedido`   | FK a cabecera. No aparece en UI.                                                                                        |
+| `id_articulo`       | ID del artículo en la app Shein. Opcional, informativo, sin lookup.                                                     |
+| `producto`          | Descripción libre. Obligatorio.                                                                                         |
+| `tipo_producto`     | `Nacional` o `Importado`. Obligatorio, informativo, sin impacto operativo en MVP.                                       |
+| `monto`             | Precio capturado al momento de la solicitud del cliente.                                                                |
+| `monto_vigente`     | Se llena únicamente durante **Registrar Corte**, y solo si el precio cambió respecto a `monto`.                         |
+| `estatus_articulo`  | Controla la resolución del artículo en el corte. Ver [Flujo de variación de precios](#flujo-de-variación-de-precios-y-cancelación-en-cascada). |
 
 #### Tabla `shein_cortes`
 
 ```sql
 CREATE TABLE shein_cortes (
     id_shein_corte  INTEGER PRIMARY KEY AUTOINCREMENT,
-    fecha_corte     TEXT    NOT NULL,   -- ISO 8601: YYYY-MM-DD.
-    total_pedidos   INTEGER NOT NULL,   -- shein_pedidos incluidos (>=1 artículo confirmado).
-    suma_pedidos    REAL    NOT NULL,   -- Suma de monto_pedido de todos los pedidos incluidos.
-    total_ticket    REAL    NOT NULL,   -- Lo efectivamente pagado en caja OXXO. Captura manual.
-    cupon           REAL    NOT NULL    -- suma_pedidos - total_ticket. Calculado por backend.
+    fecha_corte     TEXT    NOT NULL,
+    total_pedidos   INTEGER NOT NULL,
+    suma_pedidos    REAL    NOT NULL,
+    total_ticket    REAL    NOT NULL,
+    cupon           REAL    NOT NULL
 );
 ```
 
-> `porcentaje_bono` y `bono_monto` del diseño anterior quedan obsoletos. `cupon` no se
-> estima con un porcentaje interno — lo determina Shein y se obtiene junto con
-> `total_ticket` al pagar en OXXO, en la misma acción de guardar el corte.
+| Campo           | Nota                                                                                         |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| `fecha_corte`   | Fecha del corte. ISO 8601.                                                                   |
+| `total_pedidos` | Cantidad de `shein_pedidos` incluidos (con al menos 1 artículo `confirmado`). Calculado.     |
+| `suma_pedidos`  | Suma de `monto_pedido` de todos los pedidos incluidos. Calculada por backend. Sí se almacena.|
+| `total_ticket`  | Lo efectivamente pagado en caja OXXO. Captura manual.                                        |
+| `cupon`         | `suma_pedidos - total_ticket`. Calculado por backend al guardar.                              |
 
 **Cálculo de `monto_pedido` (no es columna, se deriva por consulta):**
 
 ```sql
--- Monto de un shein_pedido: suma de sus artículos confirmado, usando el precio
--- vigente si cambió, o el original si no.
 SELECT
     id_shein_pedido,
     SUM(COALESCE(monto_vigente, monto)) AS monto_pedido
@@ -170,36 +191,59 @@ WHERE estatus_articulo = 'confirmado'
 GROUP BY id_shein_pedido;
 ```
 
-`suma_pedidos` en `shein_cortes` es la suma de `monto_pedido` de todos los pedidos
-incluidos en ese corte — sí se almacena, igual que hacía `bono_monto` en el diseño
-anterior.
+---
+
+### Reglas de negocio
+
+1. **Independencia de `clientes`.** `shein_clientes` no tiene FK a `clientes`. Son carteras separadas que no se mezclan.
+2. **Un `shein_pedido` tiene de 1 a 4 artículos.** Solo el primero es obligatorio al crear; los demás se pueden agregar mientras el pedido sea editable (`id_shein_corte IS NULL`, con al menos un artículo en `vigente`).
+3. **Cartera de crédito.** Al guardar el corte, el `monto_pedido` de cada pedido incluido se carga al `saldo` del `shein_cliente` (`saldo += monto_pedido`). Si el `estatus` era `inactivo`, cambia a `activo` en la misma transacción. El cliente liquida mediante abonos registrados en `shein_movimientos` (`saldo -= monto_abono`). Si el `saldo` llega a `0`, el `estatus` vuelve a `inactivo` automáticamente.
+4. **`estatus` derivado del `saldo`.** Nunca editable manualmente. Misma regla que `clientes.estatus`.
+5. **Ciclo de `fecha_pago_programada`.** `NULL` al registrar el cliente. Se instancia y recalcula en cada abono de `shein_movimientos`, con la misma lógica de `frecuencia_pago` que en `clientes` (semanal, quincenal, dia_especifico_mes, otro).
+6. **Sistema de banderas.** `bandera_amarilla` (`fecha_pago_programada - hoy <= 2 días`) y `bandera_roja` (`hoy > fecha_pago_programada`) calculadas al vuelo. Visuales, no bloqueantes. Misma semántica que en `clientes`.
+7. **Variación de precios.** Cualquier variación (sube o baja) exige notificación al cliente y confirmación explícita.
+8. **Resolución de `estatus_articulo` en el corte:**
+   - Si el precio no cambió: artículo pasa automáticamente a `confirmado` (`monto_vigente = NULL`).
+   - Si el precio cambió y el cliente confirma: `estatus_articulo = 'confirmado'`, `monto_vigente` se llena con el nuevo precio.
+   - Si el precio cambió y el cliente cancela: `estatus_articulo = 'cancelado'`.
+9. **Cascada de cancelación a nivel pedido:**
+   - Si todos los artículos quedan `cancelado`: el pedido no recibe `id_shein_corte` ni `estatus_pago`. Su `monto_pedido` no se carga a ningún saldo.
+   - Si al menos un artículo está `confirmado`: el pedido recibe `id_shein_corte`, `estatus_pago = 'pago_pendiente'` y su `monto_pedido` (calculado sobre artículos `confirmado`) se carga al `saldo` del cliente.
+10. **`cupon` no se calcula internamente.** Shein lo determina externamente. La tienda obtiene `total_ticket` junto con el cupón al pagar en OXXO — ambos se capturan al guardar el corte.
+11. **El proceso de `corte_pedido` no cambia.** La confirmación de artículos, cálculo de `monto_pedido`, `suma_pedidos`, `total_ticket` y `cupon` son idénticos al diseño anterior. El único cambio es que al vincular al corte, el saldo se carga al `shein_cliente`.
+12. **Sin script de migración.** No existe tabla ODS ni script de importación para Shein. Todos los clientes se registran directamente en el sistema mediante `Crear Cliente Shein`.
 
 ---
 
 ### Menú Shein
 
-El botón `Shein` en el `main_menu` abre una ventana emergente con cinco opciones.
+El botón `Shein` en el `main_menu` abre una ventana emergente con seis opciones.
 
 ```yaml
 titulo_ventana: Shein
 opciones:
   1: Registrar Cliente Shein
   2: Registrar Pedido Shein
-  3: Lista de Pedidos
-  4: Registrar Corte
-  5: Consulta de Cortes
+  3: Registrar Abono Shein
+  4: Lista de Pedidos
+  5: Registrar Corte
+  6: Consulta de Cortes
 ```
 
 #### Opción 1 — Registrar Cliente Shein
 
-Formulario de alta. Escribe en tabla `shein_clientes`. Sin cambios respecto al diseño
-anterior.
+Formulario de alta. Escribe en tabla `shein_clientes`.
 
-| Etiqueta | Modelo     | Tipo    | Longitud | Requerido |
-| -------- | ---------- | ------- | -------- | --------- |
-| Nombre   | `nombre`   | String  | 20       | ✅         |
-| Colonia  | `colonia`  | String  | 12       | ✅         |
-| Teléfono | `telefono` | Integer | 10       | ✅         |
+| Etiqueta              | Modelo                    | Tipo    | Longitud | Requerido |
+| --------------------- | ------------------------- | ------- | -------- | --------- |
+| Nombre                | `nombre`                  | String  | 20       | ✅         |
+| Colonia               | `colonia`                 | String  | 12       | ✅         |
+| Teléfono              | `telefono`                | Integer | 10       | ✅         |
+| Frecuencia de Pago    | `frecuencia_pago`         | Enum    | —        | ✅         |
+| Día de pago específico| `dia_pago_especifico`     | Integer | 1-31     | ✅ solo si `frecuencia_pago = dia_especifico_mes` |
+| Detalle de frecuencia | `frecuencia_pago_detalle` | String  | 60       | ✅ solo si `frecuencia_pago = otro` |
+
+**Campos autogenerados:** `saldo = 0`, `estatus = 'inactivo'`, `fecha_pago_programada = NULL`.
 
 - En éxito: `"Cliente Shein registrado correctamente."` y limpia el formulario.
 - En error: `"No se pudo guardar. Intenta de nuevo."`
@@ -218,20 +262,42 @@ Ver detalle completo en [Formulario Registrar Pedido Shein](#formulario-registra
 Solo el Artículo 1 es obligatorio; los artículos 2, 3 y 4 están colapsados hasta que el
 ejecutivo los activa con **"+ Agregar artículo"**.
 
-- `fecha` de la cabecera se autogenera con la fecha actual (ISO 8601).
+- `fecha` de la cabecera se autogenera con la fecha actual.
 - `id_shein_corte` y `estatus_pago` se insertan como `NULL`.
-- Cada renglón de artículo se inserta con `estatus_articulo = 'vigente'` y `monto_vigente = NULL`.
+- Cada artículo se inserta con `estatus_articulo = 'vigente'` y `monto_vigente = NULL`.
 - En éxito: `"Pedido Shein registrado."` y cierra el formulario.
 - En error: `"No se pudo guardar. Intenta de nuevo."`
 
 > **Pedido editable:** mientras `id_shein_corte IS NULL`, el pedido admite agregar
-> artículos opcionales adicionales (hasta 4) o cancelar alguno ya capturado — mismo
-> criterio de "editable" que en el Módulo Pedidos.
+> artículos opcionales adicionales (hasta 4) o cancelar alguno ya capturado.
 
-#### Opción 3 — Lista de Pedidos
+#### Opción 3 — Registrar Abono Shein
 
-Tabla de pedidos pendientes de corte (`id_shein_corte IS NULL`), a nivel **pedido**
-(no artículo) — el desglose de artículos se consulta expandiendo el renglón.
+Registra un abono de un cliente Shein a su cartera de crédito.
+
+**Flujo:**
+
+1. Campo de búsqueda `id_shein_cliente` o `nombre`.
+2. El sistema muestra: `nombre`, `saldo` actual, `fecha_pago_programada`.
+3. La operadora captura `monto` y `forma_pago`.
+4. El backend valida: `monto > 0` y `monto <= shein_clientes.saldo`.
+5. El sistema ejecuta:
+   ```sql
+   INSERT INTO shein_movimientos (id_shein_cliente, monto, forma_pago, saldo_resultante, fecha)
+   VALUES (:id, :monto, :forma_pago, :saldo - :monto, :now);
+
+   UPDATE shein_clientes
+   SET saldo = saldo - :monto,
+       estatus = CASE WHEN saldo - :monto = 0 THEN 'inactivo' ELSE 'activo' END,
+       fecha_pago_programada = :nueva_fecha_calculada
+   WHERE id_shein_cliente = :id;
+   ```
+6. En éxito: `"Abono registrado correctamente."` y limpia el formulario.
+7. En error si `monto > saldo`: `"El abono excede el saldo del cliente."`
+
+#### Opción 4 — Lista de Pedidos
+
+Tabla de pedidos pendientes de corte (`id_shein_corte IS NULL`), a nivel **pedido**.
 
 | Columna         | Fuente                                                               |
 | --------------- | -------------------------------------------------------------------- |
@@ -261,10 +327,11 @@ ORDER BY sp.fecha ASC;
 
 Filtro rápido por fecha (rango `dd-mm-yyyy` a `dd-mm-yyyy`).
 
-#### Opción 4 — Registrar Corte
+#### Opción 5 — Registrar Corte
 
-Genera un registro en `shein_cortes`, resuelve el estatus de cada artículo revisado y
-vincula al corte solo los pedidos que sobreviven la revisión de precio.
+Genera un registro en `shein_cortes`, resuelve el estatus de cada artículo revisado,
+vincula al corte los pedidos que sobreviven la revisión de precio, y **carga el saldo**
+al `shein_cliente` de cada pedido incluido.
 
 **Flujo:**
 
@@ -281,7 +348,7 @@ vincula al corte solo los pedidos que sobreviven la revisión de precio.
          · Cancelar   -> el artículo quedará 'cancelado' al guardar
 6. Si al terminar la revisión un pedido queda sin ningún artículo confirmado
    (todos cancelados), el sistema lo excluye del corte automáticamente:
-   no se le asigna id_shein_corte ni estatus_pago. Sin más impacto en la operación.
+   no se le asigna id_shein_corte ni estatus_pago. Su monto no carga al saldo.
 7. El sistema calcula y muestra: total_pedidos, suma_pedidos.
 8. Operadora carga la lista resultante en la app Shein, paga en caja OXXO
    e ingresa total_ticket (obligatorio).
@@ -292,13 +359,13 @@ vincula al corte solo los pedidos que sobreviven la revisión de precio.
 **Transacción al confirmar:**
 
 ```sql
--- 1. Resolver artículos con precio revisado (uno o más UPDATE, uno por artículo)
+-- 1. Resolver artículos con precio revisado
 UPDATE shein_pedidos_articulos
-SET estatus_articulo = :estatus_resuelto,     -- 'confirmado' o 'cancelado'
+SET estatus_articulo = :estatus_resuelto,
     monto_vigente     = :monto_vigente_o_null
 WHERE id_shein_articulo = :id_shein_articulo;
 
--- 2. Autoconfirmar artículos sin cambio de precio dentro de los pedidos seleccionados
+-- 2. Autoconfirmar artículos sin cambio de precio
 UPDATE shein_pedidos_articulos
 SET estatus_articulo = 'confirmado'
 WHERE id_shein_pedido IN (:ids_pedidos_seleccionados)
@@ -309,24 +376,28 @@ INSERT INTO shein_cortes (fecha_corte, total_pedidos, suma_pedidos, total_ticket
 VALUES (:fecha_actual, :total_pedidos, :suma_pedidos, :total_ticket,
         :suma_pedidos - :total_ticket);
 
--- 4. Vincular al corte SOLO los pedidos con al menos un artículo confirmado
+-- 4. Vincular al corte los pedidos con al menos un artículo confirmado
 UPDATE shein_pedidos
 SET id_shein_corte = :id_shein_corte_nuevo,
     estatus_pago   = 'pago_pendiente'
 WHERE id_shein_pedido IN (:ids_pedidos_con_articulo_confirmado);
+
+-- 5. Cargar saldo al shein_cliente por cada pedido incluido
+UPDATE shein_clientes
+SET saldo   = saldo + :monto_pedido,
+    estatus = 'activo'
+WHERE id_shein_cliente = :id_shein_cliente;
+-- (Una operación por cada shein_cliente afectado, calculando monto_pedido
+--  como SUM(COALESCE(monto_vigente, monto)) de sus artículos confirmados)
 ```
 
 - En éxito: `"Corte registrado. Cupón: $X.XX"` y cierra la ventana.
 - En error: `"No se pudo registrar el corte. Intenta de nuevo."`
 
-> Los pedidos excluidos por cancelación total nunca reciben `id_shein_corte` — quedan
-> visibles únicamente en un histórico de cancelados (fuera del alcance de Lista de
-> Pedidos, que solo muestra pendientes) si en el futuro se necesita auditarlos.
-
-#### Opción 5 — Consulta de Cortes
+#### Opción 6 — Consulta de Cortes
 
 > Responde: **¿dónde está el dinero del negocio en Shein?** — separado de la Consulta
-> Global (§10 de `REGLAS_NEGOCIO.md`), que es transversal a todo el sistema.
+> Finanzas, que es transversal a todo el sistema.
 
 **Vista 1 — Resumen general (pago_pendiente vs. pagado):**
 
@@ -381,10 +452,6 @@ GROUP BY sp.id_shein_pedido;
 UPDATE shein_pedidos SET estatus_pago = 'pagado' WHERE id_shein_pedido = :id_shein_pedido;
 ```
 
-> El pago de la tienda al proveedor (OXXO) es informativo y no se registra — no hay
-> estatus "confirmado → pagado" a nivel `shein_corte`. Lo único que este módulo rastrea
-> después de `fecha_corte` es el cobro al cliente.
-
 ---
 
 ### Formulario Registrar Pedido Shein
@@ -397,40 +464,18 @@ Sin concepto de alternativa — cada artículo es un renglón independiente.
 
 **Campos por renglón de artículo:**
 
-| Etiqueta          | Modelo          | Tipo           | Requerido | Nota                                                                                                                                                                                                                                                   |
-| ----------------- | --------------- | -------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| ID Artículo       | `id_articulo`   | String(20)     | No        | Referencia libre al ID en la app Shein. Coexiste con `producto`.                                                                                                                                                                                       |
-| Producto          | `producto`      | String(60)     | ✅         | Descripción del artículo.                                                                                                                                                                                                                              |
-| Tipo Producto     | `tipo_producto` | Enum (select)  | ✅         | `Nacional` \| `Importado`. Informativo en MVP.                                                                                                                                                                                                         |
-| Monto             | `monto`         | Float          | ✅         | Precio en la app al momento de la solicitud.                                                                                                                                                                                                           |
-| Monto actualizado | `monto_vigente` | Float          | —         | Deshabilitado en este formulario. Solo se habilita en Registrar Corte.                                                                                                                                                                                 |
-| Cancelar          | —               | Acción (botón) | —         | Antes de guardar: remueve el renglón opcional. Después de guardado, con el pedido aún editable: cancela el artículo (`estatus_articulo = 'cancelado'`), sujeto a la [cascada de cancelación](#flujo-de-variación-de-precios-y-cancelación-en-cascada). |
-
-**Botón Guardar:**
-
-- `INSERT` en `shein_pedidos` (cabecera) + un `INSERT` por cada renglón de artículo en `shein_pedidos_articulos`.
-- `estatus_articulo` se inserta siempre como `vigente`; `monto_vigente` siempre `NULL`.
-- `id_shein_corte` y `estatus_pago` de la cabecera se insertan como `NULL`.
-- Ningún saldo de cliente se modifica — Shein siempre es de contado, sin cartera de crédito.
-- En éxito: `"Pedido Shein registrado."` y cierra el formulario.
-- En error: `"No se pudo guardar. Intenta de nuevo."`
+| Etiqueta          | Modelo          | Tipo           | Requerido | Nota                                                         |
+| ----------------- | --------------- | -------------- | --------- | ------------------------------------------------------------ |
+| ID Artículo       | `id_articulo`   | String(20)     | No        | Referencia libre al ID en la app Shein.                      |
+| Producto          | `producto`      | String(60)     | ✅         | Descripción del artículo.                                    |
+| Tipo Producto     | `tipo_producto` | Enum (select)  | ✅         | `Nacional` \| `Importado`. Informativo en MVP.               |
+| Monto             | `monto`         | Float          | ✅         | Precio en la app al momento de la solicitud.                 |
+| Monto actualizado | `monto_vigente` | Float          | —         | Deshabilitado en este formulario. Solo se habilita en Registrar Corte. |
+| Cancelar          | —               | Acción (botón) | —         | Antes de guardar: remueve el renglón opcional. Después de guardado: cancela el artículo (`estatus_articulo = 'cancelado'`). |
 
 ---
 
 ### Flujo de variación de precios y cancelación en cascada
-
-> **Estado:** solución viable implementada en MVP (columnas `monto_vigente` +
-> `estatus_articulo`). Solución automatizada de scraping/API fuera de presupuesto en
-> esta etapa.
-
-**Situación:**
-El `monto` registrado en `shein_pedidos_articulos` corresponde al precio de la app al
-momento en que el cliente solicita el artículo. Entre ese momento y el día del corte,
-el precio puede haber cambiado — hacia arriba o hacia abajo.
-
-**Corrección respecto al diseño anterior:** ya no importa la dirección del cambio.
-**Cualquier variación** (sube o baja) exige notificar al cliente y obtener su
-confirmación explícita del artículo al precio actualizado.
 
 **Enum `estatus_articulo` (Shein):**
 
@@ -448,17 +493,13 @@ confirmación explícita del artículo al precio actualizado.
 3. Si TODOS los artículos del pedido terminan 'cancelado':
       → el pedido completo se considera cancelado.
       → NO se le asigna id_shein_corte ni estatus_pago.
-      → sin ningún otro impacto en la operación (no hay saldo que revertir:
-        Shein nunca cargó nada a ningún saldo).
+      → el saldo del shein_cliente no se afecta (no hay monto que cargar).
 4. Si el pedido conserva AL MENOS UN artículo 'confirmado':
       → el pedido continúa vivo.
       → se le asigna id_shein_corte y estatus_pago = 'pago_pendiente'.
       → monto_pedido se calcula usando únicamente los artículos 'confirmado'.
+      → ese monto_pedido se carga al saldo del shein_cliente.
 ```
-
-Este es el motivo por el que `monto_pedido` y `suma_pedidos` se calculan siempre
-filtrando `estatus_articulo = 'confirmado'` — un artículo `cancelado` nunca contribuye
-al monto del corte.
 
 ---
 
@@ -482,10 +523,11 @@ al monto del corte.
       "tipo": "menu_opciones",
       "opciones": [
         { "id": 1, "etiqueta": "Registrar Cliente Shein", "accion": { "tipo": "abrir_ventana", "ventana": "ventana_registrar_cliente_shein" } },
-        { "id": 2, "etiqueta": "Registrar Pedido Shein",  "accion": { "tipo": "abrir_modal",   "modal": "modal_busqueda_cliente_shein" } },
-        { "id": 3, "etiqueta": "Lista de Pedidos",        "accion": { "tipo": "abrir_ventana", "ventana": "ventana_lista_pedidos_shein" } },
-        { "id": 4, "etiqueta": "Registrar Corte",         "accion": { "tipo": "abrir_ventana", "ventana": "ventana_registrar_corte_shein" } },
-        { "id": 5, "etiqueta": "Consulta de Cortes",      "accion": { "tipo": "abrir_ventana", "ventana": "ventana_consulta_cortes_shein" } }
+        { "id": 2, "etiqueta": "Registrar Pedido Shein",  "accion": { "tipo": "abrir_modal",   "modal":   "modal_busqueda_cliente_shein"    } },
+        { "id": 3, "etiqueta": "Registrar Abono Shein",   "accion": { "tipo": "abrir_modal",   "modal":   "modal_abono_shein"               } },
+        { "id": 4, "etiqueta": "Lista de Pedidos",        "accion": { "tipo": "abrir_ventana", "ventana": "ventana_lista_pedidos_shein"     } },
+        { "id": 5, "etiqueta": "Registrar Corte",         "accion": { "tipo": "abrir_ventana", "ventana": "ventana_registrar_corte_shein"   } },
+        { "id": 6, "etiqueta": "Consulta de Cortes",      "accion": { "tipo": "abrir_ventana", "ventana": "ventana_consulta_cortes_shein"   } }
       ]
     },
     {
@@ -495,6 +537,14 @@ al monto del corte.
       "campo_busqueda": { "etiqueta": "Cliente Shein", "modelo": "id_shein_cliente_o_nombre", "tipo": "String", "requerido": true },
       "validacion": { "tabla": "shein_clientes", "en_error": "Cliente no encontrado. Regístralo primero." },
       "boton": { "etiqueta": "Continuar", "accion": { "tipo": "abrir_ventana", "ventana": "ventana_registrar_pedido_shein" } }
+    },
+    {
+      "id": "modal_abono_shein",
+      "titulo": "Registrar Abono Shein",
+      "tipo": "busqueda_previa",
+      "campo_busqueda": { "etiqueta": "Cliente Shein", "modelo": "id_shein_cliente_o_nombre", "tipo": "String", "requerido": true },
+      "validacion": { "tabla": "shein_clientes", "en_error": "Cliente no encontrado." },
+      "boton": { "etiqueta": "Continuar", "accion": { "tipo": "abrir_ventana", "ventana": "ventana_abono_shein" } }
     }
   ],
   "ventanas": [
@@ -504,15 +554,66 @@ al monto del corte.
       "campos": [
         { "etiqueta": "Nombre",   "modelo": "nombre",   "tipo": "String",  "longitud": 20, "requerido": true },
         { "etiqueta": "Colonia",  "modelo": "colonia",  "tipo": "String",  "longitud": 12, "requerido": true },
-        { "etiqueta": "Teléfono", "modelo": "telefono", "tipo": "Integer", "longitud": 10, "requerido": true }
+        { "etiqueta": "Teléfono", "modelo": "telefono", "tipo": "Integer", "longitud": 10, "requerido": true },
+        {
+          "etiqueta": "Frecuencia de Pago", "modelo": "frecuencia_pago", "tipo": "Enum", "control": "select", "requerido": true,
+          "opciones": [
+            { "valor": "semanal",            "etiqueta": "Semanal"               },
+            { "valor": "quincenal",          "etiqueta": "Quincenal"             },
+            { "valor": "dia_especifico_mes", "etiqueta": "Día específico del mes"},
+            { "valor": "otro",               "etiqueta": "Otro"                  }
+          ]
+        },
+        {
+          "etiqueta": "Día de pago específico", "modelo": "dia_pago_especifico",
+          "tipo": "Integer", "control": "select_numero", "min": 1, "max": 31, "requerido": true,
+          "visible_si": { "campo": "frecuencia_pago", "valor": "dia_especifico_mes" }
+        },
+        {
+          "etiqueta": "Detalle de frecuencia", "modelo": "frecuencia_pago_detalle",
+          "tipo": "String", "longitud": 60, "requerido": true,
+          "visible_si": { "campo": "frecuencia_pago", "valor": "otro" }
+        }
       ],
       "acciones": [
         {
           "id": "btn_guardar", "etiqueta": "Guardar", "tipo": "button", "variante": "primary",
           "accion": {
             "tipo": "db_insert", "tabla": "shein_clientes",
+            "valores_default": [
+              { "columna": "saldo",                 "valor": 0         },
+              { "columna": "estatus",               "valor": "inactivo"},
+              { "columna": "fecha_pago_programada", "valor": null      }
+            ],
             "en_exito": { "mensaje": "Cliente Shein registrado correctamente.", "limpiar_formulario": true },
             "en_error": { "mensaje": "No se pudo guardar. Intenta de nuevo." }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ventana_abono_shein",
+      "titulo": "Registrar Abono Shein",
+      "encabezado": { "campos": ["nombre", "saldo", "fecha_pago_programada"], "fuente": "shein_clientes" },
+      "campos": [
+        { "etiqueta": "Monto", "modelo": "monto", "tipo": "Real", "requerido": true },
+        {
+          "etiqueta": "Forma de pago", "modelo": "forma_pago", "tipo": "Enum", "control": "select", "requerido": true,
+          "opciones": ["efectivo", "transferencia", "tarjeta"]
+        }
+      ],
+      "acciones": [
+        {
+          "id": "btn_guardar", "etiqueta": "Registrar Abono", "tipo": "button", "variante": "primary",
+          "accion": {
+            "tipo": "transaccion",
+            "pasos": [
+              { "operacion": "INSERT", "tabla": "shein_movimientos", "descripcion": "Registra el abono." },
+              { "operacion": "UPDATE", "tabla": "shein_clientes",    "descripcion": "Reduce saldo, recalcula estatus y fecha_pago_programada." }
+            ],
+            "validacion": { "condicion": "monto <= saldo", "en_error": "El abono excede el saldo del cliente." },
+            "en_exito": { "mensaje": "Abono registrado correctamente.", "limpiar_formulario": true },
+            "en_error": { "mensaje": "No se pudo registrar. Intenta de nuevo." }
           }
         }
       ]
@@ -526,7 +627,7 @@ al monto del corte.
         "articulo_template": {
           "campos": [
             { "etiqueta": "ID Artículo",       "modelo": "id_articulo",   "tipo": "String", "longitud": 20, "requerido": false },
-            { "etiqueta": "Producto",          "modelo": "producto",     "tipo": "String", "longitud": 60, "requerido": true },
+            { "etiqueta": "Producto",          "modelo": "producto",      "tipo": "String", "longitud": 60, "requerido": true  },
             {
               "etiqueta": "Tipo Producto", "modelo": "tipo_producto", "tipo": "Enum", "control": "select", "requerido": true,
               "opciones": [
@@ -548,7 +649,6 @@ al monto del corte.
           "id": "btn_guardar", "etiqueta": "Guardar", "tipo": "button", "variante": "primary",
           "accion": {
             "tipo": "db_insert_relacional",
-            "nota": "Ningún saldo de cliente se modifica — Shein es siempre de contado.",
             "tablas": [
               {
                 "tabla": "shein_pedidos",
@@ -570,7 +670,7 @@ al monto del corte.
                 ],
                 "valores_default": [
                   { "columna": "estatus_articulo", "valor": "vigente" },
-                  { "columna": "monto_vigente",     "valor": null }
+                  { "columna": "monto_vigente",    "valor": null      }
                 ]
               }
             ],
@@ -622,10 +722,11 @@ al monto del corte.
           "accion": {
             "tipo": "transaccion",
             "pasos": [
-              { "operacion": "UPDATE_MASIVO", "tabla": "shein_pedidos_articulos", "descripcion": "Aplica estatus_articulo y monto_vigente resueltos por el usuario, renglón por renglón." },
-              { "operacion": "UPDATE", "tabla": "shein_pedidos_articulos", "set": { "estatus_articulo": "confirmado" }, "where": "id_shein_pedido IN (:ids_seleccionados) AND estatus_articulo = 'vigente'" },
-              { "operacion": "INSERT", "tabla": "shein_cortes", "campos": ["fecha_corte", "total_pedidos", "suma_pedidos", "total_ticket", "cupon"] },
-              { "operacion": "UPDATE", "tabla": "shein_pedidos", "set": { "id_shein_corte": ":id_shein_corte_nuevo", "estatus_pago": "pago_pendiente" }, "where": "id_shein_pedido IN (:ids_pedidos_con_articulo_confirmado)" }
+              { "operacion": "UPDATE_MASIVO", "tabla": "shein_pedidos_articulos", "descripcion": "Aplica estatus_articulo y monto_vigente resueltos." },
+              { "operacion": "UPDATE",        "tabla": "shein_pedidos_articulos", "set": { "estatus_articulo": "confirmado" }, "where": "id_shein_pedido IN (:ids_seleccionados) AND estatus_articulo = 'vigente'" },
+              { "operacion": "INSERT",        "tabla": "shein_cortes",            "campos": ["fecha_corte", "total_pedidos", "suma_pedidos", "total_ticket", "cupon"] },
+              { "operacion": "UPDATE",        "tabla": "shein_pedidos",           "set": { "id_shein_corte": ":id_shein_corte_nuevo", "estatus_pago": "pago_pendiente" }, "where": "id_shein_pedido IN (:ids_pedidos_con_articulo_confirmado)" },
+              { "operacion": "UPDATE_MASIVO", "tabla": "shein_clientes",          "descripcion": "saldo += monto_pedido por cada shein_cliente afectado; estatus -> activo." }
             ],
             "en_exito": { "mensaje": "Corte registrado. Cupón: $X.XX", "cerrar_ventana": true },
             "en_error": { "mensaje": "No se pudo registrar el corte. Intenta de nuevo." }
@@ -658,4 +759,3 @@ al monto del corte.
 ```
 
 ---
-

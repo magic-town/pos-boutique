@@ -4,13 +4,14 @@
 
 ### Modelo de datos
 
-La tabla `clientes` se extiende respecto al modelo base definido en `REGLAS_NEGOCIO.md`
-con los campos nuevos documentados aquí.
+La tabla `clientes` almacena la cartera de crédito del negocio. Cada registro corresponde
+a un slot operativo identificado por `no_cliente`, que puede reutilizarse entre distintos
+clientes a lo largo del tiempo.
 
 ```sql
 CREATE TABLE clientes (
     id_cliente             INTEGER PRIMARY KEY AUTOINCREMENT,
-    no_cliente             TEXT    NOT NULL UNIQUE,   -- Autogenerado: {Colonia}-{consecutivo:03d}
+    no_cliente             TEXT    NOT NULL UNIQUE,   -- Formato: {Colonia}-{consecutivo:03d}
     nombre                 TEXT    NOT NULL,
     colonia                TEXT    NOT NULL,
     telefono               INTEGER NOT NULL,          -- 10 dígitos, obligatorio
@@ -28,22 +29,140 @@ CREATE TABLE clientes (
 );
 ```
 
+#### Tabla `cartera_vencida`
+
+Registro de clientes que han pasado a cartera vencida mediante `Cancelar Cliente`.
+Es una tabla de archivo independiente sin relaciones con otras tablas.
+
+```sql
+CREATE TABLE cartera_vencida (
+    id_cartera_vencida      INTEGER PRIMARY KEY AUTOINCREMENT,
+    no_cliente_original     TEXT    NOT NULL,
+    nombre                  TEXT    NOT NULL,
+    colonia                 TEXT    NOT NULL,
+    telefono                INTEGER NOT NULL,
+    ref_nombre              TEXT    NOT NULL,
+    ref_colonia             TEXT    NOT NULL,
+    ref_telefono            INTEGER,
+    saldo_cancelado         REAL    NOT NULL,
+    fecha_registro_original TEXT    NOT NULL,
+    fecha_cancelacion       TEXT    NOT NULL          -- ISO 8601: YYYY-MM-DD
+);
+```
+
+> Sin llaves foráneas. No está relacionada con `clientes` ni con ninguna otra tabla.
+> Es el respaldo histórico del cliente antes de que su slot sea reutilizado.
+
+#### Tabla `familiares`
+
+Registra vínculos familiares entre pares de clientes. Sin transitividad: solo pares
+declarados explícitamente por la operadora.
+
+```sql
+CREATE TABLE familiares (
+    id_vinculo    INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_cliente_a  INTEGER NOT NULL REFERENCES clientes(id_cliente),
+    id_cliente_b  INTEGER NOT NULL REFERENCES clientes(id_cliente),
+    CHECK (id_cliente_a < id_cliente_b)
+);
+CREATE UNIQUE INDEX uq_familiares ON familiares(id_cliente_a, id_cliente_b);
+```
+
+> El constraint `id_cliente_a < id_cliente_b` garantiza que cada par se almacene
+> en un único orden, evitando duplicados invertidos. Un cliente puede tener múltiples
+> vínculos familiares.
+
 ---
 
-### Notas de campo
+### Notas de campo — `clientes`
 
 | Campo                   | Nota                                                                                                                                                   |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `no_cliente`            | Lo genera el sistema: `{colonia}-{consecutivo:03d}`. La operadora no lo captura. Ej: `Carrillos-001`.                                                  |
+| `no_cliente`            | Identificador operativo visible en UI. Formato `{colonia}-{consecutivo:03d}`. Reutilizable: la operadora puede asignarlo a un nuevo cliente cuando queda disponible. |
+| `id_cliente`            | PK interna. Nunca se muestra en UI. No cambia aunque se reutilice el `no_cliente`. El historial de movimientos, pedidos y apartados del slot anterior queda vinculado a este `id_cliente`. |
 | `telefono`              | Tipo `INTEGER`, 10 dígitos. Obligatorio.                                                                                                               |
 | `frecuencia_pago`       | Enum. Define la periodicidad esperada de abono del cliente.                                                                                            |
-| `dia_pago_especifico`   | Entero 1-31. Obligatorio solo si `frecuencia_pago = dia_especifico_mes`. Se captura una sola vez al registrar y persiste mientras la cuenta esté activa (se edita solo desde **Editar Cliente**). |
+| `dia_pago_especifico`   | Entero 1-31. Obligatorio solo si `frecuencia_pago = dia_especifico_mes`. Se captura una sola vez al registrar y persiste mientras la cuenta esté activa. |
 | `frecuencia_pago_detalle` | Texto libre, hasta 60 caracteres. Obligatorio solo si `frecuencia_pago = otro`. Documenta el acuerdo especial de pago.                               |
 | `ref_telefono`          | Nullable. El teléfono del garante es opcional.                                                                                                         |
 | `saldo`                 | Deuda acumulada del cliente. `saldo >= 0` siempre. `saldo > 0` = deuda activa. `saldo = 0` = cuenta liquidada.                                          |
-| `estatus`               | Enum `activo` \| `inactivo`. **Derivado automáticamente del `saldo`, nunca editable por la operadora.** Nace `inactivo`. Cambia a `activo` en cuanto un producto impacta el `saldo` del cliente. Cambia a `inactivo` en cuanto el `saldo` regresa a `0`. No bloquea ninguna operación. |
-| `fecha_registro`        | Se guarda en `YYYY-MM-DD` (ISO 8601). Se muestra en UI como `DD-MM-YYYY`.                                                                              |
-| `fecha_pago_programada` | `NULL` al registrar. Campo calculado internamente: se instancia y recalcula en cada abono en `movimientos`. Nunca se captura ni importa manualmente.   |
+| `estatus`               | Enum `activo` \| `inactivo`. **Derivado automáticamente del `saldo`, nunca editable por la operadora.** Nace `inactivo`. Cambia a `activo` en cuanto un producto impacta el `saldo`. Cambia a `inactivo` cuando el `saldo` regresa a `0`. No bloquea ninguna operación. |
+| `fecha_registro`        | Se guarda en `YYYY-MM-DD`. Se muestra en UI como `DD-MM-YYYY`.                                                                                         |
+| `fecha_pago_programada` | `NULL` al registrar. Se instancia y recalcula en cada abono. Nunca se captura manualmente.                                                             |
+
+---
+
+### Reutilización de `no_cliente`
+
+El `no_cliente` es un **slot reutilizable**, no un identificador de persona permanente.
+La `PRIMARY KEY` (`id_cliente`) nunca cambia; lo que se reutiliza es el valor del campo
+`no_cliente` junto con los campos de datos del registro.
+
+**Escenarios de liberación del `no_cliente`:**
+
+1. **Cliente liquida su deuda** → `saldo = 0`, `estatus = 'inactivo'` (automático). El `no_cliente`
+   queda disponible para reasignación futura.
+2. **Cliente pasa a cartera vencida** (`Cancelar Cliente`) → sus datos se archivan en
+   `cartera_vencida`, los campos del registro en `clientes` se reescriben con los datos del
+   nuevo cliente. El `no_cliente` y el `id_cliente` se conservan; el historial anterior
+   queda vinculado al mismo `id_cliente`.
+3. **Migración desde ODS** → clientes importados nacen con `estatus = 'inactivo'` y
+   `saldo = 0`. Su `no_cliente` está asignado desde el inicio, disponible para que la
+   operadora lo use cuando el cliente haga su primer movimiento.
+
+**Asignación a un nuevo cliente:**
+
+La operadora decide caso a caso:
+- **`no_cliente` disponible existente:** la operadora selecciona el slot y reescribe los
+  campos del registro (`nombre`, `colonia`, `telefono`, `frecuencia_pago`, datos de
+  referencia). El `id_cliente` y el `no_cliente` no cambian.
+- **Siguiente consecutivo:** el sistema genera automáticamente el siguiente
+  `{colonia}-{consecutivo:03d}` para la colonia, creando un registro nuevo.
+
+---
+
+### Operación `Cancelar Cliente`
+
+Cancela la deuda de un cliente moroso (en `bandera_roja`), archiva sus datos en
+`cartera_vencida` y libera el slot para reasignación.
+
+**Precondición:** cliente con `bandera_roja` activa (`hoy > fecha_pago_programada` y
+`saldo > 0`).
+
+**Transacción:**
+
+```sql
+-- 1. Archivar datos del cliente en cartera_vencida
+INSERT INTO cartera_vencida (
+    no_cliente_original, nombre, colonia, telefono,
+    ref_nombre, ref_colonia, ref_telefono,
+    saldo_cancelado, fecha_registro_original, fecha_cancelacion
+)
+SELECT
+    no_cliente, nombre, colonia, telefono,
+    ref_nombre, ref_colonia, ref_telefono,
+    saldo, fecha_registro, DATE('now')
+FROM clientes WHERE id_cliente = :id_cliente;
+
+-- 2. Poner saldo a 0 y limpiar campos del slot para reasignación
+UPDATE clientes
+SET saldo                 = 0,
+    estatus               = 'inactivo',
+    nombre                = '',
+    telefono              = 0,
+    frecuencia_pago       = 'otro',
+    dia_pago_especifico   = NULL,
+    frecuencia_pago_detalle = 'slot disponible',
+    ref_nombre            = '',
+    ref_colonia           = '',
+    ref_telefono          = NULL,
+    fecha_pago_programada = NULL
+WHERE id_cliente = :id_cliente;
+```
+
+> El `saldo` cancelado se pone a `0`, lo que reduce automáticamente el agregado de
+> cuentas por cobrar del negocio (`Σ clientes.saldo WHERE saldo > 0`). No existe una
+> tabla `cuentas_por_pagar` — ese total es un valor derivado por consulta.
 
 ---
 
@@ -62,119 +181,104 @@ CREATE TABLE clientes (
 
 | Valor      | Descripción                                                                                 |
 | ---------- | ------------------------------------------------------------------------------------------- |
-| `activo`   | El cliente tiene producto(s) recibido(s) pendiente(s) de liquidar. Se asigna en automático en cuanto un movimiento impacta su `saldo` al alza. |
-| `inactivo` | Default al registrar (`saldo = 0`). También el estado al que el sistema regresa en automático en cuanto el cliente liquida su `saldo` a `0`. No implica baja ni bloqueo — la cuenta sigue operando con normalidad. |
+| `activo`   | El cliente tiene deuda activa. Se asigna en automático cuando un movimiento impacta su `saldo` al alza. |
+| `inactivo` | Default al registrar (`saldo = 0`). También el estado al que el sistema regresa en automático cuando el `saldo` llega a `0`. No implica baja ni bloqueo. |
 
-> `estatus` es un campo **derivado, nunca editable directamente** — no existe ninguna
-> acción, endpoint o pantalla para cambiarlo a mano, ni siquiera desde Editar Cliente.
-> Nace `inactivo` con `saldo = 0`. Cambia a `activo` automáticamente en el momento en
-> que un producto impacta su `saldo` (lo recibe y acepta). Cambia de vuelta a
-> `inactivo` automáticamente en el momento en que su `saldo` regresa a `0` por
-> liquidación, sin importar cuántas compras haya tenido antes — el siguiente producto
-> que reciba lo regresa a `activo` de nuevo. La operadora únicamente registra al
-> cliente y sus movimientos; el sistema mantiene `estatus` sincronizado con `saldo`.
+> `estatus` es un campo **derivado, nunca editable directamente**. No existe ninguna
+> acción, endpoint o pantalla para cambiarlo a mano.
 
 ---
 
 ### Ciclo de `fecha_pago_programada`
 
 `fecha_pago_programada` no se fija al registrar al cliente — se instancia y
-recalcula en cada abono. La **fórmula** de cálculo depende del `frecuencia_pago`
-del cliente.
+recalcula en cada abono.
 
 **Reglas:**
 
 1. Al registrar el cliente: `fecha_pago_programada = NULL`, sin importar la frecuencia.
 2. Al registrar el **primer abono** en `movimientos` (y en cada abono subsiguiente),
    el backend recalcula `fecha_pago_programada` según el tipo de frecuencia:
-   - **`semanal`:** rodante, sin cambios respecto al diseño original.
-     `fecha_pago_programada = fecha_abono + 7 días`.
-   - **`quincenal`:** deja de ser rodante. Se fija a las fechas de calendario
-     `15` y **último día del mes** (28/29/30/31 según corresponda).
-     `fecha_pago_programada` = la próxima de esas dos fechas posterior a la
-     fecha del abono.
-   - **`dia_especifico_mes`:** se fija al día capturado en `dia_pago_especifico`
-     (definido una sola vez al registrar al cliente). `fecha_pago_programada`
-     = la próxima ocurrencia de ese día posterior a la fecha del abono. Si el
-     día no existe en un mes dado (p. ej. `31` en febrero), se aplica el mismo
-     *clamp* al último día del mes que usa `quincenal`.
+   - **`semanal`:** rodante. `fecha_pago_programada = fecha_abono + 7 días`.
+   - **`quincenal`:** fechas fijas de calendario `15` y **último día del mes**
+     (28/29/30/31 según corresponda). `fecha_pago_programada` = la próxima de esas
+     dos fechas posterior a la fecha del abono.
+   - **`dia_especifico_mes`:** se fija al día capturado en `dia_pago_especifico`.
+     `fecha_pago_programada` = la próxima ocurrencia de ese día posterior al abono.
+     Si el día no existe en un mes dado (p. ej. `31` en febrero), se aplica *clamp*
+     al último día del mes.
    - **`otro`:** el backend nunca calcula. `fecha_pago_programada` permanece
      `NULL` siempre; el acuerdo especial vive en `frecuencia_pago_detalle`.
 
-**Ejemplo con `frecuencia_pago = semanal`** (sin cambios):
+**Ejemplo con `frecuencia_pago = semanal`:**
 
 ```
 Abono 1: 03-01-2026 (sábado)  →  fecha_pago_programada = 10-01-2026
 Abono 2: 12-01-2026           →  fecha_pago_programada = 19-01-2026
 ```
 
-**Ejemplo con `frecuencia_pago = quincenal`** (fechas fijas, ya no rodante):
+**Ejemplo con `frecuencia_pago = quincenal`** (fechas fijas, no rodante):
 
 ```
-Abono 1: 03-01-2026  →  fecha_pago_programada = 15-01-2026  (próxima fecha fija)
-Abono 2: 20-01-2026  →  fecha_pago_programada = 31-01-2026  (último día de enero)
+Abono 1: 03-01-2026  →  fecha_pago_programada = 15-01-2026
+Abono 2: 20-01-2026  →  fecha_pago_programada = 31-01-2026
 Abono 3: 05-02-2026  →  fecha_pago_programada = 15-02-2026
 ```
 
 **Ejemplo con `frecuencia_pago = dia_especifico_mes`** y `dia_pago_especifico = 31`:
 
 ```
-Abono en enero:   fecha_pago_programada = 31-01-2026  (enero tiene 31 días)
-Abono en febrero: fecha_pago_programada = 28-02-2026  (clamp: febrero no tiene 31)
+Abono en enero:   fecha_pago_programada = 31-01-2026
+Abono en febrero: fecha_pago_programada = 28-02-2026  (clamp)
 ```
-
-> El sistema no castiga el retraso: en `semanal` y `dia_especifico_mes`, la
-> próxima fecha se recalcula desde el abono real. En `quincenal`, al ser fechas
-> fijas de calendario, el atraso simplemente mueve al cliente a la siguiente
-> fecha fija disponible.
-
-> **Pendiente de implementación:** esta fórmula se codifica en
-> `movimiento_service.py` (ver docs/REPORT.md, punto de ajuste de Movimientos).
-> Hoy `dia_pago_especifico` y `frecuencia_pago_detalle` ya se capturan y
-> validan en el alta de Cliente.
 
 ---
 
 ### Sistema de banderas
 
-El sistema evalúa `fecha_pago_programada` de cada cliente activo con saldo para
-determinar alertas visuales.
+El sistema evalúa condiciones de cada cliente activo con saldo para determinar alertas visuales.
+Las banderas son visuales — no bloquean operaciones.
 
-| Bandera     | Condición                                                   | Indicador        |
-| ----------- | ----------------------------------------------------------- | ---------------- |
-| 🟡 Amarilla  | `fecha_pago_programada - hoy <= 2 días`                     | Próximo a vencer |
-| 🔴 Roja      | `hoy > fecha_pago_programada`                               | Vencido          |
-| 🟠 Naranja   | Cliente tiene apartado abierto a ≤ 5 días de vencer su mes  | Apartado x vencer|
-| Sin bandera | Ninguna de las anteriores, o `fecha_pago_programada = NULL` | Normal           |
+| Bandera      | Condición                                                                     | Indicador          |
+| ------------ | ----------------------------------------------------------------------------- | ------------------ |
+| 🟡 Amarilla   | `fecha_pago_programada - hoy <= 2 días`                                       | Próximo a vencer   |
+| 🔴 Roja       | `hoy > fecha_pago_programada`                                                 | Vencido            |
+| 🟠 Naranja    | Cliente tiene apartado abierto a ≤ 5 días de vencer su mes                    | Apartado x vencer  |
+| ⚫ Negra      | El cliente tiene `bandera_roja` **Y** al menos un familiar también tiene `bandera_roja` | Morosidad familiar |
+| Sin bandera  | Ninguna de las anteriores, o `fecha_pago_programada = NULL`, o `saldo = 0`    | Normal             |
 
 **Notas de implementación:**
 
 - La evaluación se ejecuta al cargar el panel principal o el módulo Clientes.
 - Clientes con `frecuencia_pago = otro` y `fecha_pago_programada = NULL` no generan bandera amarilla ni roja.
 - Clientes con `saldo = 0` no generan bandera amarilla ni roja aunque tengan `fecha_pago_programada` definida.
-- La bandera naranja depende de `apartados.fecha_apartado`, es independiente del ciclo normal de abonos y puede coexistir con las otras banderas.
-- La bandera es visual — no bloquea operaciones.
+- La bandera naranja depende de `apartados.fecha_apartado`, es independiente del ciclo de abonos y puede coexistir con otras banderas.
+- La bandera negra se calcula al vuelo consultando la tabla `familiares` y el estado actual de cada cliente vinculado. No se persiste.
+- La bandera negra puede coexistir con la roja — de hecho, la bandera roja es precondición para activarla.
 
 ---
 
 ### Menú Clientes
 
-El botón `Clientes` en el `main_menu` abre una ventana emergente con cuatro opciones.
+El botón `Clientes` en el `main_menu` abre una ventana emergente con cinco opciones.
 
 ```yaml
 titulo_ventana: Clientes
 opciones:
   1: Registrar Cliente
   2: Editar Cliente
-  3: Consulta Cliente
-  4: Consulta Historial
+  3: Cancelar Cliente
+  4: Consulta Cliente
+  5: Consulta Historial
 ```
 
 ---
 
 ### Opción 1 — Registrar Cliente
 
-Formulario de alta de nuevo cliente. Escribe en tabla `clientes`.
+Formulario de alta de nuevo cliente. La operadora puede registrar a un cliente nuevo
+asignándole el siguiente `no_cliente` consecutivo, o reutilizar un slot disponible
+(ver [Reutilización de `no_cliente`](#reutilización-de-no_cliente)).
 
 **Campos capturados por la operadora:**
 
@@ -190,19 +294,25 @@ Formulario de alta de nuevo cliente. Escribe en tabla `clientes`.
 | Referencia Colonia  | `ref_colonia`     | String        | 40       | ✅         |
 | Referencia Teléfono | `ref_telefono`    | Integer       | 10       | ❌         |
 
-**Campos autogenerados por el sistema al guardar:**
+**Asignación de `no_cliente`:**
 
-| Columna                 | Estrategia                                                                                                    |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `no_cliente`            | `{colonia}-{consecutivo:03d}`. El backend consulta `COUNT` de clientes con esa colonia y asigna el siguiente. |
-| `fecha_registro`        | Fecha actual. Almacenada en `YYYY-MM-DD`, mostrada en UI como `DD-MM-YYYY`.                                   |
-| `saldo`                 | Default `0`.                                                                                                  |
-| `estatus`               | Default `inactivo`.                                                                                             |
-| `fecha_pago_programada` | `NULL`. Se asigna al primer abono.                                                                            |
+| Modo              | Descripción                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| Consecutivo nuevo | El backend genera `{colonia}-{consecutivo:03d}` usando el siguiente número disponible para esa colonia. `INSERT` en `clientes`. |
+| Slot disponible   | La operadora selecciona un `no_cliente` con `estatus = 'inactivo'` y `saldo = 0`. El sistema hace `UPDATE` reescribiendo los campos del registro. |
+
+**Campos autogenerados al guardar (modo consecutivo nuevo):**
+
+| Columna                 | Estrategia                                                |
+| ----------------------- | --------------------------------------------------------- |
+| `no_cliente`            | `{colonia}-{consecutivo:03d}`. Siguiente disponible.      |
+| `fecha_registro`        | Fecha actual. `YYYY-MM-DD`, mostrada como `DD-MM-YYYY`.   |
+| `saldo`                 | Default `0`.                                              |
+| `estatus`               | Default `inactivo`.                                       |
+| `fecha_pago_programada` | `NULL`.                                                   |
 
 **Botón Guardar:**
 
-- Ejecuta `INSERT` en tabla `clientes`.
 - En éxito: `"Cliente registrado correctamente."` y limpia el formulario.
 - En error: `"No se pudo guardar. Intenta de nuevo."`
 
@@ -210,7 +320,7 @@ Formulario de alta de nuevo cliente. Escribe en tabla `clientes`.
 
 ### Opción 2 — Editar Cliente
 
-Permite modificar el registro de un cliente existente.
+Permite modificar los datos de un cliente existente.
 
 **Flujo:**
 
@@ -222,11 +332,29 @@ Permite modificar el registro de un cliente existente.
 **Notas:**
 
 - `id_cliente` nunca se muestra ni se modifica en UI. `no_cliente` es el identificador operativo.
-- Esta ventana requiere permiso `admin`. En el MVP ambos usuarios tienen rol `estandar` — la restricción se implementa en versiones futuras sin cambio de arquitectura.
+- Esta ventana requiere permiso `admin`. En el MVP la restricción se implementa en versiones futuras sin cambio de arquitectura.
+- La operadora puede también vincular o desvincular familiares desde esta pantalla (ver [Tabla `familiares`](#tabla-familiares)).
 
 ---
 
-### Opción 3 — Consulta Cliente
+### Opción 3 — Cancelar Cliente
+
+Archiva al cliente moroso en `cartera_vencida` y libera el slot para reasignación.
+
+**Flujo:**
+
+1. Se abre ventana emergente con campo de búsqueda `no_cliente`.
+2. El sistema valida que el cliente tenga `bandera_roja` activa (`hoy > fecha_pago_programada` y `saldo > 0`).
+3. El sistema muestra un resumen del cliente: `no_cliente`, `nombre`, `saldo`, `fecha_pago_programada`.
+4. La operadora confirma la cancelación.
+5. El sistema ejecuta la transacción `Cancelar Cliente` (ver [Operación `Cancelar Cliente`](#operación-cancelar-cliente)).
+
+- En éxito: `"Cliente cancelado. El slot quedó disponible para reasignación."` y cierra.
+- Si el cliente no tiene `bandera_roja`: `"Este cliente no está en morosidad. No se puede cancelar."` y no ejecuta.
+
+---
+
+### Opción 4 — Consulta Cliente
 
 Abre la tabla completa de `clientes` filtrable y ordenable por la operadora.
 
@@ -245,7 +373,7 @@ columnas_visibles:
 
 ---
 
-### Opción 4 — Consulta Historial
+### Opción 5 — Consulta Historial
 
 Muestra el historial consolidado de un cliente: pedidos, devoluciones, cancelaciones
 y abonos en una sola vista cronológica.
@@ -301,8 +429,9 @@ y abonos en una sola vista cronológica.
       "opciones": [
         { "id": 1, "etiqueta": "Registrar Cliente",  "accion": { "tipo": "abrir_ventana", "ventana": "ventana_registrar_cliente"  } },
         { "id": 2, "etiqueta": "Editar Cliente",     "accion": { "tipo": "abrir_ventana", "ventana": "ventana_editar_cliente"     } },
-        { "id": 3, "etiqueta": "Consulta Cliente",   "accion": { "tipo": "abrir_ventana", "ventana": "ventana_consulta_cliente"   } },
-        { "id": 4, "etiqueta": "Consulta Historial", "accion": { "tipo": "abrir_ventana", "ventana": "ventana_consulta_historial" } }
+        { "id": 3, "etiqueta": "Cancelar Cliente",   "accion": { "tipo": "abrir_ventana", "ventana": "ventana_cancelar_cliente"   } },
+        { "id": 4, "etiqueta": "Consulta Cliente",   "accion": { "tipo": "abrir_ventana", "ventana": "ventana_consulta_cliente"   } },
+        { "id": 5, "etiqueta": "Consulta Historial", "accion": { "tipo": "abrir_ventana", "ventana": "ventana_consulta_historial" } }
       ]
     }
   ],
@@ -310,6 +439,10 @@ y abonos en una sola vista cronológica.
     {
       "id": "ventana_registrar_cliente",
       "titulo": "Registrar Cliente",
+      "modo_slot": {
+        "descripcion": "La operadora puede elegir asignar el siguiente consecutivo o reutilizar un slot disponible (no_cliente con saldo=0 e inactivo).",
+        "selector": { "etiqueta": "No. Cliente", "opciones": ["nuevo_consecutivo", "slot_disponible"] }
+      },
       "apartados": [
         {
           "id": "apartado_cliente",
@@ -356,23 +489,14 @@ y abonos en una sola vista cronológica.
         {
           "id": "btn_guardar", "etiqueta": "Guardar", "tipo": "button", "variante": "primary", "icono": "save",
           "accion": {
-            "tipo": "db_insert", "tabla": "clientes",
-            "campos_autogenerados": [
+            "tipo": "db_insert_o_update",
+            "descripcion": "INSERT si modo=nuevo_consecutivo; UPDATE reescribiendo campos si modo=slot_disponible.",
+            "tabla": "clientes",
+            "campos_autogenerados_en_insert": [
               { "columna": "no_cliente",     "estrategia": "consecutivo_por_colonia", "formato": "{colonia}-{consecutivo:03d}" },
-              { "columna": "fecha_registro", "estrategia": "fecha_actual", "formato_almacenamiento": "YYYY-MM-DD", "formato_display": "DD-MM-YYYY" }
+              { "columna": "fecha_registro", "estrategia": "fecha_actual", "formato_almacenamiento": "YYYY-MM-DD" }
             ],
-            "campos_mapeados": [
-              { "modelo": "nombre",          "columna": "nombre"          },
-              { "modelo": "colonia",         "columna": "colonia"         },
-              { "modelo": "telefono",        "columna": "telefono"        },
-              { "modelo": "frecuencia_pago", "columna": "frecuencia_pago" },
-              { "modelo": "dia_pago_especifico", "columna": "dia_pago_especifico" },
-              { "modelo": "frecuencia_pago_detalle", "columna": "frecuencia_pago_detalle" },
-              { "modelo": "ref_nombre",      "columna": "ref_nombre"      },
-              { "modelo": "ref_colonia",     "columna": "ref_colonia"     },
-              { "modelo": "ref_telefono",    "columna": "ref_telefono"    }
-            ],
-            "valores_default": [
+            "valores_default_en_insert": [
               { "columna": "saldo",                 "valor": 0        },
               { "columna": "estatus",               "valor": "inactivo" },
               { "columna": "fecha_pago_programada", "valor": null     }
@@ -389,8 +513,30 @@ y abonos en una sola vista cronológica.
       "flujo": "busqueda_previa",
       "campo_busqueda": { "etiqueta": "No. Cliente", "modelo": "no_cliente", "tipo": "String" },
       "formulario": "ventana_registrar_cliente",
+      "seccion_familiares": {
+        "descripcion": "La operadora puede vincular o desvincular clientes como familiares.",
+        "accion_vincular":   { "tabla": "familiares", "tipo": "INSERT", "campos": ["id_cliente_a", "id_cliente_b"] },
+        "accion_desvincular":{ "tabla": "familiares", "tipo": "DELETE", "clave": "id_vinculo" }
+      },
       "accion_guardar": { "tipo": "db_update", "tabla": "clientes", "clave": "no_cliente" },
       "permisos": { "rol_requerido": "admin", "estado_mvp": "pendiente" }
+    },
+    {
+      "id": "ventana_cancelar_cliente",
+      "titulo": "Cancelar Cliente",
+      "flujo": "busqueda_previa",
+      "campo_busqueda": { "etiqueta": "No. Cliente", "modelo": "no_cliente", "tipo": "String" },
+      "validacion": { "condicion": "bandera_roja = true", "en_error": "Este cliente no está en morosidad. No se puede cancelar." },
+      "resumen": ["no_cliente", "nombre", "saldo", "fecha_pago_programada"],
+      "accion_confirmar": {
+        "tipo": "transaccion",
+        "pasos": [
+          { "operacion": "INSERT", "tabla": "cartera_vencida", "descripcion": "Snapshot de datos del cliente." },
+          { "operacion": "UPDATE", "tabla": "clientes",        "descripcion": "Pone saldo=0, estatus=inactivo, limpia campos del slot." }
+        ],
+        "en_exito": { "mensaje": "Cliente cancelado. El slot quedó disponible para reasignación.", "cerrar_ventana": true },
+        "en_error": { "mensaje": "No se pudo cancelar. Intenta de nuevo." }
+      }
     },
     {
       "id": "ventana_consulta_cliente",
@@ -477,4 +623,3 @@ queda disponible de inmediato en Consulta Cliente y Consulta Historial.
 > Importación de única vez. Una vez verificada, el script puede archivarse.
 
 ---
-

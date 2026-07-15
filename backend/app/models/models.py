@@ -2,16 +2,14 @@
 Modelo de datos alineado a docs/spec/*.md + docs/REGLAS_NEGOCIO.md
 (fuentes de verdad — ver docs/REPORT.md §1 para la jerarquía completa).
 
-15 tablas migradas y verificadas contra pos.db (alembic_version = d4e5f6a7b8c9,
-head): clientes, pedidos, pedidos_articulos, precios_catalogo, inventario,
-movimientos, apartados, apartados_articulos, shein_clientes, shein_pedidos,
-shein_pedidos_articulos, shein_cortes, recargas, usuarios, configuracion.
-clientes incluye dia_pago_especifico y frecuencia_pago_detalle como columnas
-reales (REGLAS_NEGOCIO.md §2).
+18 tablas (alembic head = e5f6a7b8c9d0):
+- 15 tablas base migradas hasta d4e5f6a7b8c9.
+- 3 tablas nuevas en e5f6a7b8c9d0: cartera_vencida, familiares,
+  shein_movimientos. Además, shein_clientes incorpora columnas de
+  cartera de crédito (saldo, estatus, frecuencia_pago, etc.).
 
-Apartado (cabecera-detalle, ver docs/REPORT.md §3.3): las clases Apartado y
-ApartadoArticulo, y la FK id_apartado en Movimiento, ya están migradas y
-verificadas columna por columna contra el diseño cerrado.
+Apartado (cabecera-detalle): Apartado, ApartadoArticulo e id_apartado
+en Movimiento migrados y verificados.
 """
 
 from sqlalchemy import (
@@ -128,6 +126,21 @@ class EstatusPago(enum.Enum):
     pagado = "pagado"
 
 
+class FrecuenciaPagoShein(enum.Enum):
+    """Mismos valores que FrecuenciaPago de Clientes, pero enum independiente
+    para evitar acoplamiento entre carteras."""
+    semanal = "semanal"
+    quincenal = "quincenal"
+    dia_especifico_mes = "dia_especifico_mes"
+    otro = "otro"
+
+
+class EstatusSheinCliente(enum.Enum):
+    """Derivado automáticamente del saldo, misma semántica que EstatusCliente."""
+    activo = "activo"
+    inactivo = "inactivo"
+
+
 class EstatusApartado(enum.Enum):
     abierto = "abierto"
     liquidado = "liquidado"
@@ -167,6 +180,44 @@ class Cliente(Base):
     movimientos   = relationship("Movimiento", back_populates="cliente")
     pedidos       = relationship("Pedido", back_populates="cliente")
     apartados     = relationship("Apartado", back_populates="cliente")
+    familiares_a  = relationship("Familiar", foreign_keys="Familiar.id_cliente_a", back_populates="cliente_a")
+    familiares_b  = relationship("Familiar", foreign_keys="Familiar.id_cliente_b", back_populates="cliente_b")
+
+
+class CarteraVencida(Base):
+    """Archivo de clientes morosos cancelados. Tabla independiente, sin FKs.
+    No está relacionada con 'clientes' ni con ninguna otra tabla."""
+    __tablename__ = "cartera_vencida"
+
+    id_cartera_vencida      = Column(Integer, primary_key=True, index=True)
+    no_cliente_original     = Column(String, nullable=False)
+    nombre                  = Column(String, nullable=False)
+    colonia                 = Column(String, nullable=False)
+    telefono                = Column(Integer, nullable=False)
+    ref_nombre              = Column(String, nullable=False)
+    ref_colonia             = Column(String, nullable=False)
+    ref_telefono            = Column(Integer, nullable=True)
+    saldo_cancelado         = Column(Float, nullable=False)
+    fecha_registro_original = Column(String, nullable=False)
+    fecha_cancelacion       = Column(String, nullable=False)
+
+
+class Familiar(Base):
+    """Vínculos familiares entre pares de clientes. Sin transitividad:
+    solo pares declarados explícitamente por la operadora.
+    CHECK (id_cliente_a < id_cliente_b) evita duplicados invertidos."""
+    __tablename__ = "familiares"
+    __table_args__ = (
+        CheckConstraint("id_cliente_a < id_cliente_b", name="ck_familiares_orden"),
+        UniqueConstraint("id_cliente_a", "id_cliente_b", name="uq_familiares"),
+    )
+
+    id_vinculo   = Column(Integer, primary_key=True, index=True)
+    id_cliente_a = Column(Integer, ForeignKey("clientes.id_cliente"), nullable=False)
+    id_cliente_b = Column(Integer, ForeignKey("clientes.id_cliente"), nullable=False)
+
+    cliente_a = relationship("Cliente", foreign_keys=[id_cliente_a], back_populates="familiares_a")
+    cliente_b = relationship("Cliente", foreign_keys=[id_cliente_b], back_populates="familiares_b")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -311,14 +362,24 @@ class ApartadoArticulo(Base):
 # ──────────────────────────────────────────────────────────────────────────
 
 class SheinCliente(Base):
+    """Clientes Shein con cartera de crédito propia, independiente de clientes.
+    saldo/estatus/frecuencia_pago siguen las mismas reglas que Cliente."""
     __tablename__ = "shein_clientes"
 
-    id_shein_cliente = Column(Integer, primary_key=True, index=True)
-    nombre           = Column(String(20), nullable=False)
-    colonia          = Column(String(12), nullable=False)
-    telefono         = Column(Integer, nullable=False)   # 10 dígitos
+    id_shein_cliente        = Column(Integer, primary_key=True, index=True)
+    nombre                  = Column(String(20), nullable=False)
+    colonia                 = Column(String(12), nullable=False)
+    telefono                = Column(Integer, nullable=False)   # 10 dígitos
+    frecuencia_pago         = Column(Enum(FrecuenciaPagoShein), nullable=False)
+    dia_pago_especifico     = Column(Integer, nullable=True)   # 1-31; solo si frecuencia_pago = dia_especifico_mes
+    frecuencia_pago_detalle = Column(String(60), nullable=True)  # solo si frecuencia_pago = otro
+    saldo                   = Column(Float, nullable=False, default=0.0)
+    estatus                 = Column(Enum(EstatusSheinCliente), nullable=False,
+                                      default=EstatusSheinCliente.inactivo)
+    fecha_pago_programada   = Column(Date, nullable=True)   # NULL hasta el primer abono
 
-    pedidos = relationship("SheinPedido", back_populates="cliente")
+    pedidos          = relationship("SheinPedido", back_populates="cliente")
+    shein_movimientos = relationship("SheinMovimiento", back_populates="cliente")
 
 
 class SheinCorte(Base):
@@ -367,6 +428,20 @@ class SheinPedidoArticulo(Base):
                                    default=EstatusArticuloShein.vigente)
 
     pedido = relationship("SheinPedido", back_populates="articulos")
+
+
+class SheinMovimiento(Base):
+    """Abonos a la cartera de crédito Shein. Tabla independiente de movimientos."""
+    __tablename__ = "shein_movimientos"
+
+    id_shein_movimiento = Column(Integer, primary_key=True, index=True)
+    id_shein_cliente    = Column(Integer, ForeignKey("shein_clientes.id_shein_cliente"), nullable=False)
+    monto               = Column(Float, nullable=False)
+    forma_pago           = Column(Enum(FormaPago), nullable=False)
+    saldo_resultante     = Column(Float, nullable=False)
+    fecha                = Column(DateTime, server_default=func.now(), nullable=False)
+
+    cliente = relationship("SheinCliente", back_populates="shein_movimientos")
 
 
 # ──────────────────────────────────────────────────────────────────────────

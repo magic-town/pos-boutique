@@ -41,6 +41,15 @@ simultáneamente. Colocar `estatus_pago` en `shein_clientes` perdería esa granu
 su confirmación explícita del artículo al precio actualizado. La tienda nunca absorbe
 la diferencia en silencio.
 
+**`sku` no es la PK de `shein_pedidos_articulos`.**
+`sku` identifica el artículo en el catálogo Shein y es obligatorio en cada renglón —
+es la variable que cruza todo el proceso: alta del pedido, resolución de variación de
+precio en el corte, y el monto que termina cargado al cliente. Pero el mismo `sku` se
+repite en muchos renglones a lo largo del tiempo (mismo artículo, distintos pedidos y
+clientes), así que no cumple la unicidad que exige una PK. La PK de la tabla sigue
+siendo `id_shein_articulo` — autoincrement, interno, identifica el renglón (la
+instancia de "este artículo en este pedido"), no el artículo en sí.
+
 **Saldo y abonos.**
 Al guardar un corte, el `monto_pedido` de cada pedido incluido se suma al `saldo` del
 `shein_cliente`. Los clientes liquidan vía abonos registrados en `shein_movimientos`.
@@ -138,7 +147,7 @@ CREATE TABLE shein_pedidos (
 CREATE TABLE shein_pedidos_articulos (
     id_shein_articulo  INTEGER PRIMARY KEY AUTOINCREMENT,
     id_shein_pedido    INTEGER NOT NULL REFERENCES shein_pedidos(id_shein_pedido),
-    id_articulo        TEXT(20),
+    sku                TEXT(25) NOT NULL,
     producto           TEXT(60) NOT NULL,
     tipo_producto      TEXT    NOT NULL CHECK (tipo_producto IN ('Nacional', 'Importado')),
     monto              REAL    NOT NULL,
@@ -150,9 +159,9 @@ CREATE TABLE shein_pedidos_articulos (
 
 | Campo               | Nota                                                                                                                    |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `id_shein_articulo` | PK interna. No aparece en UI.                                                                                           |
+| `id_shein_articulo` | PK interna, autoincrement. Consecutivo generado por la base de datos al insertar cada renglón — nunca capturado ni mostrado en UI. |
 | `id_shein_pedido`   | FK a cabecera. No aparece en UI.                                                                                        |
-| `id_articulo`       | ID del artículo en la app Shein. Opcional, informativo, sin lookup.                                                     |
+| `sku`               | Identificador del artículo en el catálogo Shein. Obligatorio. Es la variable que cruza todo el proceso del módulo: con ella se registra y se actualiza el renglón en `shein_pedidos_articulos` (incluida cualquier variación de precio, al alza o a la baja, resuelta en el corte), y el `monto`/`monto_vigente` que termina cargado al `saldo` del cliente está asociado a este `sku`. |
 | `producto`          | Descripción libre. Obligatorio.                                                                                         |
 | `tipo_producto`     | `Nacional` o `Importado`. Obligatorio, informativo, sin impacto operativo en MVP.                                       |
 | `monto`             | Precio capturado al momento de la solicitud del cliente.                                                                |
@@ -308,7 +317,7 @@ Tabla de pedidos pendientes de corte (`id_shein_corte IS NULL`), a nivel **pedid
 | Monto pedido    | `SUM(monto)` de artículos en `vigente` (aún sin resolver en corte)   |
 | Estatus         | `"Pendiente de corte"` — constante mientras `id_shein_corte IS NULL` |
 
-Al expandir un renglón se muestra el detalle: `id_articulo`, `producto`, `tipo_producto`, `monto`.
+Al expandir un renglón se muestra el detalle: `sku`, `producto`, `tipo_producto`, `monto`.
 
 **Consulta base:**
 
@@ -466,7 +475,7 @@ Sin concepto de alternativa — cada artículo es un renglón independiente.
 
 | Etiqueta          | Modelo          | Tipo           | Requerido | Nota                                                         |
 | ----------------- | --------------- | -------------- | --------- | ------------------------------------------------------------ |
-| ID Artículo       | `id_articulo`   | String(20)     | No        | Referencia libre al ID en la app Shein.                      |
+| SKU               | `sku`           | String(25)     | ✅         | Identificador del artículo en el catálogo Shein.             |
 | Producto          | `producto`      | String(60)     | ✅         | Descripción del artículo.                                    |
 | Tipo Producto     | `tipo_producto` | Enum (select)  | ✅         | `Nacional` \| `Importado`. Informativo en MVP.               |
 | Monto             | `monto`         | Float          | ✅         | Precio en la app al momento de la solicitud.                 |
@@ -626,7 +635,7 @@ Sin concepto de alternativa — cada artículo es un renglón independiente.
         "minimo": 1, "maximo": 4,
         "articulo_template": {
           "campos": [
-            { "etiqueta": "ID Artículo",       "modelo": "id_articulo",   "tipo": "String", "longitud": 20, "requerido": false },
+            { "etiqueta": "SKU",               "modelo": "sku",           "tipo": "String", "longitud": 25, "requerido": true  },
             { "etiqueta": "Producto",          "modelo": "producto",      "tipo": "String", "longitud": 60, "requerido": true  },
             {
               "etiqueta": "Tipo Producto", "modelo": "tipo_producto", "tipo": "Enum", "control": "select", "requerido": true,
@@ -663,7 +672,7 @@ Sin concepto de alternativa — cada artículo es un renglón independiente.
                 "descripcion": "Un INSERT por renglón de artículo capturado.",
                 "clave_foranea": "id_shein_pedido",
                 "campos_mapeados": [
-                  { "modelo": "id_articulo",   "columna": "id_articulo"   },
+                  { "modelo": "sku",           "columna": "sku"           },
                   { "modelo": "producto",      "columna": "producto"      },
                   { "modelo": "tipo_producto", "columna": "tipo_producto" },
                   { "modelo": "monto",         "columna": "monto"         }
@@ -687,7 +696,7 @@ Sin concepto de alternativa — cada artículo es un renglón independiente.
         "columnas": ["id_shein_pedido", "fecha", "cliente", "total_articulos", "monto_pedido", "estatus"],
         "filtro": "id_shein_corte IS NULL",
         "ordenado_por": ["fecha ASC"],
-        "expandible": { "descripcion": "Muestra id_articulo, producto, tipo_producto, monto por renglón." }
+        "expandible": { "descripcion": "Muestra sku, producto, tipo_producto, monto por renglón." }
       }
     },
     {
@@ -699,7 +708,7 @@ Sin concepto de alternativa — cada artículo es un renglón independiente.
         "fuente": { "tabla": "shein_pedidos", "filtro": "id_shein_corte IS NULL" },
         "seleccion": "multiple",
         "expandible_por_pedido": {
-          "columnas": ["id_articulo", "producto", "tipo_producto", "monto", "monto_vigente"],
+          "columnas": ["sku", "producto", "tipo_producto", "monto", "monto_vigente"],
           "campo_editable": "monto_vigente",
           "resaltado": "monto_vigente IS NOT NULL AND monto_vigente != monto",
           "acciones_renglon": [

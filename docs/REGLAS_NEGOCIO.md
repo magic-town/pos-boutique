@@ -5,7 +5,7 @@
 > construido técnicamente (eso vive en `ARQUITECTURA.md`).
 >
 > **Estado:** el modelo de datos aquí descrito está implementado en
-> `backend/app/models/models.py` y migrado a `pos.db` (head `e5f6a7b8c9d0`,
+> `backend/app/models/models.py` y migrado a `pos.db` (head `f6a7b8c9d0e1`,
 > 18 tablas). La lógica de negocio sobre `cartera_vencida`, `familiares` y
 > `shein_movimientos` (servicios y endpoints) está pendiente — ver
 > `docs/REPORT.md` §4.1 y §5 para el detalle.
@@ -294,9 +294,9 @@ se está editando; no existe constraint de base de datos que lo imponga.
 
 | Campo               | Tipo                                             | Regla                                                              |
 |---------------------|--------------------------------------------------|--------------------------------------------------------------------|
-| `id_shein_articulo` | Integer, PK                                      | —                                                                  |
+| `id_shein_articulo` | Integer, PK                                      | Autoincrement, interno. Consecutivo generado por la BD por renglón. Nunca aparece en UI. |
 | `id_shein_pedido`   | FK → `shein_pedidos`                             | Obligatorio                                                        |
-| `id_articulo`       | String(20), nullable                             | Referencia libre al ID en la app Shein. Informativo                |
+| `sku`               | String(25), NOT NULL                             | Identificador del artículo en el catálogo Shein. Obligatorio — cruza alta de pedido, variación de precio en el corte, y el monto cargado al cliente. No es único: el mismo artículo se repite en renglones de distintos pedidos a través del tiempo. |
 | `producto`          | String(60)                                       | Obligatorio                                                        |
 | `tipo_producto`     | Enum: `Nacional`, `Importado`                    | Obligatorio. Informativo en MVP                                    |
 | `monto`             | Float                                            | Precio al momento de la solicitud                                  |

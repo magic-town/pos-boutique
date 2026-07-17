@@ -32,7 +32,7 @@
 3. **`docs/ARQUITECTURA.md`** — decisiones técnicas.
 4. **`README.md`** (raíz del repo) — orientación y arranque.
 5. **`backend/app/models/models.py`** — 18 tablas migradas a `pos.db`
-   (head `e5f6a7b8c9d0`). Sincronizado con las specs de modelo de datos
+   (head `f6a7b8c9d0e1`). Sincronizado con las specs de modelo de datos
    (ver §2). La lógica de negocio pendiente sobre estas tablas (Clientes,
    Shein) se lista en §4.1 y §5.
 
@@ -47,7 +47,8 @@ explícita del usuario en la sesión.
 18 tablas migradas. Cadena de migraciones aplicadas:
 
 > **Verificado directo contra `pos.db`**: `SELECT version_num FROM
-> alembic_version` → `e5f6a7b8c9d0`. `.tables` confirma las 18 tablas.
+> alembic_version` → `f6a7b8c9d0e1`. `.tables` confirma las 18 tablas.
+> `.schema shein_pedidos_articulos` confirma `sku VARCHAR(25) NOT NULL`.
 
 | Revisión              | Alcance                                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -55,7 +56,8 @@ explícita del usuario en la sesión.
 | `b2c3d4e5f6a7`        | Agrega `precios_catalogo` y `shein_pedidos_articulos`; reestructura `shein_pedidos` / `shein_cortes`. |
 | `c3d4e5f6a7b8`        | Agrega `dia_pago_especifico` y `frecuencia_pago_detalle` a `clientes`.                                |
 | `d4e5f6a7b8c9`        | Agrega `apartados`, `apartados_articulos`; agrega FK `id_apartado` a `movimientos`.                   |
-| `e5f6a7b8c9d0` (head) | Agrega `cartera_vencida`, `familiares`, `shein_movimientos`; agrega columnas de cartera a `shein_clientes`. |
+| `e5f6a7b8c9d0`        | Agrega `cartera_vencida`, `familiares`, `shein_movimientos`; agrega columnas de cartera a `shein_clientes`. |
+| `f6a7b8c9d0e1` (head) | Renombra `id_articulo` → `sku` en `shein_pedidos_articulos`; cambia tipo `String(20)` → `String(25)` y agrega `NOT NULL`. |
 
 ### Tablas en `pos.db` (estado actual — 18 tablas)
 
@@ -170,7 +172,7 @@ shein_pedidos                              (cabecera)
 shein_pedidos_articulos                    (detalle)
 ├── id_shein_articulo       Integer, PK
 ├── id_shein_pedido         FK → shein_pedidos
-├── id_articulo             String(20), nullable
+├── sku                     String(25) NOT NULL
 ├── producto                String(60) NOT NULL
 ├── tipo_producto           Enum (Nacional|Importado)
 ├── monto                   Float NOT NULL
@@ -244,8 +246,8 @@ movimientos.id_apartado     FK → apartados, nullable
 
 | Archivo                                 | Rol                   | Estado                                                                    |
 | --------------------------------------- | --------------------- | ------------------------------------------------------------------------- |
-| `app/models/models.py`                  | Modelo de datos       | ✅ 18 tablas. Sincronizado con spec (migración `e5f6a7b8c9d0`).           |
-| `alembic/versions/*.py`                 | 5 migraciones         | ✅ Head `e5f6a7b8c9d0`. Migración del rediseño completada.                |
+| `app/models/models.py`                  | Modelo de datos       | ✅ 18 tablas. Sincronizado con spec (migración `f6a7b8c9d0e1`).           |
+| `alembic/versions/*.py`                 | 6 migraciones         | ✅ Head `f6a7b8c9d0e1`. Migración del rediseño completada.                |
 | `app/schemas/pedido.py`                 | Schema Pedido         | Cabecera-detalle, valida reglas por `tipo_producto`/`proveedor`.           |
 | `app/services/pedido_service.py`        | Lógica Pedido         | Lookup de precio, transacciones de devolución/cancelación.                |
 | `app/api/v1/endpoints/pedidos.py`       | Endpoints Pedido      | 4 flujos probados end-to-end.                                             |

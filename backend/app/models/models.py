@@ -2,11 +2,13 @@
 Modelo de datos alineado a docs/spec/*.md + docs/REGLAS_NEGOCIO.md
 (fuentes de verdad — ver docs/REPORT.md §1 para la jerarquía completa).
 
-18 tablas (alembic head = e5f6a7b8c9d0):
+18 tablas (alembic head = f6a7b8c9d0e1):
 - 15 tablas base migradas hasta d4e5f6a7b8c9.
 - 3 tablas nuevas en e5f6a7b8c9d0: cartera_vencida, familiares,
   shein_movimientos. Además, shein_clientes incorpora columnas de
   cartera de crédito (saldo, estatus, frecuencia_pago, etc.).
+- shein_pedidos_articulos.sku renombrada y endurecida en f6a7b8c9d0e1
+  (antes id_articulo, String(20) nullable → sku, String(25) NOT NULL).
 
 Apartado (cabecera-detalle): Apartado, ApartadoArticulo e id_apartado
 en Movimiento migrados y verificados.
@@ -414,12 +416,19 @@ class SheinPedido(Base):
 
 class SheinPedidoArticulo(Base):
     """Detalle (tabla NUEVA). Cada renglón es un artículo Shein — sin concepto
-    de alternativa: a diferencia de Pedidos, no aplica rol ni id_articulo_principal."""
+    de alternativa: a diferencia de Pedidos, no aplica rol ni id_articulo_principal.
+
+    `sku` (no `id_shein_articulo`) es la variable de negocio que cruza el
+    proceso: alta del renglón, variación de precio en el corte y el monto
+    cargado al cliente. No es único a nivel de fila -- el mismo sku se repite
+    en renglones de distintos pedidos a través del tiempo -- por eso no es la
+    PK de esta tabla; `id_shein_articulo` (autoincrement) sigue siendo la PK,
+    identifica el renglón, no el artículo."""
     __tablename__ = "shein_pedidos_articulos"
 
     id_shein_articulo = Column(Integer, primary_key=True, index=True)
     id_shein_pedido    = Column(Integer, ForeignKey("shein_pedidos.id_shein_pedido"), nullable=False)
-    id_articulo        = Column(String(20), nullable=True)   # referencia libre a la app Shein, sin FK real
+    sku                = Column(String(25), nullable=False)   # identificador de catálogo Shein, obligatorio
     producto            = Column(String(60), nullable=False)
     tipo_producto        = Column(Enum(TipoProductoShein), nullable=False)
     monto                = Column(Float, nullable=False)       # precio al momento del pedido

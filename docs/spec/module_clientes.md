@@ -56,7 +56,7 @@ CREATE TABLE cartera_vencida (
 #### Tabla `familiares`
 
 Registra vínculos familiares entre pares de clientes. Sin transitividad: solo pares
-declarados explícitamente por la operadora.
+declarados explícitamente por la operadora, hasta un máximo de 4 vínculos por cliente.
 
 ```sql
 CREATE TABLE familiares (
@@ -69,8 +69,11 @@ CREATE UNIQUE INDEX uq_familiares ON familiares(id_cliente_a, id_cliente_b);
 ```
 
 > El constraint `id_cliente_a < id_cliente_b` garantiza que cada par se almacene
-> en un único orden, evitando duplicados invertidos. Un cliente puede tener múltiples
-> vínculos familiares.
+> en un único orden, evitando duplicados invertidos. Un cliente acumula vínculos
+> apareciendo en varias filas (como `id_cliente_a` o `id_cliente_b`), hasta un
+> máximo de 4. El límite se valida en el servicio al vincular — se comprueba el
+> conteo de **ambos** clientes del par, no solo el que se está editando; la tabla
+> no tiene una restricción de base de datos que lo imponga.
 
 ---
 
@@ -253,7 +256,7 @@ Las banderas son visuales — no bloquean operaciones.
 - Clientes con `frecuencia_pago = otro` y `fecha_pago_programada = NULL` no generan bandera amarilla ni roja.
 - Clientes con `saldo = 0` no generan bandera amarilla ni roja aunque tengan `fecha_pago_programada` definida.
 - La bandera naranja depende de `apartados.fecha_apartado`, es independiente del ciclo de abonos y puede coexistir con otras banderas.
-- La bandera negra se calcula al vuelo consultando la tabla `familiares` y el estado actual de cada cliente vinculado. No se persiste.
+- La bandera negra se calcula al vuelo consultando la tabla `familiares` (hasta 4 vínculos por cliente) y el estado actual de cada cliente vinculado. No se persiste.
 - La bandera negra puede coexistir con la roja — de hecho, la bandera roja es precondición para activarla.
 
 ---
@@ -333,7 +336,7 @@ Permite modificar los datos de un cliente existente.
 
 - `id_cliente` nunca se muestra ni se modifica en UI. `no_cliente` es el identificador operativo.
 - Esta ventana requiere permiso `admin`. En el MVP la restricción se implementa en versiones futuras sin cambio de arquitectura.
-- La operadora puede también vincular o desvincular familiares desde esta pantalla (ver [Tabla `familiares`](#tabla-familiares)).
+- La operadora puede también vincular o desvincular familiares desde esta pantalla, hasta un máximo de 4 por cliente (ver [Tabla `familiares`](#tabla-familiares)).
 
 ---
 
@@ -514,8 +517,14 @@ y abonos en una sola vista cronológica.
       "campo_busqueda": { "etiqueta": "No. Cliente", "modelo": "no_cliente", "tipo": "String" },
       "formulario": "ventana_registrar_cliente",
       "seccion_familiares": {
-        "descripcion": "La operadora puede vincular o desvincular clientes como familiares.",
-        "accion_vincular":   { "tabla": "familiares", "tipo": "INSERT", "campos": ["id_cliente_a", "id_cliente_b"] },
+        "descripcion": "La operadora puede vincular o desvincular clientes como familiares. Máximo 4 vínculos por cliente — se valida para AMBOS clientes del par, no solo el que se está editando.",
+        "accion_vincular": {
+          "tabla": "familiares", "tipo": "INSERT", "campos": ["id_cliente_a", "id_cliente_b"],
+          "validacion": {
+            "condicion": "vinculos_actuales(id_cliente_a) < 4 AND vinculos_actuales(id_cliente_b) < 4",
+            "en_error": "Uno de los dos clientes ya tiene el máximo de 4 vínculos familiares."
+          }
+        },
         "accion_desvincular":{ "tabla": "familiares", "tipo": "DELETE", "clave": "id_vinculo" }
       },
       "accion_guardar": { "tipo": "db_update", "tabla": "clientes", "clave": "no_cliente" },

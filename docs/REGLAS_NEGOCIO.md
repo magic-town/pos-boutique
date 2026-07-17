@@ -5,10 +5,10 @@
 > construido técnicamente (eso vive en `ARQUITECTURA.md`).
 >
 > **Estado:** el modelo de datos aquí descrito está implementado en
-> `backend/app/models/models.py` y migrado a `pos.db` (head `d4e5f6a7b8c9`).
-> Las tablas `cartera_vencida`, `familiares` y `shein_movimientos`, así como las
-> columnas nuevas en `shein_clientes`, están especificadas aquí pero pendientes de
-> migración Alembic y actualización en `models.py`.
+> `backend/app/models/models.py` y migrado a `pos.db` (head `e5f6a7b8c9d0`,
+> 18 tablas). La lógica de negocio sobre `cartera_vencida`, `familiares` y
+> `shein_movimientos` (servicios y endpoints) está pendiente — ver
+> `docs/REPORT.md` §4.1 y §5 para el detalle.
 
 ---
 
@@ -18,7 +18,7 @@
 |---------------------------|-----------------|-----------------------------------------------------------------------------|
 | `clientes`                | Clientes        | Cartera de crédito de la boutique                                           |
 | `cartera_vencida`         | Clientes        | Archivo de clientes morosos cancelados; tabla independiente sin FKs         |
-| `familiares`              | Clientes        | Vínculos familiares entre pares de clientes de la cartera                   |
+| `familiares`              | Clientes        | Vínculos familiares entre pares de clientes de la cartera, hasta 4 por cliente |
 | `pedidos`                 | Pedidos         | Cabecera de un pedido a proveedor                                           |
 | `pedidos_articulos`       | Pedidos         | Artículos individuales de un pedido (1 a 4 por pedido)                      |
 | `precios_catalogo`        | Pedidos         | Catálogo de precios importado desde `tabla_precios.ods`                     |
@@ -87,6 +87,10 @@ Sin llaves foráneas. Tabla de archivo independiente; no se relaciona con ningun
 
 `CHECK (id_cliente_a < id_cliente_b)` + índice único en `(id_cliente_a, id_cliente_b)`
 garantizan que cada par familiar se almacene en un único orden sin duplicados invertidos.
+Un cliente acumula vínculos apareciendo en varias filas (como `id_cliente_a` o
+`id_cliente_b`), hasta un máximo de 4. El límite se valida en el servicio al
+vincular — se comprueba el conteo de **ambos** clientes del par, no solo el que
+se está editando; no existe constraint de base de datos que lo imponga.
 
 ### Reglas de negocio
 
@@ -102,9 +106,9 @@ garantizan que cada par familiar se almacene en un único orden sin duplicados i
    - 🟡 Amarilla: `fecha_pago_programada - hoy <= 2 días`
    - 🔴 Roja: `hoy > fecha_pago_programada`
    - 🟠 Naranja: cliente tiene apartado abierto (`apartados.estatus = 'abierto'`) y faltan ≤ 5 días para cumplirse un mes desde `apartados.fecha_apartado`
-   - ⚫ Negra: el cliente tiene `bandera_roja` **Y** al menos un familiar (vía tabla `familiares`) también tiene `bandera_roja` simultáneamente. Se calcula al vuelo.
+   - ⚫ Negra: el cliente tiene `bandera_roja` **Y** al menos uno de sus familiares declarados (vía tabla `familiares`, hasta 4) también tiene `bandera_roja` simultáneamente. Se calcula al vuelo.
    - Sin bandera: ninguna de las anteriores, o `fecha_pago_programada = NULL`, o `saldo = 0`.
-6. **Tabla `familiares` sin transitividad.** Solo pares declarados explícitamente. Un cliente puede tener múltiples vínculos. La operadora los gestiona desde **Editar Cliente**.
+6. **Tabla `familiares` sin transitividad.** Solo pares declarados explícitamente, hasta 4 vínculos por cliente — mismo comportamiento de declaración y de cálculo de bandera negra para los 4, sin roles ni orden especial entre ellos. La operadora los gestiona desde **Editar Cliente**.
 
 ---
 

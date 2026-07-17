@@ -241,8 +241,8 @@ No requiere Play Store, cuenta de desarrollador de Google, ni APK.
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                    Red WiFi local                 │
-│                                                   │
+│                    Red WiFi local                │
+│                                                  │
 │   ┌──────────┐     ┌──────────┐    ┌──────────┐  │
 │   │    PC    │     │ Android  │    │ Android  │  │
 │   │ (server) │     │   #1     │    │   #2     │  │
@@ -252,11 +252,11 @@ No requiere Play Store, cuenta de desarrollador de Google, ni APK.
 │   │          │     │          │    │          │  │
 │   │ Vite     │◄────│ :5173    │    │ :5173    │  │
 │   │ :5173    │     └──────────┘    └──────────┘  │
-│   │          │                                    │
-│   │ pos.db   │  ← única fuente de verdad          │
-│   │ (SQLite  │                                    │
-│   │  WAL)    │                                    │
-│   └──────────┘                                    │
+│   │          │                                   │
+│   │ pos.db   │  ← única fuente de verdad         │
+│   │ (SQLite  │                                   │
+│   │  WAL)    │                                   │
+│   └──────────┘                                   │
 └──────────────────────────────────────────────────┘
 ```
 

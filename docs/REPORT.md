@@ -31,11 +31,10 @@
 2. **`docs/REGLAS_NEGOCIO.md`** — modelo de datos + reglas de negocio.
 3. **`docs/ARQUITECTURA.md`** — decisiones técnicas.
 4. **`README.md`** (raíz del repo) — orientación y arranque.
-5. **`backend/app/models/models.py`** — 15 tablas migradas a `pos.db`
-   (head `d4e5f6a7b8c9`). **Desincronizado con las specs actuales:** las
-   tablas `cartera_vencida`, `familiares` y `shein_movimientos`, así como
-   las columnas nuevas en `shein_clientes`, están en spec pero no en código.
-   Ver §5 para el orden de trabajo.
+5. **`backend/app/models/models.py`** — 18 tablas migradas a `pos.db`
+   (head `e5f6a7b8c9d0`). Sincronizado con las specs de modelo de datos
+   (ver §2). La lógica de negocio pendiente sobre estas tablas (Clientes,
+   Shein) se lista en §4.1 y §5.
 
 **Regla de edición:** el usuario edita los `module_*.md` y
 `REGLAS_NEGOCIO.md` directamente; el agente no los reescribe salvo instrucción
@@ -64,7 +63,7 @@ explícita del usuario en la sesión.
 | ------------------------- | --------------- | ---------------------------------------------------------------------------- |
 | `clientes`                | Clientes        | Incluye `frecuencia_pago`, `dia_pago_especifico`, `frecuencia_pago_detalle`. |
 | `cartera_vencida`         | Clientes        | Tabla de archivo independiente, sin FKs.                                     |
-| `familiares`              | Clientes        | FK doble a `clientes`. `CHECK (id_cliente_a < id_cliente_b)`.                |
+| `familiares`              | Clientes        | FK doble a `clientes` (par no dirigido, dedupe vía `id_cliente_a < id_cliente_b`). Máx. 4 vínculos por cliente, validado en servicio. |
 | `pedidos`                 | Pedidos         | Cabecera.                                                                    |
 | `pedidos_articulos`       | Pedidos         | Detalle, 1 a 4 artículos, con `rol` (principal/alternativa).                 |
 | `precios_catalogo`        | Pedidos         | Catálogo importado de `tabla_precios.ods`. Poblada: 15,564 filas.            |
@@ -109,6 +108,7 @@ explícita del usuario en la sesión.
 | ¿`no_cliente` es permanente por persona?                 | No. Es un slot reutilizable. Al cancelar un cliente o liquidar cuenta, el `no_cliente` puede reasignarse. El `id_cliente` (PK) no cambia.|
 | ¿`cartera_vencida` tiene FKs?                            | No. Tabla de archivo independiente, sin relaciones.                                                                                     |
 | ¿`familiares` es transitiva?                             | No. Solo pares declarados explícitamente. Sin grupos familiares.                                                                        |
+| ¿Cuántos vínculos familiares puede declarar un cliente?  | Hasta 4. Mismo comportamiento de declaración y de cálculo de bandera negra para los 4 — sin roles ni orden especial entre ellos.        |
 | ¿Shein tiene script de migración desde ODS?              | No. No existe tabla ODS para Shein. Todos los clientes se registran directamente en el sistema.                                         |
 | ¿Shein tiene cartera de crédito?                         | Sí. `shein_clientes` incorpora `saldo`, `estatus`, `frecuencia_pago`, `dia_pago_especifico`, `frecuencia_pago_detalle`, `fecha_pago_programada`. Los abonos viven en `shein_movimientos`. |
 | ¿El cargo de saldo Shein ocurre al corte o al pedido?    | Al guardar el corte. El `monto_pedido` (artículos `confirmado`) se carga al `saldo` del `shein_cliente`.                                |
@@ -210,6 +210,11 @@ familiares                                 (pares de clientes emparentados)
 └── UNIQUE INDEX uq_familiares(id_cliente_a, id_cliente_b)
 ```
 
+> Cada fila declara un par. Un cliente acumula vínculos apareciendo en varias filas
+> (como `id_cliente_a` o `id_cliente_b`), hasta un máximo de 4 por cliente —
+> validado en el servicio al vincular, no por constraint de base de datos. No
+> existen grupos familiares ni una fila con más de 2 clientes.
+
 ### 3.4 Diseño de Apartado (cabecera-detalle)
 
 ```
@@ -252,7 +257,7 @@ movimientos.id_apartado     FK → apartados, nullable
 | `app/api/v1/endpoints/inventario.py`    | Endpoints Inventario  | —                                                                         |
 | `app/schemas/cliente.py`                | Schema Cliente        | **Desincronizado:** no incluye bandera negra ni vinculación de familiares.|
 | `app/services/cliente_service.py`       | Lógica Cliente        | **Desincronizado:** falta `cancelar_cliente()`, `bandera_negra()`, familiares.|
-| `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente     | **Desincronizado:** falta endpoint `Cancelar Cliente`.                    |
+| `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente     | **Desincronizado:** falta endpoint `Cancelar Cliente` y endpoints de vinculación/desvinculación de familiares. |
 | `app/scripts/importar_precios.py`       | Import de precios     | 15,564 filas insertadas. Solo `INSERT`.                                   |
 | `app/schemas/movimiento.py`             | Schema Movimiento     | —                                                                         |
 | `app/schemas/apartado.py`               | Schema Apartado       | —                                                                         |
@@ -289,7 +294,7 @@ movimientos.id_apartado     FK → apartados, nullable
 | ---------------------------- | -------------------------------------------------- |
 | Endpoint Apartado            | `module_movimientos.md` — servicio existe, endpoint no. `app/api/v1/endpoints/apartados.py` no existe. |
 | Consulta Finanzas            | `module_consulta_finanzas.md` ✅ (creado en rediseño) |
-| Espejo Android               | Spec pendiente de crear. Ver §5.                   |
+| Espejo Android               | `docs/spec/SPEC_STACK_ANDROID.md` ✅ (spec ya definida). Ver §5. |
 
 ---
 
@@ -320,8 +325,11 @@ Ver §4.2 para el detalle.
 21. Actualizar `app/services/cliente_service.py`:
     - `cancelar_cliente()` — snapshot a `cartera_vencida` + limpieza del slot.
     - `calcular_bandera_negra()` — consulta `familiares` + `bandera_roja` de familiares.
-    - Vinculación/desvinculación de familiares.
-22. Actualizar `app/api/v1/endpoints/clientes.py`: endpoint `DELETE /{id}/cancelar` (o `POST /{id}/cancelar`).
+    - Vinculación/desvinculación de familiares (máx. 4 vínculos por cliente, validado en el servicio para ambos clientes del par).
+22. Actualizar `app/api/v1/endpoints/clientes.py`:
+    - Endpoint `DELETE /{id}/cancelar` (o `POST /{id}/cancelar`).
+    - Endpoint `POST /{id}/familiares` (vincular) y `DELETE /{id}/familiares/{id_vinculo}` (desvincular)
+      — el servicio valida el tope de 4 para ambos clientes del par antes de insertar.
 23. Actualizar `test/test_clientes.py` con los nuevos flujos.
 
 **Bloque C — Módulo Shein**
@@ -354,11 +362,9 @@ Ver §4.2 para el detalle.
 
 31. Actualizar `docs/ARQUITECTURA.md`: el sistema deja de ser local-only; documentar
     el nuevo modelo de sincronización multi-dispositivo.
-32. Definir spec técnica del espejo Android (`docs/spec/module_android.md` o similar):
-    stack (nativo / cross-platform), mecanismo de sincronización con el backend FastAPI,
-    alcance funcional (mínimo: consulta saldo y cambio `estatus_articulo` vigente → en_almacen;
-    máximo: espejo completo de todos los módulos).
-33. Implementar.
+32. [x] Spec técnica del espejo Android definida en `docs/spec/SPEC_STACK_ANDROID.md`
+    (stack, mecanismo de sincronización con el backend FastAPI, alcance funcional).
+33. Implementar según `docs/spec/SPEC_STACK_ANDROID.md`.
 
 **Bloque G — Checklist real**
 
@@ -375,4 +381,4 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** Bloque B — Módulo Clientes. Empezar por actualizar `app/schemas/cliente.py` (agregar `bandera_negra`), luego `app/services/cliente_service.py` (funciones `cancelar_cliente`, `calcular_bandera_negra`, vinculación de familiares) y finalmente exponer el endpoint de cancelación en `app/api/v1/endpoints/clientes.py`.
+**Siguiente paso inmediato:** Bloque B — Módulo Clientes. Empezar por actualizar `app/schemas/cliente.py` (agregar `bandera_negra`), luego `app/services/cliente_service.py` (funciones `cancelar_cliente`, `calcular_bandera_negra`, vinculación de familiares con validación bilateral del tope de 4) y finalmente exponer en `app/api/v1/endpoints/clientes.py` el endpoint de cancelación y los de vincular/desvincular familiares.

@@ -1,379 +1,691 @@
 """
-test_clientes.py — mapeado 1:1 a test/casos_clientes.md y a
-docs/spec/module_clientes.md.
+Tests del módulo Clientes.
 
-✅ RUTAS CONFIRMADAS contra `app/api/v1/endpoints/clientes.py` real:
-`POST /api/v1/clientes`, `GET /api/v1/clientes/{id_cliente}`,
-`GET /api/v1/clientes?q=`. Las 3 protegidas con `Depends(get_current_user)`
-— requieren `auth_headers`.
+Cubre las tres capas: schema (app/schemas/cliente.py), servicio
+(app/services/cliente_service.py) y endpoints (app/api/v1/endpoints/clientes.py).
 
-⚠️ Un detalle sin confirmar todavía: `GET /clientes` responde con
-`response_model=list[ClienteResumen]`, no `ClienteRead` — ya se confirmó
-en corrida real que expone `nombre` y `no_cliente` (los campos que leen
-`test_busqueda_por_nombre_parcial` / `test_busqueda_por_no_cliente_parcial`
-de abajo), así que este punto queda cerrado.
+Fuente de verdad para cada caso: docs/spec/module_clientes.md (autoridad
+máxima del módulo) y docs/REGLAS_NEGOCIO.md. Referencias puntuales van en
+el docstring de cada test.
 
-**"Rehabilitar Cliente" se quitó** (endpoint, servicio y los 3 tests que lo
-cubrían): revisión de negocio confirmó que `estatus` no es un campo que la
-operadora edite nunca, ni siquiera desde "Editar Cliente" -- es derivado
-de `saldo` y se sincroniza en automático (`cliente_service.sincronizar_estatus`)
-en cada punto de Pedidos o Movimientos que toque el saldo. Ver la nota al
-final de la sección 2 de este archivo. El ciclo `inactivo -> activo ->
-inactivo` se prueba en `test_pedidos.py` (via surtir/devolución/cancelación),
-no aquí -- este archivo solo cubre el alta y la consulta.
-
-- Fixtures usadas de conftest.py: `client` (TestClient) y `auth_headers`
-  (headers con JWT real) — session-scoped, compartidas con el resto de la
-  suite. `db_session` (function-scoped) ya no se usa en este archivo tras
-  quitar "Rehabilitar Cliente" — se deja en conftest.py por si otro módulo
-  la necesita (ej. Movimientos).
-- "Editar Cliente" no se prueba: no existe `editar_cliente` en
-  cliente_service.py todavía.
+SUPUESTOS explícitos (si tu app difiere, ajusta solo estas líneas):
+- `get_db` vive en `app.db.database` y `get_current_user` en
+  `app.services.auth_service`, ambos overrideables vía
+  `app.dependency_overrides` (mismo patrón usado en clientes.py).
+- SQLite en memoria alcanza para correr Base.metadata.create_all(); no se
+  necesita Alembic para los tests.
+- Los tests de endpoint montan `clientes_router` en una FastAPI de prueba
+  aislada (no `app.main.app`), para no depender de con qué prefijo
+  adicional (p. ej. `/api/v1`) main.py monte el router en producción. El
+  router ya trae su propio prefix="/clientes" (ver clientes.py), así que
+  las URLs de estos tests son relativas a ese prefijo únicamente.
 """
-import uuid
-from datetime import date, datetime, timedelta
+import calendar
+from datetime import date, timedelta
 
 import pytest
+from pydantic import ValidationError
+from fastapi import FastAPI
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from fastapi.testclient import TestClient
 
-from app.models.models import Apartado, Cliente, EstatusApartado, FormaPago
-from app.schemas.apartado import ApartadoArticuloCreate, ApartadoCreate
-from app.services.cliente_service import _sumar_un_mes, calcular_bandera_naranja
-from app.services.movimiento_service import crear_apartado
+from app.db.database import Base, get_db
+from app.api.v1.endpoints.clientes import router as clientes_router
+from app.services.auth_service import get_current_user
+from app.models.models import (
+    Cliente,
+    CarteraVencida,
+    Familiar,
+    FrecuenciaPago,
+    EstatusCliente,
+    Apartado,
+)
+from app.schemas.cliente import ClienteCreate
+from app.services import cliente_service as svc
 
 
-def _payload_base(**overrides):
-    """Payload válido mínimo (frecuencia_pago = semanal, sin condicionales)."""
+# ──────────────────────────────────────────────────────────────────────────
+# FIXTURES
+# ──────────────────────────────────────────────────────────────────────────
+
+@pytest.fixture()
+def db_session():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(engine)
+
+
+@pytest.fixture()
+def api(db_session):
+    """TestClient con get_db y auth overrideados, montando únicamente
+    clientes_router en una app aislada -- no usa app.main.app para no
+    acoplar estos tests al prefijo con el que main.py registre el router
+    en producción. Solo prueba endpoint; la lógica de negocio se prueba
+    directo contra el servicio en las demás clases."""
+    test_app = FastAPI()
+    test_app.include_router(clientes_router)
+
+    def _get_db_override():
+        yield db_session
+
+    def _get_current_user_override():
+        return object()  # auth_service no es objeto de este módulo
+
+    test_app.dependency_overrides[get_db] = _get_db_override
+    test_app.dependency_overrides[get_current_user] = _get_current_user_override
+    with TestClient(test_app) as client:
+        yield client
+
+
+def _payload_valido(**overrides) -> dict:
+    """Payload mínimo válido para POST /clientes, con overrides puntuales."""
     base = {
-        "nombre": "Cliente Prueba",
+        "nombre": "Juan Pérez",
         "colonia": "Centro",
-        "telefono": 5512345678,
-        "ref_nombre": "Referencia Prueba",
+        "telefono": 4151234567,
+        "ref_nombre": "María Pérez",
         "ref_colonia": "Centro",
         "ref_telefono": None,
         "frecuencia_pago": "semanal",
-        "dia_pago_especifico": None,
-        "frecuencia_pago_detalle": None,
     }
     base.update(overrides)
     return base
 
 
-# ---------------------------------------------------------------------------
-# 1. Registrar Cliente
-# ---------------------------------------------------------------------------
+def _hacer_cliente(db, **overrides) -> Cliente:
+    """
+    Inserta un Cliente directo por ORM (sin pasar por crear_cliente),
+    para poder fijar `saldo` / `fecha_pago_programada` a mano y así probar
+    las banderas sin depender de movimientos/abonos (fuera de este módulo).
+    """
+    defaults = dict(
+        no_cliente=overrides.pop("no_cliente", "Centro-001"),
+        nombre="Juan Pérez",
+        colonia="Centro",
+        telefono=4151234567,
+        frecuencia_pago=FrecuenciaPago.semanal,
+        dia_pago_especifico=None,
+        frecuencia_pago_detalle=None,
+        ref_nombre="María Pérez",
+        ref_colonia="Centro",
+        ref_telefono=None,
+        saldo=0.0,
+        fecha_pago_programada=None,
+    )
+    defaults.update(overrides)
+    cliente = Cliente(**defaults)
+    svc.sincronizar_estatus(cliente)
+    db.add(cliente)
+    db.commit()
+    db.refresh(cliente)
+    return cliente
 
-class TestRegistrarCliente:
 
-    @pytest.mark.parametrize("frecuencia", ["semanal", "quincenal"])
-    def test_alta_valida_sin_condicionales(self, client, auth_headers, frecuencia):
-        # Casos 1.1 / 1.2
-        payload = _payload_base(frecuencia_pago=frecuencia)
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert resp.status_code == 201, resp.text
-        data = resp.json()
-        assert data["no_cliente"]
-        assert data["saldo"] == 0
-        assert data["estatus"] == "inactivo"  # nace inactivo -- se activa al recibir el primer producto (ver test_pedidos.py)
-        assert data["fecha_pago_programada"] is None
+def _restar_un_mes(f: date) -> date:
+    """Inverso de svc._sumar_un_mes, para construir escenarios de bandera
+    naranja con precisión de calendario (no timedelta aproximado)."""
+    year = f.year - 1 if f.month == 1 else f.year
+    month = 12 if f.month == 1 else f.month - 1
+    ultimo_dia_mes = calendar.monthrange(year, month)[1]
+    return date(year, month, min(f.day, ultimo_dia_mes))
 
-    def test_alta_valida_dia_especifico_mes(self, client, auth_headers):
-        # Caso 1.3
-        payload = _payload_base(frecuencia_pago="dia_especifico_mes", dia_pago_especifico=15)
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert resp.status_code == 201, resp.text
-        assert resp.json()["dia_pago_especifico"] == 15
 
-    def test_dia_especifico_mes_sin_dia(self, client, auth_headers):
-        # Caso 1.4 — INC-02
-        payload = _payload_base(frecuencia_pago="dia_especifico_mes", dia_pago_especifico=None)
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert resp.status_code == 422
+# ──────────────────────────────────────────────────────────────────────────
+# generar_no_cliente()
+# ──────────────────────────────────────────────────────────────────────────
 
-    def test_estatus_no_es_capturable_al_registrar(self, client, auth_headers):
-        # `estatus` es derivado -- aunque se envíe en el payload, se ignora
-        # o el schema lo rechaza; nunca debe quedar en "activo" al registrar.
-        payload = _payload_base()
-        payload["estatus"] = "activo"
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        if resp.status_code == 201:
-            assert resp.json()["estatus"] == "inactivo"
-        else:
-            assert resp.status_code == 422
+class TestGenerarNoCliente:
+    def test_primer_cliente_de_una_colonia(self, db_session):
+        assert svc.generar_no_cliente(db_session, "Centro") == "Centro-001"
 
-    @pytest.mark.parametrize("dia", [0, 32])
-    def test_dia_especifico_fuera_de_rango(self, client, auth_headers, dia):
-        # Caso 1.5
-        payload = _payload_base(frecuencia_pago="dia_especifico_mes", dia_pago_especifico=dia)
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert resp.status_code == 422
+    def test_consecutivo_incrementa(self, db_session):
+        _hacer_cliente(db_session, no_cliente="Centro-001")
+        assert svc.generar_no_cliente(db_session, "Centro") == "Centro-002"
 
-    def test_alta_valida_otro_con_detalle(self, client, auth_headers):
-        # Caso 1.6
-        payload = _payload_base(frecuencia_pago="otro", frecuencia_pago_detalle="Paga cada 10 días, acuerdo verbal")
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert resp.status_code == 201, resp.text
-        assert resp.json()["frecuencia_pago_detalle"] == "Paga cada 10 días, acuerdo verbal"
+    def test_consecutivo_independiente_por_colonia(self, db_session):
+        _hacer_cliente(db_session, no_cliente="Centro-001")
+        assert svc.generar_no_cliente(db_session, "Carrillos") == "Carrillos-001"
 
-    @pytest.mark.parametrize("detalle", [None, "", "   "])
-    def test_otro_sin_detalle(self, client, auth_headers, detalle):
-        # Caso 1.7
-        payload = _payload_base(frecuencia_pago="otro", frecuencia_pago_detalle=detalle)
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert resp.status_code == 422
+    def test_prefijo_normaliza_a_title_case(self, db_session):
+        # module_clientes.md: formato {Colonia}-{consecutivo:03d}
+        assert svc.generar_no_cliente(db_session, "SAN JUAN") == "San Juan-001"
 
-    @pytest.mark.parametrize("telefono", [551234567, 55123456789])  # 9 y 11 dígitos
-    def test_telefono_digitos_invalidos(self, client, auth_headers, telefono):
-        # Caso 1.8 — regresión INC-01
-        payload = _payload_base(telefono=telefono)
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert resp.status_code == 422
+
+# ──────────────────────────────────────────────────────────────────────────
+# sincronizar_estatus()
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestSincronizarEstatus:
+    def test_saldo_positivo_es_activo(self):
+        cliente = Cliente(saldo=100.0)
+        svc.sincronizar_estatus(cliente)
+        assert cliente.estatus == "activo"
+
+    def test_saldo_cero_es_inactivo(self):
+        cliente = Cliente(saldo=0.0)
+        svc.sincronizar_estatus(cliente)
+        assert cliente.estatus == "inactivo"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# ClienteCreate — validaciones del schema
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestClienteCreateSchema:
+    def test_payload_valido_no_lanza(self):
+        ClienteCreate(**_payload_valido())
 
     @pytest.mark.parametrize("campo", ["nombre", "colonia", "ref_nombre", "ref_colonia"])
-    def test_campos_obligatorios_vacios(self, client, auth_headers, campo):
-        # Caso 1.9
-        payload = _payload_base(**{campo: "   "})
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
+    def test_campos_de_texto_vacios_rechazados(self, campo):
+        with pytest.raises(ValidationError):
+            ClienteCreate(**_payload_valido(**{campo: "   "}))
+
+    def test_strip_de_espacios_en_campos_de_texto(self):
+        data = ClienteCreate(**_payload_valido(nombre="  Juan Pérez  "))
+        assert data.nombre == "Juan Pérez"
+
+    def test_telefono_no_diez_digitos_rechazado(self):
+        with pytest.raises(ValidationError):
+            ClienteCreate(**_payload_valido(telefono=12345))
+
+    def test_ref_telefono_none_permitido(self):
+        data = ClienteCreate(**_payload_valido(ref_telefono=None))
+        assert data.ref_telefono is None
+
+    def test_ref_telefono_no_diez_digitos_rechazado(self):
+        with pytest.raises(ValidationError):
+            ClienteCreate(**_payload_valido(ref_telefono=123))
+
+    def test_dia_pago_especifico_fuera_de_rango_rechazado(self):
+        with pytest.raises(ValidationError):
+            ClienteCreate(**_payload_valido(
+                frecuencia_pago="dia_especifico_mes", dia_pago_especifico=32,
+            ))
+
+    def test_dia_especifico_mes_requiere_dia_pago_especifico(self):
+        with pytest.raises(ValidationError):
+            ClienteCreate(**_payload_valido(frecuencia_pago="dia_especifico_mes"))
+
+    def test_dia_especifico_mes_con_dia_valido_ok(self):
+        data = ClienteCreate(**_payload_valido(
+            frecuencia_pago="dia_especifico_mes", dia_pago_especifico=15,
+        ))
+        assert data.dia_pago_especifico == 15
+
+    def test_otro_requiere_frecuencia_pago_detalle(self):
+        with pytest.raises(ValidationError):
+            ClienteCreate(**_payload_valido(frecuencia_pago="otro"))
+
+    def test_otro_con_detalle_vacio_rechazado(self):
+        with pytest.raises(ValidationError):
+            ClienteCreate(**_payload_valido(frecuencia_pago="otro", frecuencia_pago_detalle="   "))
+
+    def test_otro_con_detalle_ok_y_strip(self):
+        data = ClienteCreate(**_payload_valido(
+            frecuencia_pago="otro", frecuencia_pago_detalle="  paga cuando puede  ",
+        ))
+        assert data.frecuencia_pago_detalle == "paga cuando puede"
+
+    def test_semanal_no_requiere_campos_condicionales(self):
+        data = ClienteCreate(**_payload_valido(frecuencia_pago="semanal"))
+        assert data.dia_pago_especifico is None
+        assert data.frecuencia_pago_detalle is None
+
+    def test_frecuencia_pago_invalida_rechazada(self):
+        with pytest.raises(ValidationError):
+            ClienteCreate(**_payload_valido(frecuencia_pago="mensual"))
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# crear_cliente() / obtener_cliente() / buscar_clientes()
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestCrearYConsultarClientes:
+    def test_crear_cliente_asigna_no_cliente_generado(self, db_session):
+        data = ClienteCreate(**_payload_valido(colonia="Centro"))
+        cliente = svc.crear_cliente(db_session, data)
+        assert cliente.no_cliente == "Centro-001"
+
+    def test_crear_cliente_nace_inactivo_y_sin_saldo(self, db_session):
+        data = ClienteCreate(**_payload_valido())
+        cliente = svc.crear_cliente(db_session, data)
+        assert cliente.saldo == 0.0
+        assert cliente.estatus == EstatusCliente.inactivo
+        assert cliente.fecha_pago_programada is None
+
+    def test_crear_cliente_persiste_frecuencia_pago(self, db_session):
+        # INC-02 (ver cliente_service.py): antes ausente, causaba IntegrityError
+        data = ClienteCreate(**_payload_valido(frecuencia_pago="quincenal"))
+        cliente = svc.crear_cliente(db_session, data)
+        assert cliente.frecuencia_pago == FrecuenciaPago.quincenal
+
+    def test_obtener_cliente_inexistente_devuelve_none(self, db_session):
+        assert svc.obtener_cliente(db_session, 9999) is None
+
+    def test_buscar_sin_query_devuelve_todos(self, db_session):
+        _hacer_cliente(db_session, no_cliente="Centro-001", nombre="Ana")
+        _hacer_cliente(db_session, no_cliente="Centro-002", nombre="Beto")
+        assert len(svc.buscar_clientes(db_session, "")) == 2
+
+    def test_buscar_por_nombre_parcial(self, db_session):
+        _hacer_cliente(db_session, no_cliente="Centro-001", nombre="Ana López")
+        _hacer_cliente(db_session, no_cliente="Centro-002", nombre="Beto Ruiz")
+        resultado = svc.buscar_clientes(db_session, "ana")
+        assert [c.nombre for c in resultado] == ["Ana López"]
+
+    def test_buscar_por_no_cliente_parcial(self, db_session):
+        _hacer_cliente(db_session, no_cliente="Centro-001", nombre="Ana")
+        resultado = svc.buscar_clientes(db_session, "centro-001")
+        assert len(resultado) == 1
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Sistema de banderas — module_clientes.md §Sistema de banderas
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestBanderaAmarilla:
+    """🟡 fecha_pago_programada - hoy <= 2 días (con saldo > 0)."""
+
+    def test_saldo_cero_no_genera_amarilla(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, saldo=0.0, fecha_pago_programada=date.today() + timedelta(days=1),
+        )
+        assert svc.calcular_bandera_amarilla(cliente) is False
+
+    def test_fecha_pago_programada_none_no_genera_amarilla(self, db_session):
+        cliente = _hacer_cliente(db_session, saldo=100.0, fecha_pago_programada=None)
+        assert svc.calcular_bandera_amarilla(cliente) is False
+
+    def test_a_un_dia_de_vencer_es_amarilla(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, saldo=100.0, fecha_pago_programada=date.today() + timedelta(days=1),
+        )
+        assert svc.calcular_bandera_amarilla(cliente) is True
+
+    def test_exactamente_en_el_limite_de_2_dias_es_amarilla(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, saldo=100.0, fecha_pago_programada=date.today() + timedelta(days=2),
+        )
+        assert svc.calcular_bandera_amarilla(cliente) is True
+
+    def test_a_3_dias_de_vencer_no_es_amarilla(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, saldo=100.0, fecha_pago_programada=date.today() + timedelta(days=3),
+        )
+        assert svc.calcular_bandera_amarilla(cliente) is False
+
+    def test_ya_vencido_no_es_amarilla_es_terreno_de_roja(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, saldo=100.0, fecha_pago_programada=date.today() - timedelta(days=1),
+        )
+        assert svc.calcular_bandera_amarilla(cliente) is False
+
+
+class TestBanderaRoja:
+    """🔴 hoy > fecha_pago_programada (con saldo > 0)."""
+
+    def test_saldo_cero_no_genera_roja(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, saldo=0.0, fecha_pago_programada=date.today() - timedelta(days=5),
+        )
+        assert svc.calcular_bandera_roja(cliente) is False
+
+    def test_fecha_pago_programada_none_no_genera_roja(self, db_session):
+        cliente = _hacer_cliente(db_session, saldo=100.0, fecha_pago_programada=None)
+        assert svc.calcular_bandera_roja(cliente) is False
+
+    def test_hoy_igual_a_fecha_programada_no_es_roja(self, db_session):
+        # condición es estrictamente "hoy > fecha_pago_programada"
+        cliente = _hacer_cliente(db_session, saldo=100.0, fecha_pago_programada=date.today())
+        assert svc.calcular_bandera_roja(cliente) is False
+
+    def test_vencido_ayer_es_roja(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, saldo=100.0, fecha_pago_programada=date.today() - timedelta(days=1),
+        )
+        assert svc.calcular_bandera_roja(cliente) is True
+
+    def test_fecha_futura_no_es_roja(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, saldo=100.0, fecha_pago_programada=date.today() + timedelta(days=10),
+        )
+        assert svc.calcular_bandera_roja(cliente) is False
+
+
+class TestBanderaNaranja:
+    """🟠 apartado abierto a <= 5 días de cumplir 1 mes desde fecha_apartado."""
+
+    def test_sin_apartado_no_genera_naranja(self, db_session):
+        cliente = _hacer_cliente(db_session)
+        assert svc.calcular_bandera_naranja(db_session, cliente) is False
+
+    def test_apartado_recien_abierto_lejos_de_vencer(self, db_session):
+        cliente = _hacer_cliente(db_session)
+        db_session.add(Apartado(
+            id_cliente=cliente.id_cliente, fecha_apartado=date.today(),
+            monto_primer_pago=100.0, saldo_pendiente=500.0,
+        ))
+        db_session.commit()
+        assert svc.calcular_bandera_naranja(db_session, cliente) is False
+
+    def test_apartado_a_5_dias_de_vencer_es_naranja(self, db_session):
+        cliente = _hacer_cliente(db_session)
+        fecha_apartado = _restar_un_mes(date.today() + timedelta(days=5))
+        db_session.add(Apartado(
+            id_cliente=cliente.id_cliente, fecha_apartado=fecha_apartado,
+            monto_primer_pago=100.0, saldo_pendiente=500.0,
+        ))
+        db_session.commit()
+        assert svc.calcular_bandera_naranja(db_session, cliente) is True
+
+    def test_apartado_liquidado_no_genera_naranja(self, db_session):
+        cliente = _hacer_cliente(db_session)
+        fecha_apartado = _restar_un_mes(date.today() + timedelta(days=5))
+        db_session.add(Apartado(
+            id_cliente=cliente.id_cliente, fecha_apartado=fecha_apartado,
+            monto_primer_pago=100.0, saldo_pendiente=0.0, estatus="liquidado",
+        ))
+        db_session.commit()
+        assert svc.calcular_bandera_naranja(db_session, cliente) is False
+
+
+class TestBanderaNegra:
+    """⚫ el cliente tiene bandera_roja Y al menos un familiar también."""
+
+    def test_sin_bandera_roja_propia_es_false_aunque_familiar_sea_roja(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, no_cliente="Centro-001", saldo=0.0,
+        )
+        familiar = _hacer_cliente(
+            db_session, no_cliente="Centro-002",
+            saldo=100.0, fecha_pago_programada=date.today() - timedelta(days=3),
+        )
+        svc.vincular_familiar(db_session, cliente.id_cliente, familiar.id_cliente)
+        assert svc.calcular_bandera_negra(db_session, cliente) is False
+
+    def test_bandera_roja_propia_sin_familiares_es_false(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, saldo=100.0, fecha_pago_programada=date.today() - timedelta(days=3),
+        )
+        assert svc.calcular_bandera_negra(db_session, cliente) is False
+
+    def test_bandera_roja_propia_y_familiar_sin_roja_es_false(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, no_cliente="Centro-001",
+            saldo=100.0, fecha_pago_programada=date.today() - timedelta(days=3),
+        )
+        familiar = _hacer_cliente(db_session, no_cliente="Centro-002", saldo=0.0)
+        svc.vincular_familiar(db_session, cliente.id_cliente, familiar.id_cliente)
+        assert svc.calcular_bandera_negra(db_session, cliente) is False
+
+    def test_bandera_roja_propia_y_familiar_con_roja_es_true(self, db_session):
+        cliente = _hacer_cliente(
+            db_session, no_cliente="Centro-001",
+            saldo=100.0, fecha_pago_programada=date.today() - timedelta(days=3),
+        )
+        familiar = _hacer_cliente(
+            db_session, no_cliente="Centro-002",
+            saldo=200.0, fecha_pago_programada=date.today() - timedelta(days=1),
+        )
+        svc.vincular_familiar(db_session, cliente.id_cliente, familiar.id_cliente)
+        assert svc.calcular_bandera_negra(db_session, cliente) is True
+
+    def test_funciona_sin_importar_el_orden_de_declaracion_del_par(self, db_session):
+        # cliente termina como id_cliente_b del vínculo (id mayor); confirma
+        # que listar_familiares() normaliza la perspectiva correctamente.
+        familiar = _hacer_cliente(
+            db_session, no_cliente="Centro-001",
+            saldo=200.0, fecha_pago_programada=date.today() - timedelta(days=1),
+        )
+        cliente = _hacer_cliente(
+            db_session, no_cliente="Centro-002",
+            saldo=100.0, fecha_pago_programada=date.today() - timedelta(days=3),
+        )
+        svc.vincular_familiar(db_session, familiar.id_cliente, cliente.id_cliente)
+        assert svc.calcular_bandera_negra(db_session, cliente) is True
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Familiares — vincular / desvincular / listar
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestFamiliares:
+    def test_vincular_normaliza_orden_id_a_menor_que_id_b(self, db_session):
+        c1 = _hacer_cliente(db_session, no_cliente="Centro-001")
+        c2 = _hacer_cliente(db_session, no_cliente="Centro-002")
+        # pasa el mayor primero a propósito
+        vinculo = svc.vincular_familiar(db_session, c2.id_cliente, c1.id_cliente)
+        assert vinculo.id_cliente_a == min(c1.id_cliente, c2.id_cliente)
+        assert vinculo.id_cliente_b == max(c1.id_cliente, c2.id_cliente)
+
+    def test_vincular_rechaza_autovinculo(self, db_session):
+        c1 = _hacer_cliente(db_session, no_cliente="Centro-001")
+        with pytest.raises(ValueError):
+            svc.vincular_familiar(db_session, c1.id_cliente, c1.id_cliente)
+
+    def test_vincular_rechaza_cliente_inexistente(self, db_session):
+        c1 = _hacer_cliente(db_session, no_cliente="Centro-001")
+        with pytest.raises(ValueError):
+            svc.vincular_familiar(db_session, c1.id_cliente, 9999)
+
+    def test_vincular_rechaza_par_ya_vinculado_en_cualquier_orden(self, db_session):
+        c1 = _hacer_cliente(db_session, no_cliente="Centro-001")
+        c2 = _hacer_cliente(db_session, no_cliente="Centro-002")
+        svc.vincular_familiar(db_session, c1.id_cliente, c2.id_cliente)
+        with pytest.raises(ValueError):
+            svc.vincular_familiar(db_session, c2.id_cliente, c1.id_cliente)
+
+    def test_vincular_respeta_tope_de_4_para_cliente_a(self, db_session):
+        eje = _hacer_cliente(db_session, no_cliente="Centro-001")
+        for i in range(4):
+            otro = _hacer_cliente(db_session, no_cliente=f"Centro-{i+2:03d}")
+            svc.vincular_familiar(db_session, eje.id_cliente, otro.id_cliente)
+        quinto = _hacer_cliente(db_session, no_cliente="Centro-999")
+        with pytest.raises(ValueError):
+            svc.vincular_familiar(db_session, eje.id_cliente, quinto.id_cliente)
+
+    def test_vincular_respeta_tope_de_4_para_cliente_b(self, db_session):
+        # mismo tope, pero el que ya tiene 4 es el segundo argumento
+        eje = _hacer_cliente(db_session, no_cliente="Centro-001")
+        for i in range(4):
+            otro = _hacer_cliente(db_session, no_cliente=f"Centro-{i+2:03d}")
+            svc.vincular_familiar(db_session, otro.id_cliente, eje.id_cliente)
+        quinto = _hacer_cliente(db_session, no_cliente="Centro-999")
+        with pytest.raises(ValueError):
+            svc.vincular_familiar(db_session, quinto.id_cliente, eje.id_cliente)
+
+    def test_listar_familiares_perspectiva_de_ambos_lados_del_par(self, db_session):
+        c1 = _hacer_cliente(db_session, no_cliente="Centro-001", nombre="Ana")
+        c2 = _hacer_cliente(db_session, no_cliente="Centro-002", nombre="Beto")
+        svc.vincular_familiar(db_session, c1.id_cliente, c2.id_cliente)
+
+        desde_c1 = svc.listar_familiares(db_session, c1.id_cliente)
+        desde_c2 = svc.listar_familiares(db_session, c2.id_cliente)
+
+        assert len(desde_c1) == 1 and desde_c1[0]["id_cliente_relacionado"] == c2.id_cliente
+        assert len(desde_c2) == 1 and desde_c2[0]["id_cliente_relacionado"] == c1.id_cliente
+
+    def test_desvincular_elimina_el_registro(self, db_session):
+        c1 = _hacer_cliente(db_session, no_cliente="Centro-001")
+        c2 = _hacer_cliente(db_session, no_cliente="Centro-002")
+        vinculo = svc.vincular_familiar(db_session, c1.id_cliente, c2.id_cliente)
+
+        svc.desvincular_familiar(db_session, c1.id_cliente, vinculo.id_vinculo)
+
+        assert svc.listar_familiares(db_session, c1.id_cliente) == []
+        assert svc.listar_familiares(db_session, c2.id_cliente) == []
+
+    def test_desvincular_rechaza_vinculo_inexistente(self, db_session):
+        c1 = _hacer_cliente(db_session, no_cliente="Centro-001")
+        with pytest.raises(ValueError):
+            svc.desvincular_familiar(db_session, c1.id_cliente, 9999)
+
+    def test_desvincular_rechaza_cliente_ajeno_al_vinculo(self, db_session):
+        c1 = _hacer_cliente(db_session, no_cliente="Centro-001")
+        c2 = _hacer_cliente(db_session, no_cliente="Centro-002")
+        c3 = _hacer_cliente(db_session, no_cliente="Centro-003")
+        vinculo = svc.vincular_familiar(db_session, c1.id_cliente, c2.id_cliente)
+        with pytest.raises(ValueError):
+            svc.desvincular_familiar(db_session, c3.id_cliente, vinculo.id_vinculo)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# cancelar_cliente() — module_clientes.md §Operación "Cancelar Cliente"
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestCancelarCliente:
+    def _cliente_moroso(self, db_session, **overrides):
+        defaults = dict(
+            no_cliente="Centro-001", nombre="Juan Pérez", saldo=500.0,
+            fecha_pago_programada=date.today() - timedelta(days=10),
+        )
+        defaults.update(overrides)
+        return _hacer_cliente(db_session, **defaults)
+
+    def test_rechaza_cliente_inexistente(self, db_session):
+        with pytest.raises(ValueError):
+            svc.cancelar_cliente(db_session, 9999)
+
+    def test_rechaza_sin_bandera_roja(self, db_session):
+        cliente = _hacer_cliente(db_session, saldo=0.0)  # sin morosidad
+        with pytest.raises(ValueError):
+            svc.cancelar_cliente(db_session, cliente.id_cliente)
+
+    def test_snapshot_correcto_en_cartera_vencida(self, db_session):
+        cliente = self._cliente_moroso(db_session)
+        snapshot = svc.cancelar_cliente(db_session, cliente.id_cliente)
+
+        assert snapshot.no_cliente_original == "Centro-001"
+        assert snapshot.nombre == "Juan Pérez"
+        assert snapshot.saldo_cancelado == 500.0
+        assert snapshot.fecha_cancelacion == date.today().isoformat()
+        # queda persistido en la tabla
+        assert db_session.query(CarteraVencida).count() == 1
+
+    def test_limpia_slot_pero_conserva_no_cliente_e_id(self, db_session):
+        # module_clientes.md: el no_cliente y el id_cliente NO cambian
+        cliente = self._cliente_moroso(db_session)
+        id_original = cliente.id_cliente
+        no_cliente_original = cliente.no_cliente
+
+        svc.cancelar_cliente(db_session, cliente.id_cliente)
+        db_session.refresh(cliente)
+
+        assert cliente.id_cliente == id_original
+        assert cliente.no_cliente == no_cliente_original
+        assert cliente.nombre == ""
+        assert cliente.telefono == 0
+        assert cliente.frecuencia_pago == FrecuenciaPago.otro
+        assert cliente.dia_pago_especifico is None
+        assert cliente.frecuencia_pago_detalle == "slot disponible"
+        assert cliente.ref_nombre == ""
+        assert cliente.ref_colonia == ""
+        assert cliente.ref_telefono is None
+        assert cliente.fecha_pago_programada is None
+
+    def test_saldo_queda_en_cero_y_estatus_inactivo(self, db_session):
+        cliente = self._cliente_moroso(db_session)
+        svc.cancelar_cliente(db_session, cliente.id_cliente)
+        db_session.refresh(cliente)
+        assert cliente.saldo == 0.0
+        assert cliente.estatus == EstatusCliente.inactivo
+
+    def test_id_cliente_del_familiar_no_se_ve_afectado(self, db_session):
+        # cancelar un cliente no debe tocar sus vínculos familiares
+        cliente = self._cliente_moroso(db_session, no_cliente="Centro-001")
+        familiar = _hacer_cliente(db_session, no_cliente="Centro-002")
+        svc.vincular_familiar(db_session, cliente.id_cliente, familiar.id_cliente)
+
+        svc.cancelar_cliente(db_session, cliente.id_cliente)
+
+        assert len(svc.listar_familiares(db_session, familiar.id_cliente)) == 1
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Endpoints — app/api/v1/endpoints/clientes.py
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestEndpointsClientes:
+    def test_post_clientes_crea_y_devuelve_las_4_banderas(self, api):
+        resp = api.post("/clientes", json=_payload_valido())
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["no_cliente"] == "Centro-001"
+        for campo in ("bandera_amarilla", "bandera_roja", "bandera_naranja", "bandera_negra"):
+            assert campo in body and body[campo] is False
+
+    def test_post_clientes_rechaza_payload_invalido(self, api):
+        resp = api.post("/clientes", json=_payload_valido(telefono=123))
         assert resp.status_code == 422
 
-    @pytest.mark.parametrize("campo,limite", [
-        ("nombre", 40), ("colonia", 20), ("ref_nombre", 40),
-        ("ref_colonia", 40), ("frecuencia_pago_detalle", 60),
-    ])
-    def test_longitud_maxima_excedida(self, client, auth_headers, campo, limite):
-        # Caso 1.10 — INC-18
-        overrides = {campo: "a" * (limite + 1)}
-        if campo == "frecuencia_pago_detalle":
-            overrides["frecuencia_pago"] = "otro"
-        payload = _payload_base(**overrides)
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert resp.status_code == 422, f"{campo} debería rechazar {limite + 1} caracteres"
-
-    def test_ref_telefono_ausente_es_valido(self, client, auth_headers):
-        # Caso 1.11
-        payload = _payload_base(ref_telefono=None)
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert resp.status_code == 201, resp.text
-
-    def test_no_cliente_consecutivo_por_colonia(self, client, auth_headers):
-        # Caso 1.12 — colonia única por corrida para no chocar con otros tests
-        colonia = f"Colonia{uuid.uuid4().hex[:6]}"
-        payload = _payload_base(colonia=colonia)
-        r1 = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        r2 = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert r1.status_code == 201 and r2.status_code == 201
-        no_1, no_2 = r1.json()["no_cliente"], r2.json()["no_cliente"]
-        assert no_1.endswith("-001")
-        assert no_2.endswith("-002")
-
-    def test_no_cliente_normaliza_mayusculas(self, client, auth_headers):
-        # Caso 1.13
-        colonia = f"colonia{uuid.uuid4().hex[:6]}"
-        payload = _payload_base(colonia=colonia)
-        resp = client.post("/api/v1/clientes", json=payload, headers=auth_headers)
-        assert resp.status_code == 201, resp.text
-        assert resp.json()["no_cliente"].startswith(colonia.title())
-
-
-# ---------------------------------------------------------------------------
-# 2. Consulta Cliente
-# ---------------------------------------------------------------------------
-
-class TestConsultaCliente:
-
-    def test_get_por_id_existente(self, client, auth_headers):
-        # Caso 2.1
-        payload = _payload_base(frecuencia_pago="dia_especifico_mes", dia_pago_especifico=10)
-        creado = client.post("/api/v1/clientes", json=payload, headers=auth_headers).json()
-        resp = client.get(f"/api/v1/clientes/{creado['id_cliente']}", headers=auth_headers)
+    def test_get_clientes_lista_resumen(self, api):
+        api.post("/clientes", json=_payload_valido())
+        resp = api.get("/clientes")
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["dia_pago_especifico"] == 10
-        assert data["fecha_pago_programada"] is None
-        assert "fecha_registro" in data
+        assert len(resp.json()) == 1
 
-    def test_get_por_id_inexistente(self, client, auth_headers):
-        # Caso 2.2 — comportamiento del 404 no confirmado contra el endpoint real
-        resp = client.get("/api/v1/clientes/999999", headers=auth_headers)
+    def test_get_cliente_detalle_404_si_no_existe(self, api):
+        resp = api.get("/clientes/9999")
         assert resp.status_code == 404
 
-    def test_busqueda_por_nombre_parcial(self, client, auth_headers):
-        # Caso 2.3
-        nombre_unico = f"Buscable{uuid.uuid4().hex[:6]}"
-        client.post("/api/v1/clientes", json=_payload_base(nombre=nombre_unico), headers=auth_headers)
-        resp = client.get(f"/api/v1/clientes?q={nombre_unico}", headers=auth_headers)
+    def test_get_cliente_detalle_ok(self, api):
+        creado = api.post("/clientes", json=_payload_valido()).json()
+        resp = api.get(f"/clientes/{creado['id_cliente']}")
         assert resp.status_code == 200
-        resultados = resp.json()
-        assert any(c["nombre"] == nombre_unico for c in resultados)
+        assert resp.json()["no_cliente"] == creado["no_cliente"]
 
-    def test_busqueda_por_no_cliente_parcial(self, client, auth_headers):
-        # Caso 2.4
-        colonia = f"Buscacol{uuid.uuid4().hex[:6]}"
-        creado = client.post("/api/v1/clientes", json=_payload_base(colonia=colonia), headers=auth_headers).json()
-        resp = client.get(f"/api/v1/clientes?q={creado['no_cliente']}", headers=auth_headers)
-        assert resp.status_code == 200
-        assert any(c["no_cliente"] == creado["no_cliente"] for c in resp.json())
+    def test_cancelar_404_si_cliente_no_existe(self, api):
+        resp = api.post("/clientes/9999/cancelar")
+        assert resp.status_code == 404
 
-    def test_busqueda_vacia_devuelve_todos(self, client, auth_headers):
-        # Caso 2.5
-        resp = client.get("/api/v1/clientes?q=", headers=auth_headers)
-        assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
+    def test_cancelar_400_si_no_esta_en_bandera_roja(self, api):
+        creado = api.post("/clientes", json=_payload_valido()).json()
+        resp = api.post(f"/clientes/{creado['id_cliente']}/cancelar")
+        assert resp.status_code == 400
 
+    def test_familiares_flujo_completo(self, api, db_session):
+        c1 = api.post("/clientes", json=_payload_valido(colonia="Centro")).json()
+        c2 = api.post("/clientes", json=_payload_valido(colonia="Carrillos")).json()
 
-# ---------------------------------------------------------------------------
-# 3. Bandera Naranja
-# (module_movimientos.md §"Bandera naranja"; REPORT.md §5 Nivel 3, punto 7.
-# calcular_bandera_naranja() vive en cliente_service.py, fuera de
-# sincronizar_estatus() -- no toca `clientes.estatus`, se calcula al vuelo
-# y se asigna al objeto Cliente antes de serializar ClienteRead.)
-# ---------------------------------------------------------------------------
+        vinc = api.post(
+            f"/clientes/{c1['id_cliente']}/familiares",
+            json={"id_cliente_relacionado": c2["id_cliente"]},
+        )
+        assert vinc.status_code == 201
+        assert vinc.json()["id_cliente_relacionado"] == c2["id_cliente"]
 
-def _crear_apartado_para_cliente(db_session, id_cliente, precio=300.0, monto_primer_pago=100.0):
-    """Apartado de 1 artículo manual (sin id_producto) -- no depende de
-    Inventario, mismo criterio que test_movimientos.py."""
-    data = ApartadoCreate(
-        id_cliente=id_cliente,
-        articulos=[ApartadoArticuloCreate(id_producto=None, precio_producto=precio)],
-        monto_primer_pago=monto_primer_pago,
-        forma_pago=FormaPago.efectivo,
-    )
-    return crear_apartado(db_session, data)
+        listado = api.get(f"/clientes/{c1['id_cliente']}/familiares")
+        assert listado.status_code == 200
+        assert len(listado.json()) == 1
 
+        borrado = api.delete(
+            f"/clientes/{c1['id_cliente']}/familiares/{vinc.json()['id_vinculo']}"
+        )
+        assert borrado.status_code == 204
+        assert api.get(f"/clientes/{c1['id_cliente']}/familiares").json() == []
 
-def _fijar_fecha_apartado(db_session, id_apartado, fecha):
-    apartado = db_session.query(Apartado).get(id_apartado)
-    apartado.fecha_apartado = datetime.combine(fecha, datetime.min.time())
-    db_session.commit()
-    return apartado
+    def test_vincular_familiar_400_si_ya_vinculados(self, api):
+        c1 = api.post("/clientes", json=_payload_valido(colonia="Centro")).json()
+        c2 = api.post("/clientes", json=_payload_valido(colonia="Carrillos")).json()
+        api.post(f"/clientes/{c1['id_cliente']}/familiares",
+                 json={"id_cliente_relacionado": c2["id_cliente"]})
+        resp = api.post(f"/clientes/{c1['id_cliente']}/familiares",
+                         json={"id_cliente_relacionado": c2["id_cliente"]})
+        assert resp.status_code == 400
 
-
-def _fecha_apartado_para_vencimiento(vencimiento):
-    """Encuentra la fecha_apartado tal que _sumar_un_mes(fecha_apartado) ==
-    vencimiento -- por búsqueda directa contra la función real (no duplica
-    la lógica de calendario/clamp de fin de mes)."""
-    for dias in range(27, 32):
-        candidata = vencimiento - timedelta(days=dias)
-        if _sumar_un_mes(candidata) == vencimiento:
-            return candidata
-    raise AssertionError(f"No se encontró fecha_apartado para vencimiento {vencimiento}")
-
-
-class TestSumarUnMes:
-    """Unitario, sin DB -- el clamp de fin de mes es el detalle más frágil
-    de calcular_bandera_naranja() y merece su propio caso, independiente
-    de la fecha real del día en que se corra la suite."""
-
-    def test_dia_normal(self):
-        assert _sumar_un_mes(date(2024, 3, 10)) == date(2024, 4, 10)
-
-    def test_31_enero_a_febrero_bisiesto(self):
-        assert _sumar_un_mes(date(2024, 1, 31)) == date(2024, 2, 29)
-
-    def test_31_enero_a_febrero_no_bisiesto(self):
-        assert _sumar_un_mes(date(2023, 1, 31)) == date(2023, 2, 28)
-
-    def test_diciembre_cruza_anio(self):
-        assert _sumar_un_mes(date(2023, 12, 15)) == date(2024, 1, 15)
-
-
-class TestCalcularBanderaNaranja:
-    """Directo contra el service (calcular_bandera_naranja(db, cliente)),
-    sin pasar por el endpoint -- aísla la lógica de umbral de la mecánica
-    de asignación al schema (esa se prueba en TestBanderaNaranjaEndpoint)."""
-
-    def test_false_sin_apartado_abierto(self, client, auth_headers, db_session):
-        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
-        cliente = db_session.query(Cliente).get(creado["id_cliente"])
-        assert calcular_bandera_naranja(db_session, cliente) is False
-
-    def test_false_recien_creado_lejos_del_vencimiento(self, client, auth_headers, db_session):
-        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
-        _crear_apartado_para_cliente(db_session, creado["id_cliente"])
-        cliente = db_session.query(Cliente).get(creado["id_cliente"])
-        assert calcular_bandera_naranja(db_session, cliente) is False
-
-    def test_false_un_dia_antes_del_umbral(self, client, auth_headers, db_session):
-        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
-        apartado = _crear_apartado_para_cliente(db_session, creado["id_cliente"])
-
-        vencimiento = date.today() + timedelta(days=6)  # umbral quedaría mañana, no hoy
-        fecha_apartado = _fecha_apartado_para_vencimiento(vencimiento)
-        _fijar_fecha_apartado(db_session, apartado.id_apartado, fecha_apartado)
-
-        cliente = db_session.query(Cliente).get(creado["id_cliente"])
-        assert calcular_bandera_naranja(db_session, cliente) is False
-
-    def test_true_justo_en_el_umbral(self, client, auth_headers, db_session):
-        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
-        apartado = _crear_apartado_para_cliente(db_session, creado["id_cliente"])
-
-        vencimiento = date.today() + timedelta(days=5)  # umbral (vencimiento - 5) == hoy
-        fecha_apartado = _fecha_apartado_para_vencimiento(vencimiento)
-        _fijar_fecha_apartado(db_session, apartado.id_apartado, fecha_apartado)
-
-        cliente = db_session.query(Cliente).get(creado["id_cliente"])
-        assert calcular_bandera_naranja(db_session, cliente) is True
-
-    def test_true_apartado_ya_vencido(self, client, auth_headers, db_session):
-        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
-        apartado = _crear_apartado_para_cliente(db_session, creado["id_cliente"])
-        _fijar_fecha_apartado(db_session, apartado.id_apartado, date.today() - timedelta(days=60))
-
-        cliente = db_session.query(Cliente).get(creado["id_cliente"])
-        assert calcular_bandera_naranja(db_session, cliente) is True
-
-    def test_false_si_el_apartado_ya_no_esta_abierto(self, client, auth_headers, db_session):
-        """Aunque la fecha esté vencida, un apartado liquidado o cancelado
-        no debe encender la bandera -- solo cuenta el que sigue 'abierto'."""
-        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
-        apartado = _crear_apartado_para_cliente(db_session, creado["id_cliente"])
-        _fijar_fecha_apartado(db_session, apartado.id_apartado, date.today() - timedelta(days=60))
-
-        apartado_db = db_session.query(Apartado).get(apartado.id_apartado)
-        apartado_db.estatus = EstatusApartado.liquidado
-        db_session.commit()
-
-        cliente = db_session.query(Cliente).get(creado["id_cliente"])
-        assert calcular_bandera_naranja(db_session, cliente) is False
-
-
-class TestBanderaNaranjaEndpoint:
-    """A través de la API real -- confirma que POST y GET asignan
-    bandera_naranja al objeto antes de serializar ClienteRead (ver
-    schemas/cliente.py: no es columna mapeada, from_attributes no la
-    encuentra si no se asigna a mano antes)."""
-
-    def test_post_nace_con_bandera_naranja_falsa(self, client, auth_headers):
-        resp = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers)
-        assert resp.status_code == 201, resp.text
-        assert resp.json()["bandera_naranja"] is False
-
-    def test_get_sin_apartado_bandera_naranja_falsa(self, client, auth_headers):
-        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
-        resp = client.get(f"/api/v1/clientes/{creado['id_cliente']}", headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.json()["bandera_naranja"] is False
-
-    def test_get_con_apartado_vencido_bandera_naranja_activa(self, client, auth_headers, db_session):
-        creado = client.post("/api/v1/clientes", json=_payload_base(), headers=auth_headers).json()
-        apartado = _crear_apartado_para_cliente(db_session, creado["id_cliente"])
-        _fijar_fecha_apartado(db_session, apartado.id_apartado, date.today() - timedelta(days=60))
-
-        resp = client.get(f"/api/v1/clientes/{creado['id_cliente']}", headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.json()["bandera_naranja"] is True
-
-
-# ---------------------------------------------------------------------------
-# 4. Rehabilitar Cliente -- ELIMINADO, no de negocio
-# ---------------------------------------------------------------------------
-#
-# `estatus` es un campo derivado de `saldo`, nunca editable por la
-# operadora -- ni por un endpoint de rehabilitación aparte, ni desde
-# "Editar Cliente" cuando se construya. `PATCH /clientes/{id}/rehabilitar`
-# y `rehabilitar_cliente()` se quitaron del código real por no corresponder
-# a ningún caso de negocio del spec real; estos 3 tests se quitan junto con
-# ellos, no se dejan como "huecos deliberados" porque no hay nada que
-# cubrir. Cuando se construya "Editar Cliente" (UPDATE genérico), su schema
-# NO debe exponer `estatus` como campo capturable -- si lo hace, es un bug,
-# no una funcionalidad.
+    def test_desvincular_404_si_vinculo_no_existe(self, api):
+        c1 = api.post("/clientes", json=_payload_valido()).json()
+        resp = api.delete(f"/clientes/{c1['id_cliente']}/familiares/9999")
+        assert resp.status_code == 404

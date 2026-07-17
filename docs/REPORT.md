@@ -8,11 +8,11 @@
 > saber qué hacer a continuación; solo pide otro archivo cuando algo no se
 > pueda inferir de aquí (ver §6).
 >
-> **Ánimo actual (Momentum):** ¡Excelente! La fundación de datos está consolidada. 
-> La migración de las 18 tablas del rediseño (`e5f6a7b8c9d0`) fue un éxito y la 
-> suite de pruebas base está en verde (>210 tests pasando). Se resolvieron las 
-> validaciones estrictas de pydantic en Shein (`frecuencia_pago`). El terreno 
-> está perfectamente preparado para inyectar la nueva lógica de negocio.
+> **Ánimo actual (Momentum):** ¡Excelente! La fundación de datos está consolidada
+> y el Bloque B — Módulo Clientes ya está cerrado: sistema de banderas completo
+> (amarilla/roja/naranja/negra), cancelación con archivo a `cartera_vencida` y
+> vinculación de familiares con tope de 4, todo con `test/test_clientes.py`
+> en verde (76/76). El terreno está listo para el Bloque C (Módulo Shein).
 >
 > **No es bitácora de cambios.** Si un bug se corrige y el estado resultante
 > ya queda reflejado en las decisiones/código/tests de este documento, no se
@@ -44,7 +44,7 @@ explícita del usuario en la sesión.
 
 ## 2. Estado del modelo de datos (`models.py` / `pos.db`)
 
-15 tablas migradas. Cadena de migraciones aplicadas:
+18 tablas migradas. Cadena de migraciones aplicadas:
 
 > **Verificado directo contra `pos.db`**: `SELECT version_num FROM
 > alembic_version` → `e5f6a7b8c9d0`. `.tables` confirma las 18 tablas.
@@ -255,9 +255,9 @@ movimientos.id_apartado     FK → apartados, nullable
 | `app/schemas/inventario.py`             | Schema Inventario     | —                                                                         |
 | `app/services/inventario_service.py`    | Lógica Inventario     | Transiciones validadas, descuento masivo.                                 |
 | `app/api/v1/endpoints/inventario.py`    | Endpoints Inventario  | —                                                                         |
-| `app/schemas/cliente.py`                | Schema Cliente        | **Desincronizado:** no incluye bandera negra ni vinculación de familiares.|
-| `app/services/cliente_service.py`       | Lógica Cliente        | **Desincronizado:** falta `cancelar_cliente()`, `bandera_negra()`, familiares.|
-| `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente     | **Desincronizado:** falta endpoint `Cancelar Cliente` y endpoints de vinculación/desvinculación de familiares. |
+| `app/schemas/cliente.py`                | Schema Cliente        | Expone las 4 banderas (`amarilla`/`roja`/`naranja`/`negra`), schemas de cancelación (`CarteraVencidaRead`) y de familiares (`FamiliarVincular`/`FamiliarRead`). |
+| `app/services/cliente_service.py`       | Lógica Cliente        | Sistema de banderas completo; `cancelar_cliente()` (precondición `bandera_roja`, snapshot a `cartera_vencida`, limpieza de slot conservando `no_cliente`/`id_cliente`); vinculación/desvinculación de familiares con tope de 4 validado para ambos clientes del par. |
+| `app/api/v1/endpoints/clientes.py`      | Endpoints Cliente     | `POST /{id}/cancelar`, `GET/POST /{id}/familiares`, `DELETE /{id}/familiares/{id_vinculo}`. |
 | `app/scripts/importar_precios.py`       | Import de precios     | 15,564 filas insertadas. Solo `INSERT`.                                   |
 | `app/schemas/movimiento.py`             | Schema Movimiento     | —                                                                         |
 | `app/schemas/apartado.py`               | Schema Apartado       | —                                                                         |
@@ -281,7 +281,7 @@ movimientos.id_apartado     FK → apartados, nullable
 | `test/test_pedidos.py`      | Pedidos     | ✅ en verde           |
 | `test/test_inventario.py`   | Inventario  | ✅ 19/19 en verde     |
 | `test/test_shein.py`        | Shein       | ✅ 28/28 — **requiere actualización por rediseño Shein** |
-| `test/test_clientes.py`     | Clientes    | ✅ 43/43 — **requiere actualización por rediseño Clientes** |
+| `test/test_clientes.py`     | Clientes    | ✅ 76/76 en verde     |
 | `test/test_movimientos.py`  | Movimientos | ✅ 28/28 en verde     |
 | `test/test_apartados.py`    | Apartados   | ✅ 12/12 en verde     |
 | `test/test_autenticacion.py`| Auth        | ✅ 59/59 en verde     |
@@ -303,6 +303,7 @@ movimientos.id_apartado     FK → apartados, nullable
 ### Cerrados ✅
 
 Niveles 1-4 completos. Auth, Setting, todos los módulos existentes con test en verde.
+Bloque A (modelo de datos) y Bloque B (Módulo Clientes) del rediseño, completos.
 Ver §4.2 para el detalle.
 
 ### Tareas pendientes — por orden de ejecución
@@ -319,18 +320,17 @@ Ver §4.2 para el detalle.
 18. [x] Actualizar `resumen_tablas.md` en `docs/spec/` con las tablas nuevas.
 19. [x] Actualizar `docs/spec/README.md` con `module_consulta_finanzas.md` en el mapa de módulos.
 
-**Bloque B — Módulo Clientes**
+**Bloque B — Módulo Clientes (✅ COMPLETADO)**
 
-20. Actualizar `app/schemas/cliente.py`: agregar `bandera_negra`.
-21. Actualizar `app/services/cliente_service.py`:
-    - `cancelar_cliente()` — snapshot a `cartera_vencida` + limpieza del slot.
-    - `calcular_bandera_negra()` — consulta `familiares` + `bandera_roja` de familiares.
+20. [x] Actualizado `app/schemas/cliente.py`: agrega `bandera_amarilla`, `bandera_roja`, `bandera_negra` (además de `bandera_naranja` ya existente), `CarteraVencidaRead`, `FamiliarVincular`, `FamiliarRead`.
+21. [x] Actualizado `app/services/cliente_service.py`:
+    - `cancelar_cliente()` — precondición `bandera_roja` activa; snapshot a `cartera_vencida`; limpieza del slot (conserva `no_cliente` e `id_cliente`).
+    - `calcular_bandera_amarilla()`, `calcular_bandera_roja()`, `calcular_bandera_negra()` (consulta `familiares` + `bandera_roja` de cada familiar).
     - Vinculación/desvinculación de familiares (máx. 4 vínculos por cliente, validado en el servicio para ambos clientes del par).
-22. Actualizar `app/api/v1/endpoints/clientes.py`:
-    - Endpoint `DELETE /{id}/cancelar` (o `POST /{id}/cancelar`).
-    - Endpoint `POST /{id}/familiares` (vincular) y `DELETE /{id}/familiares/{id_vinculo}` (desvincular)
-      — el servicio valida el tope de 4 para ambos clientes del par antes de insertar.
-23. Actualizar `test/test_clientes.py` con los nuevos flujos.
+22. [x] Actualizado `app/api/v1/endpoints/clientes.py`:
+    - Endpoint `POST /{id}/cancelar`.
+    - Endpoints `GET/POST /{id}/familiares` (listar/vincular) y `DELETE /{id}/familiares/{id_vinculo}` (desvincular).
+23. [x] Redactado `test/test_clientes.py` desde cero — 76/76 en verde.
 
 **Bloque C — Módulo Shein**
 
@@ -381,4 +381,4 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** Bloque B — Módulo Clientes. Empezar por actualizar `app/schemas/cliente.py` (agregar `bandera_negra`), luego `app/services/cliente_service.py` (funciones `cancelar_cliente`, `calcular_bandera_negra`, vinculación de familiares con validación bilateral del tope de 4) y finalmente exponer en `app/api/v1/endpoints/clientes.py` el endpoint de cancelación y los de vincular/desvincular familiares.
+**Siguiente paso inmediato:** Bloque C — Módulo Shein. Empezar por actualizar `app/schemas/pedido_shein.py` (`SheinClienteCreate`/`SheinClienteRead` con campos de cartera, `SheinMovimientoCreate`/`SheinMovimientoRead`), luego `app/services/pedido_shein_service.py` (carga de `saldo` al guardar corte, `registrar_abono_shein()`, `calcular_bandera_shein()` amarilla/roja) y finalmente exponer `POST /shein/abono` en `app/api/v1/endpoints/pedidos_shein.py`.

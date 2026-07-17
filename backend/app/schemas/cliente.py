@@ -77,6 +77,12 @@ class ClienteRead(BaseModel):
     frecuencia_pago_detalle: Optional[str]
     fecha_pago_programada: Optional[date]  # INC-10 — Column(Date) en models.py
     fecha_registro: date  # corregido: Column(Date) en models.py, no nullable ahí
+    bandera_amarilla: bool
+    bandera_roja: bool
+    # Igual que bandera_naranja: no son columnas, se calculan al vuelo con
+    # cliente_service.calcular_bandera_amarilla()/calcular_bandera_roja()
+    # (module_clientes.md §Sistema de banderas) y deben asignarse al
+    # objeto ANTES de construir este schema.
     bandera_naranja: bool
     # No es columna de `clientes` — no hay atributo mapeado del mismo nombre
     # en el modelo `Cliente`. Se calcula al vuelo (cliente_service.calcular_
@@ -85,6 +91,10 @@ class ClienteRead(BaseModel):
     #   cliente.bandera_naranja = calcular_bandera_naranja(db, cliente)
     #   ClienteRead.model_validate(cliente)
     # De lo contrario `from_attributes` no encuentra el valor al serializar.
+    bandera_negra: bool
+    # Mismo patrón: no es columna, se calcula al vuelo con
+    # cliente_service.calcular_bandera_negra(db, cliente) y debe
+    # asignarse al objeto ANTES de construir este schema.
 
     model_config = {"from_attributes": True}
 
@@ -97,5 +107,52 @@ class ClienteResumen(BaseModel):
     colonia:    str
     saldo:      float
     estatus:    str
+
+    model_config = {"from_attributes": True}
+
+
+class CarteraVencidaRead(BaseModel):
+    """Snapshot archivado tras cancelar_cliente(). Devuelto como confirmación
+    del endpoint de cancelación (module_clientes.md — pendiente de spec para
+    UI, pero el shape sigue 1:1 la tabla `cartera_vencida`, REPORT.md §3.3)."""
+    id_cartera_vencida:      int
+    no_cliente_original:     str
+    nombre:                  str
+    colonia:                 str
+    telefono:                int
+    ref_nombre:              str
+    ref_colonia:             str
+    ref_telefono:            Optional[int]
+    saldo_cancelado:         float
+    fecha_registro_original: str
+    fecha_cancelacion:       str
+
+    model_config = {"from_attributes": True}
+
+
+class FamiliarVincular(BaseModel):
+    """Body para POST /{id_cliente}/familiares. El id_cliente del path es uno
+    de los dos miembros del par; este campo es el otro."""
+    id_cliente_relacionado: int
+
+    @field_validator("id_cliente_relacionado")
+    @classmethod
+    def positivo(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("id_cliente_relacionado debe ser un id válido")
+        return v
+
+
+class FamiliarRead(BaseModel):
+    """Un vínculo, visto desde la perspectiva de un cliente dado. `id_cliente`
+    es el cliente que consulta; `id_cliente_relacionado` es el otro miembro
+    del par — no exponemos id_cliente_a/id_cliente_b crudos (ese orden es
+    un detalle interno de dedupe, ver models.Familiar) para no obligar al
+    frontend a saber cuál de los dos es "a" o "b"."""
+    id_vinculo:              int
+    id_cliente:              int
+    id_cliente_relacionado:  int
+    nombre_relacionado:      str
+    no_cliente_relacionado:  str
 
     model_config = {"from_attributes": True}

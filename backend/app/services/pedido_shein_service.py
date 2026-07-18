@@ -1,3 +1,6 @@
+import calendar
+from datetime import date, timedelta
+from typing import Optional
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 from app.models.models import (
@@ -5,17 +8,22 @@ from app.models.models import (
     SheinPedido,
     SheinPedidoArticulo,
     SheinCorte,
+    SheinMovimiento,
     EstatusArticuloShein,
     EstatusPago,
+    EstatusSheinCliente,
+    FrecuenciaPagoShein,
 )
 from app.schemas.pedido_shein import (
     SheinClienteCreate,
+    SheinClienteRead,
     SheinPedidoCreate,
     SheinArticuloCreate,
     SheinArticuloEstatusUpdate,
     SheinCorteCreate,
     SheinPedidoRead,
     SheinArticuloRead,
+    SheinMovimientoCreate,
 )
 
 
@@ -23,7 +31,76 @@ from app.schemas.pedido_shein import (
 # SHEIN CLIENTE
 # ──────────────────────────────────────────────────────────────────────────
 
-def crear_shein_cliente(db: Session, data: SheinClienteCreate) -> SheinCliente:
+def calcular_bandera_shein(cliente: SheinCliente) -> Optional[str]:
+    """REGLAS_NEGOCIO §6 regla 5: misma semántica que clientes (§2 regla 5),
+    solo amarilla y roja -- Shein no tiene apartados ni familiares, por lo
+    tanto no aplican bandera naranja ni negra. Visual, no bloqueante."""
+    if cliente.saldo == 0 or cliente.fecha_pago_programada is None:
+        return None
+    hoy = date.today()
+    if hoy > cliente.fecha_pago_programada:
+        return "roja"
+    if (cliente.fecha_pago_programada - hoy).days <= 2:
+        return "amarilla"
+    return None
+
+
+def _calcular_fecha_pago_programada(
+    frecuencia_pago: FrecuenciaPagoShein,
+    dia_pago_especifico: Optional[int],
+    fecha_abono: date,
+) -> Optional[date]:
+    """REGLAS_NEGOCIO §2 regla 4 (reutilizada tal cual por Shein, §6 regla 4).
+    Se instancia en el primer abono y se recalcula en cada abono subsiguiente."""
+    if frecuencia_pago == FrecuenciaPagoShein.semanal:
+        return fecha_abono + timedelta(days=7)
+
+    if frecuencia_pago == FrecuenciaPagoShein.quincenal:
+        ultimo_dia_mes = calendar.monthrange(fecha_abono.year, fecha_abono.month)[1]
+        candidatos = [date(fecha_abono.year, fecha_abono.month, 15),
+                      date(fecha_abono.year, fecha_abono.month, ultimo_dia_mes)]
+        posteriores = [c for c in candidatos if c > fecha_abono]
+        if posteriores:
+            return min(posteriores)
+        # ninguna fecha de este mes es posterior al abono -> el día 15 del mes siguiente
+        siguiente_mes = fecha_abono.month % 12 + 1
+        siguiente_anio = fecha_abono.year + (1 if fecha_abono.month == 12 else 0)
+        return date(siguiente_anio, siguiente_mes, 15)
+
+    if frecuencia_pago == FrecuenciaPagoShein.dia_especifico_mes:
+        def _fecha_clamped(anio: int, mes: int) -> date:
+            ultimo_dia = calendar.monthrange(anio, mes)[1]
+            dia = min(dia_pago_especifico, ultimo_dia)
+            return date(anio, mes, dia)
+
+        candidato_este_mes = _fecha_clamped(fecha_abono.year, fecha_abono.month)
+        if candidato_este_mes > fecha_abono:
+            return candidato_este_mes
+        siguiente_mes = fecha_abono.month % 12 + 1
+        siguiente_anio = fecha_abono.year + (1 if fecha_abono.month == 12 else 0)
+        return _fecha_clamped(siguiente_anio, siguiente_mes)
+
+    # frecuencia_pago == 'otro': el sistema nunca calcula.
+    return None
+
+
+def _cliente_a_read(cliente: SheinCliente) -> SheinClienteRead:
+    return SheinClienteRead(
+        id_shein_cliente=cliente.id_shein_cliente,
+        nombre=cliente.nombre,
+        colonia=cliente.colonia,
+        telefono=cliente.telefono,
+        frecuencia_pago=cliente.frecuencia_pago,
+        dia_pago_especifico=cliente.dia_pago_especifico,
+        frecuencia_pago_detalle=cliente.frecuencia_pago_detalle,
+        saldo=cliente.saldo,
+        estatus=cliente.estatus,
+        fecha_pago_programada=cliente.fecha_pago_programada,
+        bandera=calcular_bandera_shein(cliente),
+    )
+
+
+def crear_shein_cliente(db: Session, data: SheinClienteCreate) -> SheinClienteRead:
     cliente = SheinCliente(
         nombre=data.nombre,
         colonia=data.colonia,
@@ -35,11 +112,50 @@ def crear_shein_cliente(db: Session, data: SheinClienteCreate) -> SheinCliente:
     db.add(cliente)
     db.commit()
     db.refresh(cliente)
-    return cliente
+    return _cliente_a_read(cliente)
 
 
-def obtener_shein_clientes(db: Session) -> list[SheinCliente]:
-    return db.query(SheinCliente).order_by(SheinCliente.nombre).all()
+def obtener_shein_clientes(db: Session) -> list[SheinClienteRead]:
+    clientes = db.query(SheinCliente).order_by(SheinCliente.nombre).all()
+    return [_cliente_a_read(c) for c in clientes]
+
+
+def registrar_abono_shein(db: Session, data: SheinMovimientoCreate) -> SheinMovimiento:
+    """REPORT.md §5 Bloque C tarea 25. REGLAS_NEGOCIO §6 regla 3-4: reduce
+    saldo, nunca lo excede, recalcula fecha_pago_programada y deriva estatus."""
+    cliente = db.query(SheinCliente).filter(
+        SheinCliente.id_shein_cliente == data.id_shein_cliente
+    ).first()
+    if not cliente:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Cliente Shein {data.id_shein_cliente} no encontrado",
+        )
+    if data.monto > cliente.saldo:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"El abono ({data.monto}) no puede exceder el saldo actual ({cliente.saldo})",
+        )
+
+    cliente.saldo -= data.monto
+    cliente.estatus = (
+        EstatusSheinCliente.activo if cliente.saldo > 0 else EstatusSheinCliente.inactivo
+    )
+    fecha_abono = date.today()
+    cliente.fecha_pago_programada = _calcular_fecha_pago_programada(
+        cliente.frecuencia_pago, cliente.dia_pago_especifico, fecha_abono
+    )
+
+    movimiento = SheinMovimiento(
+        id_shein_cliente=cliente.id_shein_cliente,
+        monto=data.monto,
+        forma_pago=data.forma_pago,
+        saldo_resultante=cliente.saldo,
+    )
+    db.add(movimiento)
+    db.commit()
+    db.refresh(movimiento)
+    return movimiento
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -100,7 +216,7 @@ def crear_shein_pedido(db: Session, data: SheinPedidoCreate) -> SheinPedidoRead:
     pedido = SheinPedido(id_shein_cliente=data.id_shein_cliente)
     pedido.articulos = [
         SheinPedidoArticulo(
-            id_articulo=a.id_articulo,
+            sku=a.sku,
             producto=a.producto,
             tipo_producto=a.tipo_producto,
             monto=a.monto,
@@ -143,7 +259,7 @@ def agregar_articulo_shein(
 
     nuevo_articulo = SheinPedidoArticulo(
         id_shein_pedido=id_shein_pedido,
-        id_articulo=data.id_articulo,
+        sku=data.sku,
         producto=data.producto,
         tipo_producto=data.tipo_producto,
         monto=data.monto,
@@ -203,7 +319,7 @@ def actualizar_estatus_articulo(
 def crear_shein_corte(db: Session, data: SheinCorteCreate) -> SheinCorte:
     pedidos = (
         db.query(SheinPedido)
-        .options(joinedload(SheinPedido.articulos))
+        .options(joinedload(SheinPedido.articulos), joinedload(SheinPedido.cliente))
         .filter(SheinPedido.id_shein_pedido.in_(data.id_shein_pedidos))
         .all()
     )
@@ -241,6 +357,17 @@ def crear_shein_corte(db: Session, data: SheinCorteCreate) -> SheinCorte:
     total_pedidos = len(pedidos_incluidos)
     suma_pedidos = sum(_monto_pedido(p) for p in pedidos_incluidos)
     cupon = suma_pedidos - data.total_ticket
+
+    # REGLAS_NEGOCIO §6 regla 3: al guardar el corte, el monto_pedido de cada
+    # pedido incluido se carga al saldo del shein_cliente correspondiente.
+    # Un mismo corte puede agrupar pedidos de varios clientes distintos.
+    for p in pedidos_incluidos:
+        monto = _monto_pedido(p)
+        if monto <= 0:
+            continue
+        cliente = p.cliente
+        cliente.saldo += monto
+        cliente.estatus = EstatusSheinCliente.activo   # todo alza de saldo activa al cliente
 
     corte = SheinCorte(
         fecha_corte=data.fecha_corte,

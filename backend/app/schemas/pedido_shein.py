@@ -1,9 +1,9 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 from app.models.models import (
     TipoProductoShein, EstatusArticuloShein, EstatusPago,
-    FrecuenciaPagoShein, EstatusSheinCliente,
+    FrecuenciaPagoShein, EstatusSheinCliente, FormaPago,
 )
 
 
@@ -62,6 +62,35 @@ class SheinClienteRead(BaseModel):
     saldo:                   float
     estatus:                 EstatusSheinCliente
     fecha_pago_programada:   Optional[date]
+    bandera:                 Optional[str] = None   # 'amarilla' | 'roja' | None — calculada al vuelo, no persistida
+
+    model_config = {"from_attributes": True}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# SHEIN MOVIMIENTO (abonos a la cartera Shein)
+# ──────────────────────────────────────────────────────────────────────────
+
+class SheinMovimientoCreate(BaseModel):
+    id_shein_cliente: int
+    monto:            float
+    forma_pago:       FormaPago
+
+    @field_validator("monto")
+    @classmethod
+    def monto_positivo(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("El monto del abono debe ser mayor a 0")
+        return v
+
+
+class SheinMovimientoRead(BaseModel):
+    id_shein_movimiento: int
+    id_shein_cliente:    int
+    monto:               float
+    forma_pago:           FormaPago
+    saldo_resultante:     float
+    fecha:                datetime
 
     model_config = {"from_attributes": True}
 
@@ -71,7 +100,7 @@ class SheinClienteRead(BaseModel):
 # ──────────────────────────────────────────────────────────────────────────
 
 class SheinArticuloCreate(BaseModel):
-    id_articulo:   Optional[str] = Field(default=None, max_length=20)   # referencia libre a la app Shein, sin FK real
+    sku:           str = Field(max_length=25)   # identificador de catálogo Shein, obligatorio
     producto:      str = Field(max_length=60)
     tipo_producto: TipoProductoShein
     monto:         float
@@ -105,7 +134,7 @@ class SheinPedidoCreate(BaseModel):
 
 class SheinArticuloRead(BaseModel):
     id_shein_articulo: int
-    id_articulo:        Optional[str]
+    sku:                 str
     producto:            str
     tipo_producto:        TipoProductoShein
     monto:                float

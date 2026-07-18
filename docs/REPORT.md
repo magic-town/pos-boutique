@@ -12,7 +12,9 @@
 > y el Bloque B — Módulo Clientes ya está cerrado: sistema de banderas completo
 > (amarilla/roja/naranja/negra), cancelación con archivo a `cartera_vencida` y
 > vinculación de familiares con tope de 4, todo con `test/test_clientes.py`
-> en verde (76/76). El terreno está listo para el Bloque C (Módulo Shein).
+> en verde (76/76). El Bloque C (Módulo Shein) está avanzado: schema, service
+> y endpoint de cartera ya implementados. Solo falta `test/test_shein.py`
+> — bloqueado por falta de `conftest.py` (ver §6).
 >
 > **No es bitácora de cambios.** Si un bug se corrige y el estado resultante
 > ya queda reflejado en las decisiones/código/tests de este documento, no se
@@ -251,9 +253,9 @@ movimientos.id_apartado     FK → apartados, nullable
 | `app/schemas/pedido.py`                 | Schema Pedido         | Cabecera-detalle, valida reglas por `tipo_producto`/`proveedor`.           |
 | `app/services/pedido_service.py`        | Lógica Pedido         | Lookup de precio, transacciones de devolución/cancelación.                |
 | `app/api/v1/endpoints/pedidos.py`       | Endpoints Pedido      | 4 flujos probados end-to-end.                                             |
-| `app/schemas/pedido_shein.py`           | Schema Shein          | **En progreso:** incluye `frecuencia_pago`. Faltan endpoints de abono.    |
-| `app/services/pedido_shein_service.py`  | Lógica Shein          | **En progreso:** crea cliente con `frecuencia_pago`. Falta lógica de `saldo`.|
-| `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein       | **Desincronizado:** falta endpoint de abono Shein.                        |
+| `app/schemas/pedido_shein.py`           | Schema Shein          | ✅ `sku` corregido, `SheinClienteRead.bandera`, `SheinMovimientoCreate`/`Read` agregados. |
+| `app/services/pedido_shein_service.py`  | Lógica Shein          | ✅ Carga de `saldo` en `crear_shein_corte`, `registrar_abono_shein()`, `calcular_bandera_shein()` (amarilla/roja). |
+| `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein       | ✅ `POST /shein/abono` agregado. Sin test en verde todavía — ver §5 tarea 27. |
 | `app/schemas/inventario.py`             | Schema Inventario     | —                                                                         |
 | `app/services/inventario_service.py`    | Lógica Inventario     | Transiciones validadas, descuento masivo.                                 |
 | `app/api/v1/endpoints/inventario.py`    | Endpoints Inventario  | —                                                                         |
@@ -336,16 +338,17 @@ Ver §4.2 para el detalle.
 
 **Bloque C — Módulo Shein**
 
-24. Actualizar `app/schemas/pedido_shein.py`:
-    - `SheinClienteCreate` / `SheinClienteRead` con campos de cartera.
-    - `SheinMovimientoCreate` / `SheinMovimientoRead` (nuevo).
-25. Actualizar `app/services/pedido_shein_service.py`:
-    - Carga de `saldo` al guardar corte (`saldo += monto_pedido` por `shein_cliente`).
-    - `registrar_abono_shein()` — reduce `saldo`, recalcula `fecha_pago_programada`.
-    - `calcular_bandera_shein()` — amarilla y roja.
-26. Actualizar `app/api/v1/endpoints/pedidos_shein.py`:
+24. [x] Actualizado `app/schemas/pedido_shein.py`:
+    - `sku` corregido (era `id_articulo`, desincronizado de la migración `f6a7b8c9d0e1`).
+    - `SheinClienteRead` expone `bandera` (calculada, no persistida).
+    - `SheinMovimientoCreate` / `SheinMovimientoRead` agregados.
+25. [x] Actualizado `app/services/pedido_shein_service.py`:
+    - `crear_shein_corte()` carga `saldo += monto_pedido` por `shein_cliente` (agrupa por cliente si el corte mezcla varios).
+    - `registrar_abono_shein()` — tope de `saldo`, recalcula `fecha_pago_programada` (mismas 4 fórmulas de frecuencia que Clientes, `REGLAS_NEGOCIO.md §2` regla 4).
+    - `calcular_bandera_shein()` — amarilla y roja (Shein no tiene naranja/negra: sin apartados ni familiares).
+26. [x] Actualizado `app/api/v1/endpoints/pedidos_shein.py`:
     - Endpoint `POST /shein/abono`.
-27. Actualizar `test/test_shein.py` con los nuevos flujos de cartera.
+27. Redactar `test/test_shein.py` con los nuevos flujos de cartera (pedido con `sku`, corte con carga de `saldo`, abono con tope y recálculo de `fecha_pago_programada`, banderas amarilla/roja). **Bloqueado:** falta `conftest.py` y `test/test_clientes.py` de referencia — sin ellos no se puede escribir el test contra los fixtures reales del proyecto.
 
 **Bloque D — Endpoint Apartado (pendiente pre-rediseño)**
 
@@ -383,4 +386,4 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** Bloque C — Módulo Shein. Empezar por actualizar `app/schemas/pedido_shein.py` (`SheinClienteCreate`/`SheinClienteRead` con campos de cartera, `SheinMovimientoCreate`/`SheinMovimientoRead`), luego `app/services/pedido_shein_service.py` (carga de `saldo` al guardar corte, `registrar_abono_shein()`, `calcular_bandera_shein()` amarilla/roja) y finalmente exponer `POST /shein/abono` en `app/api/v1/endpoints/pedidos_shein.py`.
+**Siguiente paso inmediato:** Bloque C — Módulo Shein, tarea 27 (única pendiente). Subir `conftest.py` y `test/test_clientes.py` (referencia de patrón: fixtures de sesión de BD, `TestClient`, override de `get_current_user`) para redactar `test/test_shein.py` contra la infraestructura real de pruebas del proyecto. Con eso en verde, Bloque C queda completo y el siguiente es Bloque D (Endpoint Apartado).

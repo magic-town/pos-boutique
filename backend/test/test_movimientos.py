@@ -1,16 +1,16 @@
 """
 Tests del módulo Movimientos (Panel Principal): contado, abono, gasto,
-apartado (uno y varios artículos), forma_pago, saldo_resultante, y
-cancelar_movimiento() -- incluye los 2 gaps cerrados esta sesión
-(reversión de inventario en 'contado', cancelación del lote completo en
-'apartado') y el fix de saldo_resultante en crear_apartado() (debía
-guardar el saldo TOTAL del cliente, no el saldo_pendiente del lote).
+forma_pago, saldo_resultante, y cancelar_movimiento() -- incluye el gap
+cerrado esta sesión (reversión de inventario en 'contado').
 
-app/api/v1/endpoints/movimientos.py solo expone registrar_movimiento(),
-obtener_movimientos_cliente() y cancelar_movimiento() vía HTTP. No existe
-endpoint para crear_apartado() todavía -- esos casos llaman al service
-directo con `db_session`; el resto pasa por /api/v1/movimientos vía
-`client` + `auth_headers` (mismo patrón de conftest.py / test_clientes.py).
+Todo lo de Apartado (creación, cancelación de artículo individual y
+cancelación del lote completo) vive en test_apartados.py -- separación
+limpia por módulo (REPORT.md §4.2). Este archivo no importa ni referencia
+nada de Apartado.
+
+/api/v1/movimientos expone registrar_movimiento(), obtener_movimientos_cliente()
+y cancelar_movimiento() vía HTTP -- todo pasa por `client` + `auth_headers`
+(mismo patrón de conftest.py / test_clientes.py).
 
 Prefijo asumido: /api/v1/movimientos (consistente con /api/v1/clientes y
 /api/v1/auth/login ya confirmados en conftest.py). Si el prefijo real es
@@ -22,24 +22,13 @@ movimiento_service.py que dice lo contrario está desactualizado -- pendiente
 de corregir por su lado, no se toca aquí.
 """
 
-import pytest
-from fastapi import HTTPException
-
 from app.models.models import (
-    Apartado,
-    ApartadoArticulo,
     CategoriaInventario,
     Cliente,
-    EstatusApartado,
-    EstatusApartadoArticulo,
     EstatusInventario,
-    FormaPago,
     Inventario,
-    Movimiento,
     TipoProducto,
 )
-from app.schemas.apartado import ApartadoArticuloCreate, ApartadoCreate
-from app.services.movimiento_service import cancelar_articulo_apartado, crear_apartado
 
 BASE = "/api/v1/movimientos"
 
@@ -76,24 +65,6 @@ def _fijar_saldo(db_session, id_cliente, saldo):
     cliente.saldo = saldo
     db_session.commit()
     return cliente
-
-
-def _crear_apartado_simple(db_session, id_cliente, precio=300.0, monto_primer_pago=100.0, id_producto=None):
-    data = ApartadoCreate(
-        id_cliente=id_cliente,
-        articulos=[ApartadoArticuloCreate(id_producto=id_producto, precio_producto=precio)],
-        monto_primer_pago=monto_primer_pago,
-        forma_pago=FormaPago.efectivo,
-    )
-    return crear_apartado(db_session, data)
-
-
-def _movimiento_de_apartado(db_session, id_apartado):
-    return (
-        db_session.query(Movimiento)
-        .filter(Movimiento.id_apartado == id_apartado)
-        .first()
-    )
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -151,7 +122,7 @@ class TestContado:
 
 
 class TestCancelarContadoRevierteInventario:
-    """Gap 1 cerrado esta sesión: cancelar_movimiento() no revertía
+    """Gap cerrado esta sesión: cancelar_movimiento() no revertía
     inventario cuando se cancelaba un movimiento 'contado'."""
 
     def test_regresa_stock(self, client, auth_headers, db_session):
@@ -324,183 +295,6 @@ class TestGasto:
         )
         assert resp.status_code == 201, resp.text
         assert resp.json()["descripcion"] is None
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# Apartado -- creación (sin endpoint HTTP todavía: llamada directa al service)
-# ──────────────────────────────────────────────────────────────────────────
-
-class TestCrearApartado:
-    def test_un_articulo_manual_sin_id_producto(self, cliente_prueba, db_session):
-        apartado = _crear_apartado_simple(db_session, cliente_prueba.id_cliente, precio=450.0, monto_primer_pago=100.0)
-
-        assert apartado.saldo_pendiente == 350.0
-        assert apartado.estatus == EstatusApartado.abierto
-        assert len(apartado.articulos) == 1
-        assert apartado.articulos[0].precio_producto == 450.0
-        assert apartado.articulos[0].id_producto is None
-
-    def test_varios_articulos_suma_precios(self, cliente_prueba, db_session):
-        p1 = _crear_producto(db_session, stock=1, precio_venta=300)
-        data = ApartadoCreate(
-            id_cliente=cliente_prueba.id_cliente,
-            articulos=[
-                ApartadoArticuloCreate(id_producto=p1.id_producto, precio_producto=None),
-                ApartadoArticuloCreate(id_producto=None, precio_producto=200.0),
-            ],
-            monto_primer_pago=100.0,
-            forma_pago=FormaPago.efectivo,
-        )
-        apartado = crear_apartado(db_session, data)
-
-        assert apartado.saldo_pendiente == 400.0  # (300 + 200) - 100
-        assert len(apartado.articulos) == 2
-
-        db_session.refresh(p1)
-        assert p1.estatus == EstatusInventario.apartado
-
-    def test_producto_con_coincidencia_autollena_precio_venta(self, cliente_prueba, db_session):
-        p1 = _crear_producto(db_session, stock=1, precio_venta=777)
-        data = ApartadoCreate(
-            id_cliente=cliente_prueba.id_cliente,
-            # precio_producto manual se ignora: gana el autollenado
-            articulos=[ApartadoArticuloCreate(id_producto=p1.id_producto, precio_producto=1.0)],
-            monto_primer_pago=100.0,
-            forma_pago=FormaPago.efectivo,
-        )
-        apartado = crear_apartado(db_session, data)
-        assert apartado.articulos[0].precio_producto == 777.0
-
-    def test_monto_primer_pago_menor_a_100_rechaza(self):
-        with pytest.raises(ValueError):
-            ApartadoCreate(
-                id_cliente=1,
-                articulos=[ApartadoArticuloCreate(id_producto=None, precio_producto=200.0)],
-                monto_primer_pago=50.0,
-                forma_pago=FormaPago.efectivo,
-            )
-
-    def test_saldo_resultante_es_saldo_total_no_delta(self, cliente_prueba, db_session):
-        """Regresión del bug encontrado y corregido esta sesión."""
-        _fijar_saldo(db_session, cliente_prueba.id_cliente, 500.0)
-
-        apartado = _crear_apartado_simple(db_session, cliente_prueba.id_cliente, precio=300.0, monto_primer_pago=100.0)
-        assert apartado.saldo_pendiente == 200.0  # 300 - 100
-
-        cliente = db_session.query(Cliente).get(cliente_prueba.id_cliente)
-        assert cliente.saldo == 700.0  # 500 previo + 200 del lote
-
-        movimiento = _movimiento_de_apartado(db_session, apartado.id_apartado)
-        # Antes del fix esto guardaba 200.0 (el delta) en vez de 700.0 (el total)
-        assert movimiento.saldo_resultante == 700.0
-
-    def test_cliente_ya_tiene_apartado_abierto_rechaza(self, cliente_prueba, db_session):
-        _crear_apartado_simple(db_session, cliente_prueba.id_cliente)
-
-        with pytest.raises(HTTPException) as exc:
-            _crear_apartado_simple(db_session, cliente_prueba.id_cliente)
-        assert exc.value.status_code == 409
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# Apartado -- cancelar (vía cancelar_movimiento(), sí expuesto por HTTP)
-# ──────────────────────────────────────────────────────────────────────────
-
-class TestCancelarApartado:
-    """Gap 2 cerrado esta sesión: cancelar_movimiento() no contemplaba que
-    el último movimiento del cliente fuera 'apartado'."""
-
-    def test_cancela_lote_completo_varios_articulos(self, client, auth_headers, cliente_prueba, db_session):
-        p1 = _crear_producto(db_session, stock=1, precio_venta=300)
-        p2 = _crear_producto(db_session, stock=1, precio_venta=200)
-        data = ApartadoCreate(
-            id_cliente=cliente_prueba.id_cliente,
-            articulos=[
-                ApartadoArticuloCreate(id_producto=p1.id_producto, precio_producto=None),
-                ApartadoArticuloCreate(id_producto=p2.id_producto, precio_producto=None),
-            ],
-            monto_primer_pago=100.0,
-            forma_pago=FormaPago.efectivo,
-        )
-        apartado = crear_apartado(db_session, data)
-        movimiento = _movimiento_de_apartado(db_session, apartado.id_apartado)
-
-        resp = client.delete(f"{BASE}/{movimiento.id_movimiento}/cancelar", headers=auth_headers)
-        assert resp.status_code == 200, resp.text
-
-        db_session.refresh(apartado)
-        apartado_db = db_session.query(Apartado).get(apartado.id_apartado)
-        assert apartado_db.estatus == EstatusApartado.cancelado
-
-        articulos = (
-            db_session.query(ApartadoArticulo)
-            .filter(ApartadoArticulo.id_apartado == apartado.id_apartado)
-            .all()
-        )
-        assert all(a.estatus_articulo == EstatusApartadoArticulo.cancelado for a in articulos)
-
-        db_session.refresh(p1)
-        db_session.refresh(p2)
-        assert p1.estatus == EstatusInventario.disponible
-        assert p2.estatus == EstatusInventario.disponible
-
-    def test_revierte_saldo_del_cliente(self, client, auth_headers, cliente_prueba, db_session):
-        _fijar_saldo(db_session, cliente_prueba.id_cliente, 500.0)
-        apartado = _crear_apartado_simple(db_session, cliente_prueba.id_cliente, precio=300.0, monto_primer_pago=100.0)
-
-        cliente = db_session.query(Cliente).get(cliente_prueba.id_cliente)
-        assert cliente.saldo == 700.0
-
-        movimiento = _movimiento_de_apartado(db_session, apartado.id_apartado)
-        resp = client.delete(f"{BASE}/{movimiento.id_movimiento}/cancelar", headers=auth_headers)
-        assert resp.status_code == 200, resp.text
-
-        db_session.refresh(cliente)
-        assert cliente.saldo == 500.0
-
-    def test_no_permite_cancelar_si_ya_hubo_abono(self, client, auth_headers, cliente_prueba, db_session):
-        apartado = _crear_apartado_simple(db_session, cliente_prueba.id_cliente, precio=300.0, monto_primer_pago=100.0)
-        movimiento = _movimiento_de_apartado(db_session, apartado.id_apartado)
-
-        client.post(
-            BASE,
-            json={"operacion": "abono", "id_cliente": cliente_prueba.id_cliente, "monto": 50, "forma_pago": "efectivo"},
-            headers=auth_headers,
-        )
-
-        resp = client.delete(f"{BASE}/{movimiento.id_movimiento}/cancelar", headers=auth_headers)
-        assert resp.status_code == 409
-
-    def test_no_reabre_articulos_ya_cancelados_manualmente(self, client, auth_headers, cliente_prueba, db_session):
-        """Si el cliente ya canceló 1 de 2 artículos vía
-        cancelar_articulo_apartado() antes de deshacer todo el movimiento,
-        ese artículo no debe tocarse de nuevo -- solo los que seguían
-        'vigente'."""
-        p1 = _crear_producto(db_session, stock=1, precio_venta=300)
-        p2 = _crear_producto(db_session, stock=1, precio_venta=200)
-        data = ApartadoCreate(
-            id_cliente=cliente_prueba.id_cliente,
-            articulos=[
-                ApartadoArticuloCreate(id_producto=p1.id_producto, precio_producto=None),
-                ApartadoArticuloCreate(id_producto=p2.id_producto, precio_producto=None),
-            ],
-            monto_primer_pago=100.0,
-            forma_pago=FormaPago.efectivo,
-        )
-        apartado = crear_apartado(db_session, data)
-        articulo_p1 = next(a for a in apartado.articulos if a.id_producto == p1.id_producto)
-        cancelar_articulo_apartado(db_session, articulo_p1.id_apartado_articulo)
-
-        movimiento = _movimiento_de_apartado(db_session, apartado.id_apartado)
-        resp = client.delete(f"{BASE}/{movimiento.id_movimiento}/cancelar", headers=auth_headers)
-        assert resp.status_code == 200, resp.text
-
-        articulos = (
-            db_session.query(ApartadoArticulo)
-            .filter(ApartadoArticulo.id_apartado == apartado.id_apartado)
-            .all()
-        )
-        assert all(a.estatus_articulo == EstatusApartadoArticulo.cancelado for a in articulos)
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -8,11 +8,14 @@
 > saber qué hacer a continuación; solo pide otro archivo cuando algo no se
 > pueda inferir de aquí (ver §6).
 >
-> **Ánimo actual (Momentum):** ¡Excelente! La fundación de datos está consolidada,
-> el Bloque B — Módulo Clientes está cerrado (76/76 en verde) y el Bloque C —
-> Módulo Shein también: `test/test_shein.py` en verde (63/63), incluyendo el
-> endpoint `POST /shein/abono` que faltaba exponer en el router (schema y
-> service ya existían, solo no estaba conectado). Siguiente: Bloque D (ver §6).
+> **Ánimo actual (Momentum):** ¡Excelente! Bloque D — Endpoint Apartado
+> cerrado: `app/api/v1/endpoints/apartados.py` creado (3 rutas: `POST
+> /apartados`, `GET /apartados/abierto`, `DELETE
+> /apartados/articulos/{id}/cancelar`) y registrado en `main.py`.
+> `test/test_apartados.py` se separó de `test_movimientos.py` como archivo
+> independiente (32 tests, cobertura service + HTTP) — `test_movimientos.py`
+> quedó limpio de Apartado (18 tests). Siguiente: Bloque E — Consulta
+> Finanzas (ver §6).
 >
 > **No es bitácora de cambios.** Si un bug se corrige y el estado resultante
 > ya queda reflejado en las decisiones/código/tests de este documento, no se
@@ -284,7 +287,8 @@ movimientos.id_apartado     FK → apartados, nullable
 | `test/test_inventario.py`   | Inventario  | ✅ 19/19 en verde     |
 | `test/test_shein.py`        | Shein       | ✅ 63/63 en verde     |
 | `test/test_clientes.py`     | Clientes    | ✅ 76/76 en verde     |
-| `test/test_movimientos.py`  | Movimientos | ✅ 28/28 en verde     |
+| `test/test_movimientos.py`  | Movimientos | ✅ 18/18 en verde — Apartado migrado a test_apartados.py |
+| `test/test_apartados.py`    | Apartado    | ✅ 32/32 en verde — archivo independiente, service + HTTP |
 | `test/test_apartados.py`    | Apartados   | ✅ 12/12 en verde     |
 | `test/test_autenticacion.py`| Auth        | ✅ 59/59 en verde     |
 | `test/test_recargas.py`     | Recargas    | ✅ 17/17 en verde     |
@@ -294,7 +298,6 @@ movimientos.id_apartado     FK → apartados, nullable
 
 | Módulo / Funcionalidad       | Spec disponible                                    |
 | ---------------------------- | -------------------------------------------------- |
-| Endpoint Apartado            | `module_movimientos.md` — servicio existe, endpoint no. `app/api/v1/endpoints/apartados.py` no existe. |
 | Consulta Finanzas            | `module_consulta_finanzas.md` ✅ (creado en rediseño) |
 | Espejo Android               | `docs/spec/SPEC_STACK_ANDROID.md` ✅ (spec ya definida). Ver §5. |
 
@@ -305,8 +308,8 @@ movimientos.id_apartado     FK → apartados, nullable
 ### Cerrados ✅
 
 Niveles 1-4 completos. Auth, Setting, todos los módulos existentes con test en verde.
-Bloque A (modelo de datos), Bloque B (Módulo Clientes) y Bloque C (Módulo Shein)
-del rediseño, completos. Ver §4.2 para el detalle.
+Bloque A (modelo de datos), Bloque B (Módulo Clientes), Bloque C (Módulo Shein)
+y Bloque D (Endpoint Apartado) del rediseño, completos. Ver §4.2 para el detalle.
 
 ### Tareas pendientes — por orden de ejecución
 
@@ -348,14 +351,22 @@ del rediseño, completos. Ver §4.2 para el detalle.
     - Endpoint `POST /shein/abono`.
 27. [x] Redactado `test/test_shein.py` contra la API real — 63/63 en verde. Cubre pedido con `sku`, corte (autoconfirmación, cascada de cancelación total, agrupación de saldo por cliente), abono (tope de saldo, recálculo de `fecha_pago_programada` en sus 4 variantes de frecuencia) y banderas amarilla/roja.
 
-**Bloque D — Endpoint Apartado (pendiente pre-rediseño)**
+**Bloque D — Endpoint Apartado (✅ COMPLETADO)**
 
-28. Crear `app/api/v1/endpoints/apartados.py` — exponer `crear_apartado()` del servicio existente.
-29. Registrar el router en `main.py`.
+28. [x] Creado `app/api/v1/endpoints/apartados.py` — 3 rutas: `POST /apartados`
+    (crear lote), `GET /apartados/abierto` (consulta en vivo para Abono),
+    `DELETE /apartados/articulos/{id}/cancelar` (cancelar artículo suelto).
+    La cancelación del lote completo sigue viviendo en `DELETE
+    /movimientos/{id}/cancelar` (no se duplica ahí — mismo mecanismo que
+    abono/contado).
+29. [x] Registrado el router en `main.py`.
+30. [x] `test/test_apartados.py` separado de `test_movimientos.py` como
+    archivo independiente — cobertura service + HTTP de las 3 rutas nuevas,
+    más lo migrado de `test_movimientos.py` (creación, cancelación de lote).
 
 **Bloque E — Módulo Consulta Finanzas**
 
-30. Construir spec → código → test:
+31. Construir spec → código → test:
     - Schema de solo lectura.
     - Service con las 3 consultas (Cortes por periodo, Ventas por segmento, Detalle tienda).
     - Endpoints `GET /consulta-finanzas/cortes`, `GET /consulta-finanzas/segmentos`, `GET /consulta-finanzas/detalle`.
@@ -363,15 +374,15 @@ del rediseño, completos. Ver §4.2 para el detalle.
 
 **Bloque F — Espejo Android**
 
-31. Actualizar `docs/ARQUITECTURA.md`: el sistema deja de ser local-only; documentar
+32. Actualizar `docs/ARQUITECTURA.md`: el sistema deja de ser local-only; documentar
     el nuevo modelo de sincronización multi-dispositivo.
-32. [x] Spec técnica del espejo Android definida en `docs/spec/SPEC_STACK_ANDROID.md`
+33. [x] Spec técnica del espejo Android definida en `docs/spec/SPEC_STACK_ANDROID.md`
     (stack, mecanismo de sincronización con el backend FastAPI, alcance funcional).
-33. Implementar según `docs/spec/SPEC_STACK_ANDROID.md`.
+34. Implementar según `docs/spec/SPEC_STACK_ANDROID.md`.
 
 **Bloque G — Checklist real**
 
-34. Criterio de completado de la sesión de trabajo: pipeline + test en verde para cada bloque.
+35. Criterio de completado de la sesión de trabajo: pipeline + test en verde para cada bloque.
 
 ---
 
@@ -384,4 +395,4 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** Bloque D — Endpoint Apartado (tareas 28-29). Crear `app/api/v1/endpoints/apartados.py` exponiendo `crear_apartado()` del servicio ya existente, y registrar el router en `main.py`. Sin bloqueos conocidos — el servicio y la spec (`module_movimientos.md`) ya están disponibles.
+**Siguiente paso inmediato:** Bloque E — Módulo Consulta Finanzas. Construir spec → código → test: schema de solo lectura, service con las 3 consultas (Cortes por periodo, Ventas por segmento, Detalle tienda), endpoints `GET /consulta-finanzas/{cortes,segmentos,detalle}`, y `test/test_consulta_finanzas.py`. Spec ya disponible en `module_consulta_finanzas.md`. Sin bloqueos conocidos.

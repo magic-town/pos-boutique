@@ -1,31 +1,41 @@
 """
-Tests del módulo Apartado que NO están ya cubiertos en test_movimientos.py
-(REGLAS_NEGOCIO.md §5, module_movimientos.md).
+Tests del módulo Apartado (REGLAS_NEGOCIO.md §5, module_movimientos.md).
 
-test_movimientos.py ya cubre, dentro de sus propias clases TestCrearApartado
-y TestCancelarApartado: suma de precios de varios artículos, autollenado de
-precio_venta cuando hay coincidencia en inventario, el mínimo de $100 en
-monto_primer_pago, saldo_resultante = saldo total (no delta), el rechazo de
-un segundo apartado abierto, y la cancelación del lote completo vía
-cancelar_movimiento(). Ese archivo no se toca ni se duplica aquí.
+Cobertura de este archivo:
+- Validaciones de schema a nivel de artículo individual (ApartadoArticuloCreate)
+  y de lote (ApartadoCreate).
+- Resolución de precio en crear_apartado() cuando id_producto NO tiene
+  coincidencia en inventario (_DISPONIBLES).
+- Creación del lote (crear_apartado()): reglas de negocio -- suma de precios
+  de varios artículos, autollenado de precio_venta cuando hay coincidencia,
+  mínimo $100 en monto_primer_pago, saldo_resultante = saldo TOTAL del
+  cliente (no el delta del lote), rechazo de un segundo apartado abierto.
+  Cubierta a nivel service (llamada directa) y a nivel HTTP (POST /apartados,
+  contrato de la API).
+- obtener_apartado_abierto() -- usado por Abono para saldo_pendiente en vivo.
+  Cubierta a nivel service y vía GET /apartados/abierto.
+- Ciclo de vida completo de cancelar_articulo_apartado() (REGLAS_NEGOCIO.md
+  §5 regla 6: cancelar 1 artículo no toca saldo_pendiente ni clientes.saldo,
+  y el lote nunca se da de baja como unidad por esta vía). Cubierta a nivel
+  service y vía DELETE /apartados/articulos/{id}/cancelar.
+- Cancelación del LOTE completo (movimiento 'apartado' original) -- se hace
+  vía DELETE /movimientos/{id}/cancelar, la única puerta que existe para
+  deshacer el lote como unidad (cancelar_movimiento() en
+  app/services/movimiento_service.py). El comportamiento probado es 100% de
+  Apartado, por eso vive aquí y no en test_movimientos.py, aunque la URL que
+  se golpea sea la de /movimientos.
 
-Este archivo cubre lo que queda: validaciones de schema a nivel de artículo
-individual (ApartadoArticuloCreate), la resolución de precio en
-crear_apartado() cuando id_producto NO tiene coincidencia en inventario
-(_DISPONIBLES), obtener_apartado_abierto() (usado por Abono para saldo_pendiente
-en vivo), y el ciclo de vida completo de cancelar_articulo_apartado()
-(REGLAS_NEGOCIO.md §5, regla 6: cancelar 1 artículo no toca saldo_pendiente
-ni clientes.saldo, y el lote nunca se da de baja como unidad por esta vía).
-
-No existe endpoint HTTP para crear_apartado() ni para cancelar_articulo_apartado()
-todavía (mismo comentario que test_movimientos.py) -- se llama directo al
-service con `db_session`.
+Migrado desde test_movimientos.py (clases TestCrearApartado y
+TestCancelarApartado) ahora que existe app/api/v1/endpoints/apartados.py --
+separación limpia por módulo (REPORT.md §4.2). test_movimientos.py ya no
+importa ni referencia nada de Apartado.
 """
 
 import pytest
 from fastapi import HTTPException
 
 from app.models.models import (
+    Apartado,
     ApartadoArticulo,
     CategoriaInventario,
     Cliente,
@@ -34,6 +44,7 @@ from app.models.models import (
     EstatusInventario,
     FormaPago,
     Inventario,
+    Movimiento,
     TipoProducto,
 )
 from app.schemas.apartado import ApartadoArticuloCreate, ApartadoCreate
@@ -43,10 +54,13 @@ from app.services.movimiento_service import (
     obtener_apartado_abierto,
 )
 
+BASE = "/api/v1/apartados"
+MOVIMIENTOS_BASE = "/api/v1/movimientos"  # cancelar_movimiento() -- única puerta para deshacer el lote
+
 
 # ──────────────────────────────────────────────────────────────────────────
-# Helpers locales (mismo criterio que test_movimientos.py: cada archivo de
-# test define los suyos, no se importan entre archivos)
+# Helpers locales (cada archivo de test define los suyos, no se importan
+# entre archivos -- mismo criterio que test_movimientos.py)
 # ──────────────────────────────────────────────────────────────────────────
 
 def _crear_producto(db_session, stock=3, precio_venta=500, estatus=None):
@@ -64,7 +78,15 @@ def _crear_producto(db_session, stock=3, precio_venta=500, estatus=None):
     return producto
 
 
+def _fijar_saldo(db_session, id_cliente, saldo):
+    cliente = db_session.query(Cliente).get(id_cliente)
+    cliente.saldo = saldo
+    db_session.commit()
+    return cliente
+
+
 def _crear_apartado_simple(db_session, id_cliente, precio=300.0, monto_primer_pago=100.0, id_producto=None):
+    """Nivel service -- llamada directa a crear_apartado()."""
     data = ApartadoCreate(
         id_cliente=id_cliente,
         articulos=[ApartadoArticuloCreate(id_producto=id_producto, precio_producto=precio)],
@@ -72,6 +94,25 @@ def _crear_apartado_simple(db_session, id_cliente, precio=300.0, monto_primer_pa
         forma_pago=FormaPago.efectivo,
     )
     return crear_apartado(db_session, data)
+
+
+def _payload_apartado(id_cliente, articulos, monto_primer_pago=100.0, forma_pago="efectivo"):
+    """Nivel HTTP -- body JSON para POST /apartados. 'articulos' es una lista
+    de dicts {"id_producto": ..., "precio_producto": ...}."""
+    return {
+        "id_cliente": id_cliente,
+        "articulos": articulos,
+        "monto_primer_pago": monto_primer_pago,
+        "forma_pago": forma_pago,
+    }
+
+
+def _movimiento_de_apartado(db_session, id_apartado):
+    return (
+        db_session.query(Movimiento)
+        .filter(Movimiento.id_apartado == id_apartado)
+        .first()
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -145,8 +186,162 @@ class TestResolucionPrecio:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Creación del lote -- reglas de negocio (nivel service)
+# Migrado desde test_movimientos.py::TestCrearApartado
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestCrearApartado:
+    def test_un_articulo_manual_sin_id_producto(self, cliente_prueba, db_session):
+        apartado = _crear_apartado_simple(db_session, cliente_prueba.id_cliente, precio=450.0, monto_primer_pago=100.0)
+
+        assert apartado.saldo_pendiente == 350.0
+        assert apartado.estatus == EstatusApartado.abierto
+        assert len(apartado.articulos) == 1
+        assert apartado.articulos[0].precio_producto == 450.0
+        assert apartado.articulos[0].id_producto is None
+
+    def test_varios_articulos_suma_precios(self, cliente_prueba, db_session):
+        p1 = _crear_producto(db_session, stock=1, precio_venta=300)
+        data = ApartadoCreate(
+            id_cliente=cliente_prueba.id_cliente,
+            articulos=[
+                ApartadoArticuloCreate(id_producto=p1.id_producto, precio_producto=None),
+                ApartadoArticuloCreate(id_producto=None, precio_producto=200.0),
+            ],
+            monto_primer_pago=100.0,
+            forma_pago=FormaPago.efectivo,
+        )
+        apartado = crear_apartado(db_session, data)
+
+        assert apartado.saldo_pendiente == 400.0  # (300 + 200) - 100
+        assert len(apartado.articulos) == 2
+
+        db_session.refresh(p1)
+        assert p1.estatus == EstatusInventario.apartado
+
+    def test_producto_con_coincidencia_autollena_precio_venta(self, cliente_prueba, db_session):
+        p1 = _crear_producto(db_session, stock=1, precio_venta=777)
+        data = ApartadoCreate(
+            id_cliente=cliente_prueba.id_cliente,
+            # precio_producto manual se ignora: gana el autollenado
+            articulos=[ApartadoArticuloCreate(id_producto=p1.id_producto, precio_producto=1.0)],
+            monto_primer_pago=100.0,
+            forma_pago=FormaPago.efectivo,
+        )
+        apartado = crear_apartado(db_session, data)
+        assert apartado.articulos[0].precio_producto == 777.0
+
+    def test_monto_primer_pago_menor_a_100_rechaza(self):
+        with pytest.raises(ValueError):
+            ApartadoCreate(
+                id_cliente=1,
+                articulos=[ApartadoArticuloCreate(id_producto=None, precio_producto=200.0)],
+                monto_primer_pago=50.0,
+                forma_pago=FormaPago.efectivo,
+            )
+
+    def test_saldo_resultante_es_saldo_total_no_delta(self, cliente_prueba, db_session):
+        """Regresión: crear_apartado() debe guardar en el movimiento el
+        saldo TOTAL del cliente, no el saldo_pendiente del lote."""
+        _fijar_saldo(db_session, cliente_prueba.id_cliente, 500.0)
+
+        apartado = _crear_apartado_simple(db_session, cliente_prueba.id_cliente, precio=300.0, monto_primer_pago=100.0)
+        assert apartado.saldo_pendiente == 200.0  # 300 - 100
+
+        cliente = db_session.query(Cliente).get(cliente_prueba.id_cliente)
+        assert cliente.saldo == 700.0  # 500 previo + 200 del lote
+
+        movimiento = _movimiento_de_apartado(db_session, apartado.id_apartado)
+        assert movimiento.saldo_resultante == 700.0
+
+    def test_cliente_ya_tiene_apartado_abierto_rechaza(self, cliente_prueba, db_session):
+        _crear_apartado_simple(db_session, cliente_prueba.id_cliente)
+
+        with pytest.raises(HTTPException) as exc:
+            _crear_apartado_simple(db_session, cliente_prueba.id_cliente)
+        assert exc.value.status_code == 409
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Creación del lote -- contrato HTTP (POST /apartados)
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestCrearApartadoHTTP:
+    def test_crea_y_devuelve_201(self, client, auth_headers, cliente_prueba):
+        resp = client.post(
+            BASE,
+            json=_payload_apartado(
+                cliente_prueba.id_cliente,
+                [{"id_producto": None, "precio_producto": 450.0}],
+                monto_primer_pago=100.0,
+            ),
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["id_cliente"] == cliente_prueba.id_cliente
+        assert body["saldo_pendiente"] == 350.0
+        assert body["estatus"] == "abierto"
+        assert len(body["articulos"]) == 1
+        assert body["articulos"][0]["precio_producto"] == 450.0
+
+    def test_varios_articulos_suma_precios(self, client, auth_headers, cliente_prueba, db_session):
+        p1 = _crear_producto(db_session, stock=1, precio_venta=300)
+        resp = client.post(
+            BASE,
+            json=_payload_apartado(
+                cliente_prueba.id_cliente,
+                [
+                    {"id_producto": p1.id_producto, "precio_producto": None},
+                    {"id_producto": None, "precio_producto": 200.0},
+                ],
+                monto_primer_pago=100.0,
+            ),
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["saldo_pendiente"] == 400.0  # (300 + 200) - 100
+
+    def test_monto_primer_pago_menor_a_100_rechaza_422(self, client, auth_headers, cliente_prueba):
+        resp = client.post(
+            BASE,
+            json=_payload_apartado(
+                cliente_prueba.id_cliente,
+                [{"id_producto": None, "precio_producto": 200.0}],
+                monto_primer_pago=50.0,
+            ),
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_cliente_ya_tiene_apartado_abierto_rechaza_409(self, client, auth_headers, cliente_prueba):
+        payload = _payload_apartado(
+            cliente_prueba.id_cliente,
+            [{"id_producto": None, "precio_producto": 200.0}],
+            monto_primer_pago=100.0,
+        )
+        resp1 = client.post(BASE, json=payload, headers=auth_headers)
+        assert resp1.status_code == 201, resp1.text
+
+        resp2 = client.post(BASE, json=payload, headers=auth_headers)
+        assert resp2.status_code == 409
+
+    def test_cliente_inexistente_404(self, client, auth_headers):
+        resp = client.post(
+            BASE,
+            json=_payload_apartado(
+                999999,
+                [{"id_producto": None, "precio_producto": 200.0}],
+                monto_primer_pago=100.0,
+            ),
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # obtener_apartado_abierto() -- usado por Abono para mostrar saldo_pendiente
-# en vivo al buscar cliente
+# en vivo al buscar cliente (nivel service)
 # ──────────────────────────────────────────────────────────────────────────
 
 class TestObtenerApartadoAbierto:
@@ -161,7 +356,26 @@ class TestObtenerApartadoAbierto:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# cancelar_articulo_apartado() -- REGLAS_NEGOCIO.md §5, regla 6
+# obtener_apartado_abierto() -- contrato HTTP (GET /apartados/abierto)
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestApartadoAbiertoHTTP:
+    def test_devuelve_200_con_saldo_pendiente(self, client, auth_headers, cliente_prueba, db_session):
+        apartado = _crear_apartado_simple(db_session, cliente_prueba.id_cliente, precio=300.0, monto_primer_pago=100.0)
+
+        resp = client.get(f"{BASE}/abierto", params={"id_cliente": cliente_prueba.id_cliente}, headers=auth_headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["id_apartado"] == apartado.id_apartado
+        assert body["saldo_pendiente"] == 200.0
+
+    def test_404_si_no_tiene_apartado_abierto(self, client, auth_headers, cliente_prueba):
+        resp = client.get(f"{BASE}/abierto", params={"id_cliente": cliente_prueba.id_cliente}, headers=auth_headers)
+        assert resp.status_code == 404
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# cancelar_articulo_apartado() -- REGLAS_NEGOCIO.md §5, regla 6 (nivel service)
 # ──────────────────────────────────────────────────────────────────────────
 
 class TestCancelarArticuloApartado:
@@ -231,8 +445,8 @@ class TestCancelarArticuloApartado:
         """El lote (apartados) nunca se da de baja como unidad por esta vía
         -- sigue 'abierto' hasta que saldo_pendiente llegue a 0 vía abonos,
         sin importar cuántos artículos se hayan cancelado. Cancelar el lote
-        completo como unidad es responsabilidad de cancelar_movimiento(),
-        fuera del alcance de este archivo (ver test_movimientos.py)."""
+        completo como unidad es responsabilidad de cancelar_movimiento()
+        (ver TestCancelarApartado más abajo)."""
         p1 = _crear_producto(db_session, stock=1, precio_venta=300)
         p2 = _crear_producto(db_session, stock=1, precio_venta=200)
         data = ApartadoCreate(
@@ -251,6 +465,149 @@ class TestCancelarArticuloApartado:
 
         db_session.refresh(apartado)
         assert apartado.estatus == EstatusApartado.abierto
+
+        articulos = (
+            db_session.query(ApartadoArticulo)
+            .filter(ApartadoArticulo.id_apartado == apartado.id_apartado)
+            .all()
+        )
+        assert all(a.estatus_articulo == EstatusApartadoArticulo.cancelado for a in articulos)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# cancelar_articulo_apartado() -- contrato HTTP
+# (DELETE /apartados/articulos/{id_apartado_articulo}/cancelar)
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestCancelarArticuloApartadoHTTP:
+    def test_cancela_y_regresa_producto_a_disponible(self, client, auth_headers, cliente_prueba, db_session):
+        p1 = _crear_producto(db_session, stock=1, precio_venta=300)
+        apartado = _crear_apartado_simple(
+            db_session, cliente_prueba.id_cliente, id_producto=p1.id_producto, precio=None
+        )
+        articulo = apartado.articulos[0]
+
+        resp = client.delete(
+            f"{BASE}/articulos/{articulo.id_apartado_articulo}/cancelar", headers=auth_headers
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["estatus_articulo"] == "cancelado"
+
+        db_session.refresh(p1)
+        assert p1.estatus == EstatusInventario.disponible
+
+    def test_rechaza_cancelar_articulo_ya_cancelado_400(self, client, auth_headers, cliente_prueba, db_session):
+        p1 = _crear_producto(db_session, stock=1, precio_venta=300)
+        apartado = _crear_apartado_simple(
+            db_session, cliente_prueba.id_cliente, id_producto=p1.id_producto, precio=None
+        )
+        articulo = apartado.articulos[0]
+        client.delete(f"{BASE}/articulos/{articulo.id_apartado_articulo}/cancelar", headers=auth_headers)
+
+        resp = client.delete(
+            f"{BASE}/articulos/{articulo.id_apartado_articulo}/cancelar", headers=auth_headers
+        )
+        assert resp.status_code == 400
+
+    def test_articulo_inexistente_404(self, client, auth_headers):
+        resp = client.delete(f"{BASE}/articulos/999999/cancelar", headers=auth_headers)
+        assert resp.status_code == 404
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Cancelación del LOTE completo -- vía DELETE /movimientos/{id}/cancelar
+# (cancelar_movimiento() maneja 'apartado' como caso especial: no existe, ni
+# tiene por qué existir, una puerta de cancelación de lote dentro de
+# /apartados -- el lote se deshace deshaciendo el movimiento de caja que lo
+# originó, mismo criterio que abono/contado)
+# Migrado desde test_movimientos.py::TestCancelarApartado
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestCancelarApartado:
+    def test_cancela_lote_completo_varios_articulos(self, client, auth_headers, cliente_prueba, db_session):
+        p1 = _crear_producto(db_session, stock=1, precio_venta=300)
+        p2 = _crear_producto(db_session, stock=1, precio_venta=200)
+        data = ApartadoCreate(
+            id_cliente=cliente_prueba.id_cliente,
+            articulos=[
+                ApartadoArticuloCreate(id_producto=p1.id_producto, precio_producto=None),
+                ApartadoArticuloCreate(id_producto=p2.id_producto, precio_producto=None),
+            ],
+            monto_primer_pago=100.0,
+            forma_pago=FormaPago.efectivo,
+        )
+        apartado = crear_apartado(db_session, data)
+        movimiento = _movimiento_de_apartado(db_session, apartado.id_apartado)
+
+        resp = client.delete(f"{MOVIMIENTOS_BASE}/{movimiento.id_movimiento}/cancelar", headers=auth_headers)
+        assert resp.status_code == 200, resp.text
+
+        db_session.refresh(apartado)
+        apartado_db = db_session.query(Apartado).get(apartado.id_apartado)
+        assert apartado_db.estatus == EstatusApartado.cancelado
+
+        articulos = (
+            db_session.query(ApartadoArticulo)
+            .filter(ApartadoArticulo.id_apartado == apartado.id_apartado)
+            .all()
+        )
+        assert all(a.estatus_articulo == EstatusApartadoArticulo.cancelado for a in articulos)
+
+        db_session.refresh(p1)
+        db_session.refresh(p2)
+        assert p1.estatus == EstatusInventario.disponible
+        assert p2.estatus == EstatusInventario.disponible
+
+    def test_revierte_saldo_del_cliente(self, client, auth_headers, cliente_prueba, db_session):
+        _fijar_saldo(db_session, cliente_prueba.id_cliente, 500.0)
+        apartado = _crear_apartado_simple(db_session, cliente_prueba.id_cliente, precio=300.0, monto_primer_pago=100.0)
+
+        cliente = db_session.query(Cliente).get(cliente_prueba.id_cliente)
+        assert cliente.saldo == 700.0
+
+        movimiento = _movimiento_de_apartado(db_session, apartado.id_apartado)
+        resp = client.delete(f"{MOVIMIENTOS_BASE}/{movimiento.id_movimiento}/cancelar", headers=auth_headers)
+        assert resp.status_code == 200, resp.text
+
+        db_session.refresh(cliente)
+        assert cliente.saldo == 500.0
+
+    def test_no_permite_cancelar_si_ya_hubo_abono(self, client, auth_headers, cliente_prueba, db_session):
+        apartado = _crear_apartado_simple(db_session, cliente_prueba.id_cliente, precio=300.0, monto_primer_pago=100.0)
+        movimiento = _movimiento_de_apartado(db_session, apartado.id_apartado)
+
+        client.post(
+            MOVIMIENTOS_BASE,
+            json={"operacion": "abono", "id_cliente": cliente_prueba.id_cliente, "monto": 50, "forma_pago": "efectivo"},
+            headers=auth_headers,
+        )
+
+        resp = client.delete(f"{MOVIMIENTOS_BASE}/{movimiento.id_movimiento}/cancelar", headers=auth_headers)
+        assert resp.status_code == 409
+
+    def test_no_reabre_articulos_ya_cancelados_manualmente(self, client, auth_headers, cliente_prueba, db_session):
+        """Si el cliente ya canceló 1 de 2 artículos vía
+        cancelar_articulo_apartado() antes de deshacer todo el movimiento,
+        ese artículo no debe tocarse de nuevo -- solo los que seguían
+        'vigente'."""
+        p1 = _crear_producto(db_session, stock=1, precio_venta=300)
+        p2 = _crear_producto(db_session, stock=1, precio_venta=200)
+        data = ApartadoCreate(
+            id_cliente=cliente_prueba.id_cliente,
+            articulos=[
+                ApartadoArticuloCreate(id_producto=p1.id_producto, precio_producto=None),
+                ApartadoArticuloCreate(id_producto=p2.id_producto, precio_producto=None),
+            ],
+            monto_primer_pago=100.0,
+            forma_pago=FormaPago.efectivo,
+        )
+        apartado = crear_apartado(db_session, data)
+        articulo_p1 = next(a for a in apartado.articulos if a.id_producto == p1.id_producto)
+        cancelar_articulo_apartado(db_session, articulo_p1.id_apartado_articulo)
+
+        movimiento = _movimiento_de_apartado(db_session, apartado.id_apartado)
+        resp = client.delete(f"{MOVIMIENTOS_BASE}/{movimiento.id_movimiento}/cancelar", headers=auth_headers)
+        assert resp.status_code == 200, resp.text
 
         articulos = (
             db_session.query(ApartadoArticulo)

@@ -1,169 +1,121 @@
-# Casos de prueba — Shein
+# Casos de prueba — Módulo Shein
 
-Espejo en lenguaje humano de `test/test_shein.py`. Mapeado a
-`docs/spec/module_shein.md`. Reemplaza la versión anterior de este
-documento, que excluía a propósito los casos de `INC-15/16/17` porque
-todavía no estaban corregidos — ya lo están, así que aquí sí se cubren.
+Espejo en lenguaje humano de `test/test_shein.py` (Bloque C, tarea 27).
+63 casos, agrupados en las mismas 7 clases del archivo de test. Cada fila
+describe qué hace el caso y qué se espera del sistema — no el código.
 
-Naturaleza del módulo: la tienda compra en Shein a nombre del cliente y le
-cobra al mismo precio de la app, siempre de contado, sin devoluciones. Sin
-concepto de "alternativa" como en Pedidos — cada artículo es un renglón
-independiente, hasta 4 por pedido.
-
-Dos montos por pedido que **no deben confundirse** (aparecen juntos en cada
-caso de abajo donde aplica):
-- `monto_pedido_vigente` — suma de lo capturado en artículos aún `vigente`
-  (pre-corte, "cuánto se ve que va a costar").
-- `monto_pedido` — suma de artículos ya `confirmado` (post-corte, "cuánto
-  realmente se cobra"). Antes de pasar por Corte, este campo vale `0`
-  aunque el pedido ya tenga precio — no es un error, es el estado esperado.
+Convención: todos los casos parten de un cliente Shein y/o pedido creados
+al vuelo (sufijo único por corrida), corriendo contra la API real
+(`TestClient` + login admin de `conftest.py`).
 
 ---
 
-## Flujo 1 — Registrar Cliente Shein
+## 1. Cliente Shein (`TestClienteShein` — 7 casos)
 
-### `test_alta_basica`
-Da de alta un cliente con nombre, colonia y teléfono. Confirma que regresa con `id_shein_cliente` asignado.
+| # | Caso | Qué se espera |
+|---|------|----------------|
+| 1 | Crear cliente con datos válidos | Se crea con `saldo=0`, `estatus=inactivo`, sin `fecha_pago_programada` y sin `bandera`. |
+| 2 | Frecuencia "día específico del mes" sin indicar el día | La API rechaza la solicitud (422): el día es obligatorio en ese caso. |
+| 3 | Frecuencia "otro" sin indicar el detalle | La API rechaza la solicitud (422): el detalle es obligatorio en ese caso. |
+| 4 | Teléfono que no tiene 10 dígitos | La API rechaza la solicitud (422). |
+| 5 | Nombre vacío (solo espacios) | La API rechaza la solicitud (422). |
+| 6 | Listar clientes después de crear uno | El cliente recién creado aparece en el listado. |
+| 7 | Un cliente Shein no requiere ni expone `id_cliente` | Confirma que `shein_clientes` es independiente del catálogo de `clientes` — no hay relación entre ambos. |
 
-### `test_nombre_vacio_rechazado`
-Un nombre de puros espacios en blanco no cuenta como capturado — se rechaza (422).
+## 2. Pedido Shein (`TestPedidoShein` — 9 casos)
 
-### `test_telefono_9_digitos_rechazado` / `test_telefono_11_digitos_rechazado`
-El teléfono debe tener exactamente 10 dígitos — ni menos ni más (422 en ambos casos).
+| # | Caso | Qué se espera |
+|---|------|----------------|
+| 1 | Crear pedido con 1 artículo | Se crea correctamente, sin corte asignado (`id_shein_corte=null`) y sin estatus de pago aún. |
+| 2 | Crear pedido con 4 artículos (máximo permitido) | Se crea correctamente con los 4 artículos. |
+| 3 | Intentar crear pedido con 5 artículos | La API rechaza la solicitud (422): supera el máximo de 4. |
+| 4 | Intentar crear pedido sin artículos | La API rechaza la solicitud (422): se requiere al menos 1. |
+| 5 | Crear pedido para un cliente que no existe | La API responde 404. |
+| 6 | Crear pedido con un artículo sin `sku` | La API rechaza la solicitud (422): el SKU es obligatorio en cada renglón. |
+| 7 | Consultar el monto de un pedido recién creado, antes del corte | `monto_pedido` debe ser 0 (nada está "confirmado" todavía), pero `monto_pedido_vigente` sí refleja el monto capturado en los artículos. |
+| 8 | Listar pedidos filtrando por `sin_corte=true` | El pedido recién creado (que aún no tiene corte) aparece en el listado. |
+| 9 | Listar pedidos filtrando por cliente | Solo aparecen los pedidos de ese cliente, ninguno de otro. |
 
-### `test_listar_clientes`
-La lista de clientes Shein regresa ordenada alfabéticamente por nombre.
+## 3. Artículo Shein — agregar y resolver estatus (`TestArticuloShein` — 9 casos)
 
----
+| # | Caso | Qué se espera |
+|---|------|----------------|
+| 1 | Agregar un artículo adicional a un pedido editable (sin corte) | Se agrega y el pedido queda con 2 artículos. |
+| 2 | Intentar agregar un 5º artículo a un pedido que ya tiene 4 | La API rechaza (409): se alcanzó el límite. |
+| 3 | Intentar agregar un artículo a un pedido que ya pasó por corte | La API rechaza (409): un pedido cortado ya no es editable. |
+| 4 | Agregar artículo a un pedido que no existe | La API responde 404. |
+| 5 | Confirmar manualmente un artículo indicando su nuevo precio (`monto_vigente`) | El artículo queda `confirmado` con ese monto vigente registrado. |
+| 6 | Cancelar manualmente un artículo | El artículo queda `cancelado`. |
+| 7 | Confirmar un artículo con `monto_vigente` negativo | La API rechaza la solicitud (422). |
+| 8 | Intentar resolver el estatus de un artículo cuyo pedido ya fue cortado | La API rechaza (409). |
+| 9 | Resolver el estatus de un artículo que no existe | La API responde 404. |
 
-## Flujo 2 — Registrar Pedido Shein
+## 4. Corte Shein (`TestCorteShein` — 13 casos)
 
-### `test_cliente_inexistente_404`
-No se puede registrar un pedido para un `id_shein_cliente` que no existe.
+| # | Caso | Qué se espera |
+|---|------|----------------|
+| 1 | Cortar un pedido cuyo artículo nunca cambió de precio (nadie lo resolvió manualmente) | El artículo se autoconfirma en el corte con su monto original; el corte queda con 1 pedido y la suma correcta; se calcula el cupón (`suma_pedidos − total_ticket`); el saldo del cliente sube por ese monto y su estatus pasa a `activo`; el pedido queda enlazado al corte con `estatus_pago=pago_pendiente` y su `monto_pedido` ya refleja lo cobrado. |
+| 2 | Cortar un pedido cuyo artículo fue confirmado manualmente con un precio distinto | El corte usa el `monto_vigente` capturado en la confirmación, no el monto original del pedido. |
+| 3 | **Cascada de cancelación total**: cortar un pedido cuyos artículos fueron todos cancelados a mano | El corte se crea igualmente pero con `total_pedidos=0` y `suma_pedidos=0`; el pedido **no** queda enlazado al corte (`id_shein_corte` sigue vacío) y por eso sigue apareciendo en el listado `sin_corte=true`; el saldo del cliente no se toca y su estatus permanece `inactivo`. |
+| 4 | *(comportamiento derivado del caso anterior)* Reenviar a un segundo corte el mismo pedido ya totalmente cancelado | Como nunca quedó "en corte" la primera vez, la API lo acepta de nuevo (no da 409) — se documenta este comportamiento actual, sin calificarlo de correcto o incorrecto, y se confirma que no duplica ningún cargo al saldo. |
+| 5 | Cortar un pedido con 2 artículos, uno cancelado y otro dejado sin resolver (autoconfirma) | Solo el artículo que terminó `confirmado` cuenta en la suma del corte; el cancelado se excluye. |
+| 6 | Cortar dos pedidos del mismo cliente en un mismo corte | El corte agrupa ambos; el saldo del cliente se carga **una sola vez** con la suma total, no se duplica por pedido. |
+| 7 | Cortar pedidos de dos clientes distintos en el mismo corte | El saldo de cada cliente se actualiza de forma independiente, sin mezclarse entre ellos. |
+| 8 | Intentar incluir en un corte un pedido que ya fue cortado antes | La API rechaza (409). |
+| 9 | Intentar cortar un pedido que no existe | La API responde 404. |
+| 10 | Enviar una lista mixta de pedidos (uno real + uno inexistente) a un corte | La API responde 404 — el chequeo de existencia tiene prioridad sobre el de "ya cortado". |
+| 11 | Registrar un corte con `total_ticket` en 0 (o negativo) | La API rechaza la solicitud (422). |
+| 12 | Registrar un corte sin ningún pedido en la lista | La API rechaza la solicitud (422): se requiere al menos uno. |
+| 13 | Registrar un corte donde el ticket pagado es mayor a la suma de los pedidos | El cupón calculado puede salir **negativo** — no hay ninguna validación que lo impida, se confirma que el backend no lo bloquea silenciosamente. |
 
-### `test_pedido_sin_articulos_rechazado`
-Un pedido necesita mínimo 1 artículo — con la lista vacía se rechaza (422).
+## 5. Consulta de cortes (`TestConsultaCortes` — 3 casos)
 
-### `test_pedido_con_4_articulos_aceptado`
-El máximo permitido (4 artículos) se acepta sin problema.
+| # | Caso | Qué se espera |
+|---|------|----------------|
+| 1 | Listar todos los cortes después de registrar uno | El corte recién creado aparece en el listado general. |
+| 2 | Consultar el detalle de un corte por su id | Devuelve la información de ese corte específico. |
+| 3 | Consultar el detalle de un corte que no existe | La API responde 404. |
 
-### `test_pedido_con_5_articulos_rechazado`
-Un 5º artículo en la misma creación se rechaza (422) — el límite es un techo real, no una sugerencia.
+## 6. Abono Shein (`TestAbonoShein` — 15 casos)
 
-### `test_articulo_nace_vigente_sin_monto_vigente`
-Cada artículo, al crearse, nace en `vigente` con `monto_vigente = null` — nada llega "pre-resuelto".
+*Todos parten de un cliente con saldo ya cargado (vía pedido + corte), para poder probar el abono sobre una deuda real.*
 
-### `test_monto_debe_ser_positivo`
-Un artículo con `monto = 0` se rechaza (422) — un pedido sin precio no tiene sentido.
+| # | Caso | Qué se espera |
+|---|------|----------------|
+| 1 | Abonar un monto menor al saldo | El saldo baja exactamente en ese monto; el movimiento devuelve el `saldo_resultante` correcto; el estatus del cliente sigue `activo` (aún debe). |
+| 2 | Intentar abonar más de lo que el cliente debe | La API rechaza (409): el abono no puede exceder el saldo. |
+| 3 | Abonar un monto en 0 (o negativo) | La API rechaza la solicitud (422). |
+| 4 | Abonar exactamente el saldo total (liquidar la deuda) | El saldo llega a 0 y el estatus del cliente vuelve a `inactivo`. |
+| 5 | Abonar a un cliente que no existe | La API responde 404. |
+| 6 | Abonar indicando la forma de pago (ej. transferencia) | El movimiento queda registrado con esa forma de pago. |
+| 7 | Frecuencia **semanal**: abonar hoy | La próxima fecha de pago programada queda en **hoy + 7 días**. |
+| 8 | Frecuencia **quincenal**, abonando antes del día 15 del mes | La próxima fecha programada cae en el **día 15 de ese mismo mes**. |
+| 9 | Frecuencia **quincenal**, abonando después del día 15 | La próxima fecha programada cae en el **último día de ese mismo mes**. |
+| 10 | Frecuencia **quincenal**, abonando justo el último día del mes | La próxima fecha programada salta al **día 15 del mes siguiente** (ya no queda ningún corte quincenal disponible en el mes actual). |
+| 11 | Frecuencia **día específico del mes** (ej. día 20), abonando antes de esa fecha | La próxima fecha programada cae en ese mismo día del mes actual. |
+| 12 | Frecuencia **día específico del mes**, abonando después de que ese día ya pasó | La próxima fecha programada salta al mismo día pero del **mes siguiente**. |
+| 13 | Frecuencia **día específico = 31**, abonando justo el 31 de enero (mes que sí tiene día 31, pero ya no queda margen dentro del mes) | La fecha debe saltar a febrero y **recortarse (clamp) al día 28** — último día real de ese mes — en vez de fallar. |
+| 14 | *(caso de contraste con el anterior)* Frecuencia **día específico = 31**, abonando el 25 de enero | Como el día 31 de enero sí existe y todavía no pasó, la fecha programada se queda en **31 de enero**, sin saltar de mes. |
+| 15 | Frecuencia **"otro"** | El abono se registra con normalidad, pero la fecha de pago programada **nunca** se calcula — se mantiene vacía en cualquier escenario, porque esta frecuencia no sigue una regla fija. |
+| — | Dos abonos consecutivos en fechas distintas | La fecha de pago programada se **recalcula en cada abono** (no se queda fija desde el primero); el segundo abono la actualiza según la fecha en que se realiza. |
 
-### `test_producto_vacio_rechazado`
-El nombre del producto no puede ser solo espacios en blanco.
+## 7. Banderas de cobranza — amarilla / roja (`TestBanderaShein` — 6 casos)
 
----
+*Campo calculado al vuelo en cada consulta, no se guarda en base de datos. Los casos manipulan directamente `saldo` y `fecha_pago_programada` para aislar la regla de la bandera, sin depender de cómo se llegó a ese estado.*
 
-## Agregar artículo a un pedido existente
-
-*(Antes de esta sesión, esta funcionalidad no existía — era el hallazgo `INC-15`. Corregido: ver `REPORT.md §4.3`.)*
-
-### `test_agregar_articulo_sube_conteo_y_monto_vigente`
-**Qué prueba:** un pedido ya creado con 1 artículo puede recibir un 2º artículo después, sin tener que recrear el pedido completo.
-**Pasos:**
-1. Crear un pedido con 1 artículo de $300.
-2. Agregarle un 2º artículo de $450 vía el endpoint de "agregar artículo".
-3. Confirmar que el pedido ahora tiene 2 artículos.
-4. Confirmar `monto_pedido_vigente = 750` (ambos siguen `vigente`) y `monto_pedido = 0` (nada `confirmado` todavía).
-
-### `test_agregar_5to_articulo_rechazado`
-Un pedido que ya tiene 4 artículos no puede recibir un 5º — se rechaza (409), consistente con el límite de creación.
-
-### `test_agregar_articulo_pedido_inexistente_404`
-No se puede agregar un artículo a un `id_shein_pedido` que no existe.
-
-### `test_agregar_articulo_pedido_ya_en_corte_rechazado`
-**Qué prueba:** un pedido deja de ser editable en cuanto entra a un corte — coincide con el mismo criterio de "editable" del Módulo Pedidos.
-**Pasos:**
-1. Crear un pedido y llevarlo a un corte.
-2. Intentar agregarle un artículo después.
-3. Debe **rechazarse (409)**.
-
----
-
-## Flujo 3 — Lista de Pedidos
-
-### `test_filtrar_por_cliente`
-La lista se puede acotar a un solo cliente vía `id_shein_cliente`.
-
-### `test_monto_pedido_vigente_antes_de_corte`
-**Qué prueba:** el hallazgo `INC-16` — antes de esta corrección, el monto de un pedido pendiente siempre se veía en `$0` en esta vista, aunque ya tuviera precio capturado.
-**Pasos:**
-1. Crear un pedido con un artículo de $250, sin tocarlo (sigue `vigente`).
-2. Consultar la lista filtrando por su cliente.
-3. Confirmar `monto_pedido_vigente = 250` (el monto real capturado) y `monto_pedido = 0` (correcto, todavía no pasa por corte).
-
-### `test_sin_corte_filtra_pendientes`
-Pasando `sin_corte=true`, la lista solo regresa pedidos que aún no tienen `id_shein_corte` — un pedido ya cortado desaparece de esta vista.
-
----
-
-## Resolución de artículo (soporte del flujo de Corte)
-
-### `test_articulo_inexistente_404`
-No se puede resolver un `id_shein_articulo` que no existe.
-
-### `test_variacion_de_precio_conserva_monto_original`
-**Qué prueba:** cuando el precio cambia, se guarda el nuevo valor sin perder el original capturado — para poder auditar después qué se cotizó vs. qué se cobró.
-**Pasos:**
-1. Crear un pedido con un artículo de $300.
-2. Resolverlo a `confirmado` con `monto_vigente = 350`.
-3. Confirmar que `monto` sigue en `300` (intacto) y `monto_vigente` quedó en `350`.
-
-### `test_no_se_puede_resolver_articulo_de_pedido_ya_en_corte`
-Un pedido ya cortado congela sus artículos — no se pueden volver a tocar (409).
-
----
-
-## Flujo 4 — Registrar Corte
-
-### `test_autoconfirma_vigente_sin_tocar`
-**Qué prueba:** el hallazgo `INC-17` — antes de esta corrección, el corte se rechazaba por completo (409) si cualquier artículo seguía `vigente`, obligando a resolver a mano el 100%, incluso lo que no cambió de precio.
-**Pasos:**
-1. Crear un pedido con 2 artículos ($300 y $450).
-2. Resolver a mano **solo** el segundo (cambió de precio, ahora $500) — el primero se deja intencionalmente sin tocar, todavía `vigente`.
-3. Registrar el corte incluyendo ese pedido.
-4. Debe **aceptarse (201)** — ya no se rechaza.
-5. Confirmar `suma_pedidos = 800` ($300 autoconfirmado + $500 resuelto a mano) y `cupon = suma_pedidos - total_ticket`.
-6. Confirmar que **ambos** artículos terminan `confirmado` — el primero se autoconfirmó solo, sin intervención manual.
-
-### `test_pedido_todos_cancelados_queda_fuera_sin_castigo`
-**Qué prueba:** cancelar todos los artículos de un pedido no rompe el corte de los demás pedidos incluidos.
-**Pasos:**
-1. Dos pedidos, cada uno con 1 artículo: uno se cancela, el otro se confirma.
-2. Incluir ambos en el mismo corte.
-3. Confirmar que el corte se crea exitosamente.
-4. El pedido cancelado **no** recibe `id_shein_corte` ni `estatus_pago` (quedan `null`); el otro sí.
-
-### `test_pedido_no_encontrado_404`
-Incluir un `id_shein_pedido` inexistente en el corte se rechaza, listando el id faltante.
-
-### `test_pedido_ya_en_corte_previo_rechazado`
-Un pedido no puede incluirse dos veces en cortes distintos (409).
-
-### `test_total_ticket_no_positivo_rechazado`
-`total_ticket = 0` (o negativo) se rechaza (422) — el corte necesita el dato real de caja.
+| # | Caso | Qué se espera |
+|---|------|----------------|
+| 1 | Cliente sin saldo pendiente | No muestra ninguna bandera. |
+| 2 | Cliente con saldo pero cuya fecha de pago programada aún está lejos (10 días) | No muestra ninguna bandera todavía. |
+| 3 | Fecha de pago programada dentro de los próximos 2 días | Bandera **amarilla**. |
+| 4 | Fecha de pago programada es hoy mismo | Bandera **amarilla**. |
+| 5 | Fecha de pago programada ya pasó (vencida) | Bandera **roja**. |
+| 6 | Fecha de pago programada muy vencida (un año) | Sigue siendo **roja** (o vacía) — nunca debe aparecer "naranja" ni "negra", porque esas banderas son exclusivas de apartados y familiares, conceptos que Shein no maneja. |
 
 ---
 
-## Flujo 5 — Consulta de Cortes
+## Notas de cobertura
 
-### `test_listar_y_detalle`
-Un corte recién creado aparece en el listado general y su detalle individual trae `suma_pedidos`/`cupon` correctos.
-
-### `test_corte_inexistente_404`
-Consultar un `id_shein_corte` que no existe se rechaza.
-
----
-
-## Escenario integral
-
-### `test_escenario_shein_ciclo_completo`
-Reproduce, en un solo test, la misma secuencia que se verificó manualmente con `curl` antes de dar por cerrados los 3 hallazgos: crear pedido → agregarle un artículo (`INC-15`) → variar precio de uno solo, dejando el otro sin tocar → cortar (autoconfirmando el que no se tocó, `INC-17`) → confirmar que `monto_pedido`/`monto_pedido_vigente` quedan correctos al final (`INC-16`). Sirve como red de seguridad: si alguno de los 3 fixes se rompe por un cambio futuro, este test lo detecta aunque los tests aislados de cada uno sigan pasando por separado.
+- **Endpoint agregado en esta ronda:** `POST /shein/abono` no existía en el router aunque el servicio y el schema ya estaban implementados (ver REPORT.md §4.1). Se agregó como parte de este trabajo; los 15 casos de la sección 6 dependen de él.
+- **Comportamiento documentado, no corregido:** el caso 4 de la sección 4 (Corte) deja constancia de que un pedido totalmente cancelado puede reenviarse a un corte futuro sin bloqueo, porque nunca queda formalmente "en corte". Es intencional dejarlo como documentación de comportamiento actual — decidir si se bloquea es un cambio de negocio, no un bug de test.
+- **Lo que este archivo no cubre:** carga de datos vía SQL directo fuera de los endpoints, condiciones de carrera (dos abonos simultáneos sobre el mismo cliente), ni límites de longitud de los demás campos de texto más allá de `nombre`/`colonia` (ya validados indirectamente por los helpers de creación).

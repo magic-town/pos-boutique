@@ -8,13 +8,11 @@
 > saber qué hacer a continuación; solo pide otro archivo cuando algo no se
 > pueda inferir de aquí (ver §6).
 >
-> **Ánimo actual (Momentum):** ¡Excelente! La fundación de datos está consolidada
-> y el Bloque B — Módulo Clientes ya está cerrado: sistema de banderas completo
-> (amarilla/roja/naranja/negra), cancelación con archivo a `cartera_vencida` y
-> vinculación de familiares con tope de 4, todo con `test/test_clientes.py`
-> en verde (76/76). El Bloque C (Módulo Shein) está avanzado: schema, service
-> y endpoint de cartera ya implementados. Solo falta `test/test_shein.py`
-> — bloqueado por falta de `conftest.py` (ver §6).
+> **Ánimo actual (Momentum):** ¡Excelente! La fundación de datos está consolidada,
+> el Bloque B — Módulo Clientes está cerrado (76/76 en verde) y el Bloque C —
+> Módulo Shein también: `test/test_shein.py` en verde (63/63), incluyendo el
+> endpoint `POST /shein/abono` que faltaba exponer en el router (schema y
+> service ya existían, solo no estaba conectado). Siguiente: Bloque D (ver §6).
 >
 > **No es bitácora de cambios.** Si un bug se corrige y el estado resultante
 > ya queda reflejado en las decisiones/código/tests de este documento, no se
@@ -255,7 +253,7 @@ movimientos.id_apartado     FK → apartados, nullable
 | `app/api/v1/endpoints/pedidos.py`       | Endpoints Pedido      | 4 flujos probados end-to-end.                                             |
 | `app/schemas/pedido_shein.py`           | Schema Shein          | ✅ `sku` corregido, `SheinClienteRead.bandera`, `SheinMovimientoCreate`/`Read` agregados. |
 | `app/services/pedido_shein_service.py`  | Lógica Shein          | ✅ Carga de `saldo` en `crear_shein_corte`, `registrar_abono_shein()`, `calcular_bandera_shein()` (amarilla/roja). |
-| `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein       | ✅ `POST /shein/abono` agregado. Sin test en verde todavía — ver §5 tarea 27. |
+| `app/api/v1/endpoints/pedidos_shein.py` | Endpoints Shein       | ✅ `POST /shein/abono` agregado y probado — `test/test_shein.py` en verde. |
 | `app/schemas/inventario.py`             | Schema Inventario     | —                                                                         |
 | `app/services/inventario_service.py`    | Lógica Inventario     | Transiciones validadas, descuento masivo.                                 |
 | `app/api/v1/endpoints/inventario.py`    | Endpoints Inventario  | —                                                                         |
@@ -284,7 +282,7 @@ movimientos.id_apartado     FK → apartados, nullable
 | --------------------------- | ----------- | -------------------- |
 | `test/test_pedidos.py`      | Pedidos     | ✅ en verde           |
 | `test/test_inventario.py`   | Inventario  | ✅ 19/19 en verde     |
-| `test/test_shein.py`        | Shein       | ✅ 28/28 — **requiere actualización por rediseño Shein** |
+| `test/test_shein.py`        | Shein       | ✅ 63/63 en verde     |
 | `test/test_clientes.py`     | Clientes    | ✅ 76/76 en verde     |
 | `test/test_movimientos.py`  | Movimientos | ✅ 28/28 en verde     |
 | `test/test_apartados.py`    | Apartados   | ✅ 12/12 en verde     |
@@ -307,8 +305,8 @@ movimientos.id_apartado     FK → apartados, nullable
 ### Cerrados ✅
 
 Niveles 1-4 completos. Auth, Setting, todos los módulos existentes con test en verde.
-Bloque A (modelo de datos) y Bloque B (Módulo Clientes) del rediseño, completos.
-Ver §4.2 para el detalle.
+Bloque A (modelo de datos), Bloque B (Módulo Clientes) y Bloque C (Módulo Shein)
+del rediseño, completos. Ver §4.2 para el detalle.
 
 ### Tareas pendientes — por orden de ejecución
 
@@ -336,7 +334,7 @@ Ver §4.2 para el detalle.
     - Endpoints `GET/POST /{id}/familiares` (listar/vincular) y `DELETE /{id}/familiares/{id_vinculo}` (desvincular).
 23. [x] Redactado `test/test_clientes.py` desde cero — 76/76 en verde.
 
-**Bloque C — Módulo Shein**
+**Bloque C — Módulo Shein (✅ COMPLETADO)**
 
 24. [x] Actualizado `app/schemas/pedido_shein.py`:
     - `sku` corregido (era `id_articulo`, desincronizado de la migración `f6a7b8c9d0e1`).
@@ -348,7 +346,7 @@ Ver §4.2 para el detalle.
     - `calcular_bandera_shein()` — amarilla y roja (Shein no tiene naranja/negra: sin apartados ni familiares).
 26. [x] Actualizado `app/api/v1/endpoints/pedidos_shein.py`:
     - Endpoint `POST /shein/abono`.
-27. Redactar `test/test_shein.py` con los nuevos flujos de cartera (pedido con `sku`, corte con carga de `saldo`, abono con tope y recálculo de `fecha_pago_programada`, banderas amarilla/roja). **Bloqueado:** falta `conftest.py` y `test/test_clientes.py` de referencia — sin ellos no se puede escribir el test contra los fixtures reales del proyecto.
+27. [x] Redactado `test/test_shein.py` contra la API real — 63/63 en verde. Cubre pedido con `sku`, corte (autoconfirmación, cascada de cancelación total, agrupación de saldo por cliente), abono (tope de saldo, recálculo de `fecha_pago_programada` en sus 4 variantes de frecuencia) y banderas amarilla/roja.
 
 **Bloque D — Endpoint Apartado (pendiente pre-rediseño)**
 
@@ -386,4 +384,4 @@ archivo (§4), y el orden de prioridad completo (§5).
 No hace falta resubir los archivos de §4.1 — solo los que se vayan a tocar
 o cualquier archivo que haya cambiado desde la última actualización.
 
-**Siguiente paso inmediato:** Bloque C — Módulo Shein, tarea 27 (única pendiente). Subir `conftest.py` y `test/test_clientes.py` (referencia de patrón: fixtures de sesión de BD, `TestClient`, override de `get_current_user`) para redactar `test/test_shein.py` contra la infraestructura real de pruebas del proyecto. Con eso en verde, Bloque C queda completo y el siguiente es Bloque D (Endpoint Apartado).
+**Siguiente paso inmediato:** Bloque D — Endpoint Apartado (tareas 28-29). Crear `app/api/v1/endpoints/apartados.py` exponiendo `crear_apartado()` del servicio ya existente, y registrar el router en `main.py`. Sin bloqueos conocidos — el servicio y la spec (`module_movimientos.md`) ya están disponibles.

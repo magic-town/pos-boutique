@@ -11,6 +11,8 @@ from app.schemas.pedido_shein import (
     SheinArticuloEstatusUpdate,
     SheinCorteCreate,
     SheinCorteRead,
+    SheinMovimientoCreate,
+    SheinMovimientoRead,
 )
 from app.services import pedido_shein_service as service
 from app.services.auth_service import get_current_user
@@ -35,6 +37,21 @@ def listar_shein_clientes(
     _: object = Depends(get_current_user),
 ):
     return service.obtener_shein_clientes(db)
+
+
+# ── Flujo 3 (menú): Registrar Abono Shein ──────────────────────────────────
+# NOTA: este endpoint faltaba en el router aunque el servicio
+# (registrar_abono_shein) y el schema (SheinMovimientoCreate/Read) ya
+# existían -- REPORT.md §4.1 lo daba por agregado (tarea 25) pero nunca se
+# expuso. module_shein.md Opción 3: valida monto > 0 y monto <= saldo.
+
+@router.post("/abono", response_model=SheinMovimientoRead, status_code=status.HTTP_201_CREATED)
+def registrar_shein_abono(
+    data: SheinMovimientoCreate,
+    db: Session = Depends(get_db),
+    _: object = Depends(get_current_user),
+):
+    return service.registrar_abono_shein(db, data)
 
 
 # ── Flujo 2: Registrar Pedido Shein ────────────────────────────────────────
